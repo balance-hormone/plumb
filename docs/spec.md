@@ -90,6 +90,50 @@ and a great deal after. Most projects discover them after.
 - FHIR versions other than R4, and FHIR servers other than Medplum.
 - Any organization's profiles, routing rows, migrations or imports.
 
+## Principles
+
+These decide the questions the rest of the spec does not answer.
+
+1. **If you know FHIR and Medplum, you know Plumb.** Plumb adds no concepts
+   Medplum already has a word for. Its types extend `@medplum/fhirtypes`, its
+   validator is Medplum's, its transport is the Medplum client, and a stored
+   record looks the same with or without Plumb. This is Drizzle's advantage
+   over Prisma: nothing sits between a developer and the thing they already
+   know.
+2. **Generated code is readable, committed code.** Plumb must generate
+   (TypeScript cannot read a profile's JSON), so the output is a reviewable
+   diff in the project's repository, never a hidden client in `node_modules`.
+3. **Earn every dependency.**
+   - `plumb` has no runtime dependencies beyond its `@medplum/*` peers, and CI
+     keeps its bundle size in check, because it ships inside bots.
+   - `plumb-zod` and `plumb-operations` depend only on Zod (as a peer) and
+     Medplum.
+   - `plumb-kit` prefers Node built-ins: `util.parseArgs` for the CLI, Node's
+     built-in type stripping to load `plumb.config.ts`, `fetch` and `zlib`
+     for IG packages. Each dependency it does take is justified in writing.
+     SUSHI stays an optional peer.
+   - Nothing published has install scripts or native binaries.
+   Healthcare teams pass security reviews and keep SBOMs; "no runtime
+   dependencies, built only on Medplum" is worth defending.
+4. **Match Medplum at the boundary, stay lean inside.** Anything a consumer
+   installs, or that could move upstream, matches Medplum:
+   - dual ESM/CJS output with a type declaration per format, `sideEffects:
+     false`, and Medplum's published Node range;
+   - `@medplum/*` as peer dependencies;
+   - source that compiles under `strict` and `erasableSyntaxOnly` (no enums,
+     namespaces or parameter properties), tests in Vitest;
+   - Apache-2.0, a `NOTICE`, an SPDX header on every source file, and a DCO.
+
+   Inside the repository Plumb picks the simplest modern tool: TypeScript 7,
+   `NodeNext`, Biome, one shared esbuild script, current tool versions with a
+   lockfile. None of that leaves the repository, and Medplum would rebuild
+   ported code with its own tooling anyway.
+5. **Compatibility is tested where it lives.** The real risk is the types Plumb
+   generates, not its build. CI type-checks generated output under the oldest
+   supported TypeScript and under a Medplum-style `tsconfig`.
+6. **Readable output.** Published code is not minified and has one entry point
+   per package, so a stack trace leads somewhere a person can read.
+
 ## Solution
 
 **Four packages, split by where they run and what is optional.** The split
@@ -562,15 +606,18 @@ across Medplum releases.
   and adopters consume it the way any Medplum project would.
 - **Private until the foundation works**: `generate` and `check` end to end on
   US Core. It goes public after sign-off from the copyright holder, with the npm
-  scope chosen and Medplum's contribution requirements (DCO or CLA) copied.
+  scope chosen and Medplum's contribution requirement (a DCO) copied.
 - **Apache-2.0 with a `NOTICE` file**, matching Medplum, so the code can move
   upstream by transfer rather than extraction.
-- **Medplum's repository conventions**: npm workspaces (`packages/*`,
-  `examples/*`), Turborepo, esbuild dual output (`dist/esm/*.mjs`,
-  `dist/cjs/*.cjs`, `sideEffects: false`), `@microsoft/api-extractor` reports
-  for the public API, Vitest, and Medplum's Node range
-  (`^22.18.0 || >=24.2.0`). `@medplum/core`, `@medplum/fhirtypes` and
+- **Repository layout** follows Principle 4: npm workspaces (`packages/*`,
+  `examples/*`) and Turborepo, as Medplum has; one shared esbuild script
+  emitting `dist/esm/index.mjs` and `dist/cjs/index.cjs`, with `tsc`
+  declarations copied into each and a `package.json` type marker per format;
+  Vitest; Biome for lint and format, with a script that enforces SPDX headers;
+  TypeScript 7 with `NodeNext`. `@medplum/core`, `@medplum/fhirtypes` and
   `@medplum/definitions` are peer dependencies with a declared supported range.
+  An API report (api-extractor or similar) is added once the public API
+  exists and the tool supports TypeScript 7.
 - **Versioning**: Changesets, the four packages versioned together, `0.x` until
   the API settles. Releases publish from CI only, with npm provenance.
 - **Work tracking**: GitHub Issues, a project board and one milestone per
@@ -595,6 +642,5 @@ per-type strict mode. Each is raised with Medplum as Plumb matures, not before.
 - **The npm scope**, chosen before the first public publish.
 - **Supported Medplum versions**: the floor of the version matrix.
 - **Lint integration**: a Biome plugin, an ESLint plugin, or a `check` rule only.
-- **Contributions**: DCO or CLA, copied from Medplum's requirements.
 - **The first adopter's work** lives in its own adoption project and is not
   specified here.
