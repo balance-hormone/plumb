@@ -5,8 +5,9 @@
 - Plumb is scoped to one deliverable: **profile-aware types for Medplum**. The
   spec is drafted and nothing is implemented; the one package is an empty shell
   that builds, lints and passes CI.
-- **Next: v0.1**, the profile type generator: `plumb pull`, `plumb generate`,
-  `plumb generate --check` and `validateProfiled`, all offline. Its design is
+- **Next: v0.1**, the profile type generator: `plumb generate`,
+  `plumb generate --check` and `validateProfiled`, offline once IG packages
+  are cached. Its design is
   accepted in [`design/01-generator.md`](design/01-generator.md): full-depth
   narrowing, plain arrays with typed slice helpers, literal unions for
   bindings listable offline, and committed output one file per profile.

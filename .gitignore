@@ -5,5 +5,3 @@ coverage/
 .env
 .env.*
 !.env.example
-# Local cache of IG packages fetched by `plumb pull`
-.plumb/
