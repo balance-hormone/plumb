@@ -52,7 +52,7 @@ conventional commits for commit and PR titles (`feat(plumb): …`).
 ## Commands
 
 ```bash
-npm run build       # turbo: esbuild + tsc declarations, every package
+npm run build       # esbuild + tsc declarations
 npm run typecheck
 npm test            # vitest
 npm run lint        # biome check, plus the SPDX header check

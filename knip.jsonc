@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  // The package installs its Medplum peers as devDependencies; none is imported until feature #1.
+  // The package installs its Medplum peers as devDependencies; none is imported until the generator lands.
   "ignoreDependencies": ["@medplum/core", "@medplum/definitions", "@medplum/fhirtypes"],
   "workspaces": {
     // Run by .claude/settings.json, which knip does not read.

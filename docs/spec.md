@@ -338,10 +338,12 @@ every file cited). Evidence and the rest of the server's behaviour are in
   contribution requirement (a DCO) copied.
 - **Apache-2.0 with a `NOTICE` file**, matching Medplum, so the code can move
   upstream by transfer rather than extraction.
-- **Repository layout** follows Principle 4: npm workspaces and Turborepo, one
-  shared esbuild script emitting `dist/esm/index.mjs` and `dist/cjs/index.cjs`
-  with `tsc` declarations and a type marker per format, Vitest, Biome with an
-  SPDX header check, TypeScript 7 with `NodeNext`. `@medplum/core`,
+- **Repository layout** follows Principle 4: one package under npm workspaces,
+  no build orchestrator; one esbuild script emitting the library as
+  `dist/esm/index.mjs` and `dist/cjs/index.cjs` (with `tsc` declarations and a
+  type marker per format) and the CLI as `dist/esm/cli.mjs`; Vitest; Biome with
+  an SPDX header check; knip; TypeScript 7 with `NodeNext`, targeting ES2024.
+  `@medplum/core`,
   `@medplum/definitions` and `@medplum/fhirtypes` are peer dependencies with a
   declared supported range.
 - **Versioning**: Changesets, `0.x` until the API settles. Releases publish from

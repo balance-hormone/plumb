@@ -36,7 +36,7 @@
   "module": "dist/esm/index.mjs",
   "types": "dist/esm/index.d.ts",
   "bin": {
-    "plumb": "./dist/cjs/index.cjs"
+    "plumb": "./dist/esm/cli.mjs"
   },
   "files": [
     "dist/cjs",
