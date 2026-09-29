@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+# Local, never committed: resource ids from `plumb check --env`
+.plumb/

@@ -1,0 +1,33 @@
+{
+  "name": "plumb-zod",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Zod schemas generated from FHIR profiles, for forms and input edges.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "main": "dist/cjs/index.cjs",
+  "module": "dist/esm/index.mjs",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.mjs",
+      "require": "./dist/cjs/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node ../../scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "plumb": "0.0.0"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  }
+}
