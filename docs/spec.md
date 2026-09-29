@@ -338,8 +338,9 @@ every file cited). Evidence and the rest of the server's behaviour are in
   contribution requirement (a DCO) copied.
 - **Apache-2.0 with a `NOTICE` file**, matching Medplum, so the code can move
   upstream by transfer rather than extraction.
-- **Repository layout** follows Principle 4: one package under npm workspaces,
-  no build orchestrator; one esbuild script emitting the library as
+- **Repository layout** follows Principle 4: a single package at the
+  repository root (no workspaces, no build orchestrator), with sources in
+  `src/` and tests next to them; one esbuild script emitting the library as
   `dist/esm/index.mjs` and `dist/cjs/index.cjs` (with `tsc` declarations and a
   type marker per format) and the CLI as `dist/esm/cli.mjs`; Vitest; Biome with
   an SPDX header check; knip; TypeScript 7 with `NodeNext`, targeting ES2024.

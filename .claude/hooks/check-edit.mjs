@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// PostToolUse hook: lint the edited file and typecheck its package, so the
-// agent fixes failures in the same turn. Exit code 2 returns stderr to Claude.
-// Cross-package type errors surface only after a rebuild; CI catches those.
+// PostToolUse hook: lint the edited file and, for TypeScript under src/,
+// typecheck the project, so the agent fixes failures in the same turn. Exit
+// code 2 returns stderr to Claude.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -29,8 +29,7 @@ const run = (bin, args) => {
 const failures = [
   run('biome', ['check', '--no-errors-on-unmatched', '--files-ignore-unknown=true', path]),
 ];
-const pkg = path.match(/^packages\/[^/]+(?=\/)/)?.[0];
-if (pkg && /\.[cm]?tsx?$/.test(path)) failures.push(run('tsc', ['--noEmit', '-p', pkg]));
+if (/^src\/.*\.[cm]?tsx?$/.test(path)) failures.push(run('tsc', ['--noEmit']));
 
 const output = failures.filter(Boolean).join('\n');
 if (output) {
