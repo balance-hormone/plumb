@@ -3,6 +3,8 @@
   "workspaces": {
     // Installed at the root so the packages' peer dependencies resolve in development.
     ".": {
+      // Run by .claude/settings.json, which knip does not read.
+      "entry": [".claude/hooks/*.mjs"],
       "ignoreDependencies": ["@medplum/core", "@medplum/definitions", "@medplum/fhirtypes", "zod"]
     },
     // Declared ahead of feature #1. Remove each entry once the package imports plumb.
