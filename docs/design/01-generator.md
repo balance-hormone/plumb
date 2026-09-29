@@ -17,7 +17,8 @@ TypeScript types that are true to each profile and still usable anywhere a
 
 ```text
 plumb.config.ts
-  → resolve   IG packages from plumb.lock, plus local StructureDefinition JSON
+  → fetch     missing IG packages into ~/.fhir/packages, verified against plumb.lock
+  → resolve   the pinned IGs, plus local StructureDefinition JSON
   → load      snapshots only; fail on any profile without one
   → parse     @medplum/core's parseStructureDefinition() → InternalTypeSchema
   → emit      one module per profile, an index, the helpers the modules use,
@@ -28,8 +29,9 @@ plumb.config.ts
 ### Inputs
 
 - **IG packages** are named in config (`hl7.fhir.us.core@9.0.0`), fetched by
-  `plumb pull` from the FHIR package registry, pinned in `plumb.lock` with an
-  integrity hash.
+  `plumb generate` from the FHIR package registry into the shared FHIR package
+  cache, and pinned in `plumb.lock` with an integrity hash. `hl7.fhir.r4.core`
+  is skipped: base R4 comes from `@medplum/definitions`.
 - **Local profiles** are StructureDefinition JSON. FSH authors run
   `sushi . --snapshot` (Medplum's documented workflow) and point Plumb at
   `fsh-generated/resources`. Running SUSHI from Plumb comes later.
@@ -220,8 +222,7 @@ src/fhir/generated/            ← `out` in plumb.config.ts
 
 - **Contract tables** per test profile: each fixture states whether it compiles
   (`@ts-expect-error` for the negative rows) and whether it passes
-  `validateProfiled`. Cover nested required fields, each slice rule (unordered,
-  ordered, closed) and each binding case.
+  `validateProfiled`. Written first, following the coverage matrix below.
 - **Golden tests**: generated output for a fixed set of US Core and IPS profiles
   matches committed files.
 - **Compatibility**: generated output type-checks under the oldest supported
@@ -231,3 +232,25 @@ src/fhir/generated/            ← `out` in plumb.config.ts
 - Test profiles come only from published IGs and Plumb's own synthetic
   profiles. [`../research/us-core-9-routing.md`](../research/us-core-9-routing.md)
   lists the required elements that make good negative fixtures.
+
+### Coverage matrix
+
+Every row gets at least one fixture that should compile and validate, and one
+edge case that should not (or that records a known limit).
+
+| Area | Cases |
+|---|---|
+| Cardinality | 0..1, 1..1, 0..\*, 1..\*; `max: 0`; a profile tightening `0..*` to `0..1` (still a JSON array) |
+| Nesting | required fields inside complex types and backbone elements, at several depths |
+| Primitive types | the TypeScript mapping of every FHIR primitive (string, boolean, integer, decimal, date, dateTime, instant, time, code, uri, url, canonical, id, oid, uuid, markdown, base64Binary, positiveInt, unsignedInt) |
+| Choice types | narrowed to one type; several types, optional; required "exactly one of" |
+| Fixed and pattern values | on a primitive, a `Coding` and a `CodeableConcept` |
+| Bindings | each of the six cases in decision 3, including a value set that cannot be expanded offline and one over the size limit |
+| Slices | unordered, ordered, open, closed; required and optional; extension slices; slices with nested required fields |
+| Extensions | simple and complex (nested), required and optional |
+| References | target-type narrowing (`Reference<Patient>`); IG target profiles the server does not enforce |
+| Inheritance | a child profile assignable to its parent (BMI → vital signs); several profiles on one base type |
+| Recursion | an element that refers back to itself (`Questionnaire.item.item`) |
+| Naming | two profiles whose type names would collide |
+| Primitive extensions | a required primitive present only as `_field` with a data-absent-reason: record what the validator does; the types do not allow it |
+| Whole resources | realistic US Core Patient, Blood Pressure, lab result and Condition examples |

@@ -21,8 +21,8 @@ project is *plumb* when its data is true to its profiles.
 
 ## Package
 
-`plumb` is a single dev dependency: the `plumb` CLI (`pull`,
-`generate`, `generate --check`) and `validateProfiled` for tests. The code it
+`plumb` is a single dev dependency: the `plumb` CLI (`generate` and
+`generate --check`) and `validateProfiled` for tests. The code it
 generates is committed to your repository and carries its own helpers, so your
 app takes no runtime dependency on Plumb.
 

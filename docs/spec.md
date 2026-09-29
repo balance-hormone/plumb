@@ -62,7 +62,8 @@ base definitions only.
 
 - A second base R4 type tree, or a second validator.
 - A query builder, ORM or client. The Medplum SDK is already typed.
-- Talking to a Medplum server. Plumb v0.1 is entirely offline.
+- Talking to a Medplum server. Plumb v0.1's only network use is fetching
+  missing IG packages from the FHIR package registry.
 - FHIR versions other than R4, and FHIR servers other than Medplum.
 - Any organization's profiles.
 
@@ -122,9 +123,9 @@ export default defineConfig({
 ```
 
 ```text
-plumb pull                fetch the IG packages and their dependencies; write plumb.lock
-plumb generate            emit the types into `out`, to be committed
-plumb generate --check    in CI: fail on stale output or a profile without a snapshot
+plumb generate            fetch any missing IG packages, then emit the types into `out`
+plumb generate --check    in CI: write nothing to the project; fail on stale output,
+                          a lockfile mismatch or a profile without a snapshot
 ```
 
 ```ts
@@ -141,7 +142,8 @@ expect(validateProfiled(p, 'us-core-patient').ok).toBe(true);
 
 ```text
 plumb.config.ts
-  → pull     IG packages from packages.fhir.org, pinned in plumb.lock
+  → fetch    missing IG packages from packages.fhir.org into ~/.fhir/packages,
+             verified against plumb.lock
   → load     base R4 from @medplum/definitions, the pinned IGs, local JSON
   → select   the listed profiles and their dependency closure; never a whole IG
   → parse    @medplum/core's parseStructureDefinition() → InternalTypeSchema
@@ -157,7 +159,7 @@ The detailed design, including the four emission decisions, is
 
 1. As an engineer, I want to depend on a published IG by name and version, so that adopting US Core or IPS is a line in a config file.
 2. As an engineer, I want to bring my own profiles as StructureDefinition JSON, including SUSHI's output from FSH, so that Plumb does not dictate how I author profiles.
-3. As an engineer, I want `plumb generate` to be the one command that brings the generated types up to date.
+3. As an engineer, I want `plumb generate` to be the one command that fetches what it needs and brings the generated types up to date.
 4. As an engineer, I want generated output committed and checked for staleness in CI, so that a profile change is a reviewable diff and never ships without its types.
 5. As an engineer, I want required elements, nested required elements, choice types, required bindings and fixed-value slices expressed in the types, so that a non-conforming resource fails to compile.
 6. As an engineer, I want each generated type's doc comment to list the rules the type cannot express, and the rules the server will not enforce, so that I know what is checked where.
@@ -174,13 +176,48 @@ The detailed design, including the four emission decisions, is
 
 ## Implementation Decisions
 
+### Commands
+
+Named after the tools developers already know:
+
+- **`plumb generate`,** as in `prisma generate`, `drizzle-kit generate`,
+  GraphQL Codegen and openapi-typescript.
+- **`--check`,** as in openapi-typescript's `--check` ("check that the
+  generated types are up-to-date") and GraphQL Codegen's `--check`.
+- **No `pull`.** In Drizzle Kit and Prisma (`prisma db pull`), *pull* means
+  reading a live database into code, which is not what fetching packages is.
+  `generate` fetches missing packages itself, as `sushi build` does, and the
+  name stays free for its conventional meaning.
+
+### Config
+
+- **`plumb.config.ts`** in the working directory, or the path given by
+  `--config`, as `vite.config.ts`, `vitest.config.ts` and `drizzle.config.ts`
+  are. `defineConfig()` gives autocomplete and type errors while editing.
+- **Loaded by Node itself** (built-in type stripping, Node 22.18+), with a plain
+  `import()`: no loader dependency. Its limits get clear error messages:
+  TypeScript-only syntax such as `enum`, relative imports without a `.ts`
+  extension, and `tsconfig` path aliases, none of which Node resolves.
+- **Checked with plain code** when loaded: unknown keys, a missing `out`, a
+  malformed IG name or version, and a profile URL no package provides are each
+  a named error.
+
 ### Inputs
 
 - **IG packages** come only from the FHIR package registry (`packages.fhir.org`,
-  npm-compatible tarballs), declared by name and exact version. `plumb pull`
-  resolves their dependencies, caches them in `.plumb/` (gitignored) and writes
-  `plumb.lock` with each package's integrity hash. `generate` never fetches, so
-  it is deterministic and offline.
+  npm-compatible tarballs), declared by name and exact version. `generate`
+  fetches any that are missing, with their dependencies, into the shared FHIR
+  package cache (`~/.fhir/packages`), which SUSHI, Firely Terminal and the IG
+  Publisher also use. It records each package's version and integrity hash in
+  `plumb.lock` (committed) and verifies every package against it, so a cached
+  copy another tool wrote is still checked. Once packages are cached,
+  `generate` is offline and deterministic. `--check` writes nothing to the
+  project: it may fill the package cache (so it works on a fresh CI runner),
+  but it fails if the lockfile is missing, disagrees with the config, or does
+  not match a package's hash.
+- **Base R4 is Medplum's, never downloaded.** `hl7.fhir.r4.core`, which every IG
+  depends on, is skipped: base R4 comes from `@medplum/definitions`, the same
+  definitions `@medplum/fhirtypes` is generated from.
 - **Never through npm.** Several official FHIR package names on the public npm
   registry, including `hl7.fhir.r4.core` and `hl7.fhir.us.core`, are npm
   security placeholders after malicious uploads. Installing IGs with npm is a
@@ -188,14 +225,28 @@ The detailed design, including the four emission decisions, is
 - **Local profiles are StructureDefinition JSON.** Projects that author in FSH
   follow Medplum's documented workflow: `sushi . --snapshot`, then point
   `local` at `fsh-generated/resources`. Running SUSHI from Plumb is a later
-  release (story 9); it needs an answer for SUSHI's own package cache next to
-  `plumb.lock`.
+  release (story 9).
 - **Snapshots are required.** Registry packages ship with them and SUSHI
   produces them. A profile without one is an error, not something Plumb
   repairs.
-- **Base R4** comes from `@medplum/definitions`, the same definitions
-  `@medplum/fhirtypes` is generated from.
 - **FHIR R4 only**, matching Medplum.
+
+### Loading and selection
+
+The loader turns packages on disk into the parsed profiles every later step
+reads:
+
+1. **Gather:** base R4 from `@medplum/definitions`, every package pinned in
+   `plumb.lock`, and the `local` folder, indexed by canonical URL.
+2. **Select** the profiles the config lists.
+3. **Close over their dependencies:** the parent chain (US Core Blood Pressure →
+   US Core Vital Signs → Observation), the extensions they use, and the value
+   sets behind their required bindings with the code systems those need.
+   Never a whole IG.
+4. **Check,** each failure a named error: a profile URL no package provides; a
+   profile without a snapshot; a reference nothing provides; two sources
+   defining the same URL; a definition that is not FHIR R4.
+5. **Parse** with Medplum (next section).
 
 ### Parsing: Medplum's, not Plumb's
 
@@ -231,6 +282,11 @@ The detailed design, including the four emission decisions, is
   invariants Medplum skips (`ele-1`, `dom-3`, `org-1`, `sdf-19`), and
   `Reference` target profiles, which Medplum does not check against IG
   profiles.
+- **Primitive extensions are not typed,** because `@medplum/fhirtypes` does not
+  model them: there is no `_gender` on `Patient`. FHIR lets a required primitive
+  be present only as a `_field` extension (US Core's data-absent-reason);
+  Plumb's types follow Medplum's and do not allow it, the docs say so, and the
+  test matrix records what the validator does with it.
 - Borrowed from `@atomic-ehr/codegen`: named extension accessors, slice
   accessors that set the discriminator, and must-support gaps as warnings.
 
@@ -279,14 +335,19 @@ A good test asserts what a developer sees: whether a resource compiles against
 a type, and what the validator says about it. Never how the generator walks a
 schema.
 
-All fixtures are synthetic, and all profiles under test come from published IGs
-(US Core, IPS) or Plumb's own test profiles, written in FSH with SUSHI's output
-committed.
+All fixture resources are synthetic, and all profiles under test come from
+published IGs (US Core, IPS) or Plumb's own test profiles, written in FSH with
+SUSHI's output committed. SUSHI is a dev dependency for editing those test
+profiles only. Before committing copies of a published IG's files, confirm its
+license allows it.
 
 1. **Profile contract tables.** For each test profile, a table of fixtures, each
    stating whether it compiles against the generated type and whether it
    passes `validateProfiled`. "Does not compile" rows use `@ts-expect-error`,
-   so a type regression fails `tsc`.
+   so a type regression fails `tsc`. The fixtures follow a **coverage matrix**
+   (in [design 01](design/01-generator.md)): every kind of field and rule the
+   generator handles gets a happy path and its edge cases, and the tables are
+   written before the code that makes them pass.
 2. **Generator golden tests.** For a fixed set of IG profiles, the generated
    output matches committed files.
 3. **Compatibility.** Generated output type-checks under the oldest supported
