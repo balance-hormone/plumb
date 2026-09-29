@@ -1,6 +1,25 @@
 # Plumb docs
 
+## Where things stand
+
+- The spec is drafted. Nothing is implemented; the four packages are empty
+  shells that build, typecheck and pass CI.
+- **Next: feature #1, the profile compiler and type generator.** Its design is
+  in [`design/01-generator.md`](design/01-generator.md), with **four open
+  decisions** (narrowing depth, slice representation, binding expansion, output
+  location) waiting on the maintainer. Settle those, then turn the design into
+  GitHub issues and build.
+- After #1, the order is: `validateProfiled`, then the CLI and config (`pull`,
+  `generate`, `check`, `push`), then routing, typed reads, migrations, project
+  state as code, `plumb-zod` and `plumb-operations`.
+- Work is tracked in GitHub Issues on this repository. None exist yet.
+
+## Contents
+
+
 - [`spec.md`](spec.md): what Plumb is, its goals, packages and design decisions.
+- [`design/`](design/): one design note per feature, written before it is built.
+  - [01: profile compiler and type generator](design/01-generator.md)
 - [`research/`](research/): the evidence behind the spec.
   - [Medplum server behaviour](research/medplum-server-behaviour.md): validation,
     `defaultProfile`, strict mode, project fields, AccessPolicy and admin, bots,

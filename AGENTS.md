@@ -1,7 +1,7 @@
 # Plumb: Agent Guide
 
 Plumb is a standalone, open-source-bound toolkit for **any** Medplum project.
-Read [`docs/spec.md`](docs/spec.md) before changing behaviour.
+Read [`docs/README.md`](docs/README.md) first: it says where the project stands and what is next. Read [`docs/spec.md`](docs/spec.md) before changing behaviour, and the feature's note in [`docs/design/`](docs/design/) before building it.
 
 ## Rules
 
