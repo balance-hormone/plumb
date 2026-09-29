@@ -15,7 +15,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint": "biome check .",
-    "lint:fix": "biome check --write ."
+    "lint:fix": "biome check --write .",
+    "check:agnostic": "node scripts/check-agnostic.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
