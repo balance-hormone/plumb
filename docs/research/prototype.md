@@ -191,8 +191,10 @@ for (const f of ['fhir/r4/profiles-types.json', 'fhir/r4/profiles-resources.json
 const issues = validateResource(resource, { profile: examplePatientStructureDefinition });
 ```
 
-On 5.1.26 this threw an `OperationOutcomeError` on error-severity issues; on
-5.1.41 `validateResource` returns the issues instead. Offline it reported
+`validateResource` throws an `OperationOutcomeError` carrying every issue when
+any has severity `error`, and returns only warnings otherwise. That holds on
+5.1.26, 5.1.41 and 5.1.42 (an earlier version of this note said 5.1.41 returns
+the issues; the source says otherwise). Offline it reported
 the invariant as "Constraint <key> not met", and a missing required slice as
 "Incorrect number of values provided for slice '<name>': expected 1..*, but
 found 0".
