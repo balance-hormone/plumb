@@ -22,8 +22,6 @@ const allowedHosts = [
   'github.com',
   'npmjs.com',
   'biomejs.dev',
-  'turbo.build',
-  'turborepo.org',
   'unpkg.com',
   'snomed.info',
   'loinc.org',
@@ -32,7 +30,6 @@ const allowedHosts = [
 ];
 const skipFiles = new Set(['package-lock.json']);
 
-// biome-ignore lint/suspicious/noUndeclaredEnvVars: runs from npm directly, not through turbo.
 const denylist = (process.env.PLUMB_DENYLIST ?? '')
   .split(',')
   .map((term) => term.trim())

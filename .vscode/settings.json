@@ -1,6 +1,5 @@
 {
   "files.exclude": {
-    "**/.turbo": true,
     "**/dist": true,
     "**/node_modules": true,
     "**/*.tsbuildinfo": true,
@@ -11,7 +10,7 @@
   "explorer.fileNesting.enabled": true,
   "explorer.fileNesting.expand": false,
   "explorer.fileNesting.patterns": {
-    "package.json": "biome.json, turbo.json, tsconfig.json, tsconfig.*.json, tsconfig.build.json, .nvmrc, .gitignore",
+    "package.json": "biome.json, knip.jsonc, tsconfig*.json, .gitignore",
     "README.md": "AGENTS.md, CLAUDE.md, LICENSE.txt, NOTICE"
   }
 }
