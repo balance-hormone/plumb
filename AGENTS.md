@@ -1,6 +1,7 @@
 # Plumb: Agent Guide
 
-Plumb is a standalone, open-source-bound toolkit for **any** Medplum project.
+Plumb makes Medplum's own types profile-aware, for **any** Medplum project. It
+is one dev-only package; other tools are parked in [`docs/future/`](docs/future/).
 Read [`docs/README.md`](docs/README.md) first: it says where the project stands and what is next. Read [`docs/spec.md`](docs/spec.md) before changing behaviour, and the feature's note in [`docs/design/`](docs/design/) before building it.
 
 ## Rules
@@ -22,11 +23,11 @@ Read [`docs/README.md`](docs/README.md) first: it says where the project stands 
   Vitest, Apache-2.0 with SPDX headers, and source that compiles under
   `strict` and `erasableSyntaxOnly`. Build tooling, lint and formatting are
   ours to keep simple. See Principles in [`docs/spec.md`](docs/spec.md).
-- **Earn every dependency.** The `plumb` runtime has none beyond its Medplum
-  peers. Elsewhere, prefer a Node built-in, and justify any new dependency in
-  its PR.
-- **Commands are plain functions** that take a client and return a report; the
-  CLI only prints and sets the exit code.
+- **Earn every dependency.** Generated code carries its own helpers, so apps
+  take no runtime dependency on Plumb. Prefer a Node built-in, and justify any
+  new dependency in its PR.
+- **Commands are plain functions** that take their inputs and return a report;
+  the CLI only prints and sets the exit code.
 - `import type` for type-only imports. No `as any`. Comments explain why, not
   what.
 
@@ -46,7 +47,7 @@ Read [`docs/README.md`](docs/README.md) first: it says where the project stands 
 
 Tasks live in **GitHub Issues** on this repository, grouped on the project board
 and by milestone. Reference the issue in the PR body (`Closes #N`). Use
-conventional commits for commit and PR titles (`feat(plumb-kit): …`).
+conventional commits for commit and PR titles (`feat(plumb): …`).
 
 ## Commands
 

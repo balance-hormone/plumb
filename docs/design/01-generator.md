@@ -3,8 +3,8 @@
 **Status: proposed.** Four decisions below are open and need the maintainer's
 call before implementation starts. Everything else is the working default.
 
-Spec: [`../spec.md`](../spec.md) (Inputs, The intermediate representation,
-Generated types). Prototype: [`../research/prototype.md`](../research/prototype.md).
+Spec: [`../spec.md`](../spec.md) (Inputs, Parsing, Generated types).
+Prototype: [`../research/prototype.md`](../research/prototype.md).
 
 ## Job
 
@@ -16,12 +16,12 @@ TypeScript types that are true to each profile and still usable anywhere a
 
 ```text
 plumb.config.ts
-  → resolve   IG packages from plumb.lock, plus local FSH / JSON
-  → compile   SUSHI on local FSH (optional peer)
+  → resolve   IG packages from plumb.lock, plus local StructureDefinition JSON
   → load      snapshots only; fail on any profile without one
-  → IR        one normalized model per profile
-  → emit      types, URL constants, IR sidecars, agent summaries
-              (routing and Zod reuse the same IR later)
+  → parse     @medplum/core's parseStructureDefinition() → InternalTypeSchema
+  → emit      one module per profile, an index, the helpers the modules use,
+              and a …ProfileUrl constant per profile
+              (routing, Zod and agent summaries reuse the same parse later)
 ```
 
 ### Inputs
@@ -29,7 +29,9 @@ plumb.config.ts
 - **IG packages** are named in config (`hl7.fhir.us.core@9.0.0`), fetched by
   `plumb pull` from the FHIR package registry, pinned in `plumb.lock` with an
   integrity hash.
-- **Local profiles** are FSH (compiled by SUSHI) or StructureDefinition JSON.
+- **Local profiles** are StructureDefinition JSON. FSH authors run
+  `sushi . --snapshot` (Medplum's documented workflow) and point Plumb at
+  `fsh-generated/resources`. Running SUSHI from Plumb comes later.
 - **Only the profiles a project uses are compiled**, plus their dependency
   closure: parent profiles, referenced extensions, and value sets behind
   required bindings. Never a whole IG.
@@ -39,14 +41,26 @@ plumb.config.ts
   exists if that ever changes), and a snapshot-less profile breaks Medplum
   anyway.
 
-### The intermediate representation
+### The intermediate representation is Medplum's
 
-Per profile: URL, version, name, base type, parent profile, and for each element
-its path, cardinality, allowed types, binding, fixed or pattern value, slicing
-and slices, and attached invariants. Every emitter reads only the IR, which is
-what keeps types, routing and Zod schemas from disagreeing. The IR is also
-written as a JSON sidecar per profile so `validateProfiled`, routing and the
-agent summaries never re-parse snapshots.
+Plumb writes no snapshot parser. `@medplum/core`'s `parseStructureDefinition()`
+returns an `InternalTypeSchema` per profile: URL, version, name, base type and,
+for each element, its path, `min` and `max`, types, `binding`, `fixed` and
+`pattern` values, `constraints`, and `slicing` with each slice's own elements.
+It is the parse Medplum's validator and `<ResourceForm>` use, so the types
+cannot disagree with the validator about cardinality, slices or fixed values.
+Every emitter, now and later, reads only this.
+
+It is marked `@experimental`, so its shape can change between Medplum
+releases. The golden tests catch that, and the supported `@medplum/core` range
+is declared.
+
+`@medplum/generator`'s `fhirtypes` script (`packages/generator/src/index.ts`)
+is the nearest model for the emitter: it walks the same `InternalTypeSchema` to
+write `@medplum/fhirtypes`, turning `min > 0` into a required field, expanding
+choice types, and emitting literal unions for enumerable required bindings. It
+reads only the base definitions and has no notion of narrowing, which is what
+Plumb adds.
 
 ## Emission rules
 
@@ -107,9 +121,10 @@ containing a phone somewhere".
 ### 4. Where generated code lives
 
 - **Recommended: in the project's repo**, for example `src/fhir/generated/`,
-  committed, one module per profile plus an index, importing small helpers
-  (`Require`, slice builders) from `plumb`. The Drizzle model: a profile change
-  is a reviewable diff, and `check` fails CI when output is stale.
+  committed, one module per profile plus an index and a helpers module
+  (`Require`, slice builders) emitted alongside them, so the app never imports
+  Plumb at runtime. The Drizzle model: a profile change is a reviewable diff,
+  and `plumb generate --check` fails CI when output is stale.
 - Alternative: into `node_modules` (the Prisma client model). Nothing to
   commit, but invisible in review and regenerated on every install.
 
@@ -123,6 +138,9 @@ containing a phone somewhere".
 - Each profile also gets a `…ProfileUrl` constant.
 
 ## Testing (from the spec's Testing Decisions)
+
+- **No Medplum server.** `validateProfiled` promises Medplum's validator at the
+  installed version, not the server's verdict, so v0.1 needs no server tests.
 
 - **Contract tables** per test profile: each fixture states whether it compiles
   (`@ts-expect-error` for the negative rows) and whether it passes

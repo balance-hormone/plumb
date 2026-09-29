@@ -209,8 +209,9 @@ An OperationDefinition routes an operation to a bot through this extension:
   mapped to the `out` parameters with min/max checks, and a single `return`
   parameter is returned bare.
 
-`plumb-operations` generates the OperationDefinition from a contract, and the
-contract's runtime parse is the only input validation there is.
+The parked [operation contracts](../future/operation-contracts.md) idea
+generates the OperationDefinition from a contract, and the contract's runtime
+parse would be the only input validation there is.
 
 ## `@medplum/core` validator (5.1.42)
 
@@ -268,7 +269,7 @@ What it means for Plumb:
 - **Three parts could be:** profile packs as `reference-data` packages
   (profiles, value sets, defaults and routing rows); an in-project conformance
   bot for `check`; and marketplace operation entries generated from
-  `plumb-operations` contracts.
+  operation contracts (all parked in [`../future/`](../future/)).
 - **It overlaps with `push` and `migrate`.** Idempotent installs, migrations
   and a typed manifest are the same idea as Plumb's project state as code,
   applied to installable packages. Plumb should not build a rival; it tracks
@@ -279,8 +280,20 @@ What it means for Plumb:
 - **`@medplum/cli`** covers login, connection profiles, projects, bots, bulk
   data, REST verbs, HL7, agents and DICOMweb. It has no config-as-code,
   migration or profile type generation, so Plumb does not overlap it.
-- **`@medplum/generator`** builds `@medplum/fhirtypes` from the base
-  definitions only. Nothing upstream narrows types by profile.
+- **`@medplum/generator`** is Medplum's internal build script, not a published
+  tool. Its `fhirtypes` script (`packages/generator/src/index.ts`) indexes the
+  base definitions, walks each `InternalTypeSchema` and writes one `.d.ts` per
+  type into `packages/fhirtypes/dist`: `min > 0` becomes a required field,
+  choice types expand to one property per type, enumerable required bindings
+  become literal unions, and `Reference` takes its target type from
+  `targetProfile`. It reads only base definitions and has no notion of
+  narrowing, so nothing upstream generates profile types.
+- **`parseStructureDefinition()`** is exported from `@medplum/core`
+  (`typeschema/types.ts`, marked `@experimental`). It returns an
+  `InternalTypeSchema`: per element `min`, `max`, types, `binding`, `fixed`,
+  `pattern`, `constraints` and `slicing` (discriminators and each slice's own
+  elements). The validator uses it, and so do `@medplum/react`'s
+  `ResourceForm`, `ResourceTable` and `ReferenceInput`.
 - **Other project context:** `checkReferencesOnWrite`, and the
   `validate-terminology` feature, which turns on binding checks.
 
