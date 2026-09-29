@@ -207,6 +207,41 @@ src/fhir/generated/            ← `out` in plumb.config.ts
 - A single file for everything (openapi-typescript's layout) was rejected:
   with dozens of profiles it becomes one large file with noisy diffs.
 
+## Emitter architecture
+
+The emitter is a compiler back end: it transforms one tree into another and
+prints the result. It follows json-schema-to-typescript's staged pipeline
+(parse → normalize → optimize → generate, each a separate module):
+
+```text
+InternalTypeSchema  →  transform  →  type model  →  print  →  .ts files
+(Medplum's parse)      (the rules      (a small tree of      (text only; reuses
+                        above and       TypeScript types:     @medplum/core's
+                        the decisions)  object, union,        FileBuilder)
+                                        literal, array,
+                                        tuple, reference)
+```
+
+- **Transform** holds every FHIR rule: narrowing, choice types, fixed values,
+  slices, bindings. It is a pure function from a parsed profile to a type
+  model, tested by asserting on the model, not on text.
+- **Print** holds every formatting rule: indentation, ordering, doc comments,
+  headers, import suffixes. It is a pure function from the model to text,
+  tested on its own.
+- **Reuse, not rebuild:** `FileBuilder`, `buildTypeName` and `wordWrap` are
+  exported from `@medplum/core` and are what `@medplum/generator` uses, so
+  names and layout stay consistent with `@medplum/fhirtypes` and no dependency
+  is added.
+
+Rejected:
+
+- **Building strings directly** (`@medplum/generator`'s approach): the least
+  code, but FHIR logic and formatting tangle, and neither can be tested alone.
+- **TypeScript's compiler API** (`ts.factory` and its printer, as
+  openapi-typescript does): guaranteed-valid syntax, but it makes `typescript`
+  a runtime dependency, and TypeScript 7's native compiler has no JavaScript
+  API.
+
 ## Defaults (change only with a reason)
 
 - Type names come from the profile's `name` (`USCorePatientProfile` becomes
@@ -220,11 +255,32 @@ src/fhir/generated/            ← `out` in plumb.config.ts
 
 ## Testing (from the spec's Testing Decisions)
 
+Tests check what **should** happen, not what Plumb happens to do. Every
+expected result comes from a source independent of the generator:
+
+1. **Medplum's validator, called directly.** "Should this resource be valid?"
+   is answered by `@medplum/core`'s `validateResource`, not by Plumb's
+   `validateProfiled` wrapper, so the harness needs none of Plumb's code.
+2. **HL7's published examples.** US Core 9.0.0 ships 230 example resources
+   (CC0-1.0). Every one must compile against its generated type and pass the
+   validator.
+3. **The profile's own rules, read by a person.** For each synthetic fixture,
+   "compiles" or "does not compile" is written from the profile's text
+   ("`birthDate` is 1..1") before any generator code exists. Generated output
+   is never used to decide an expected result.
+
 - **Contract tables** per test profile: each fixture states whether it compiles
-  (`@ts-expect-error` for the negative rows) and whether it passes
-  `validateProfiled`. Written first, following the coverage matrix below.
+  (`@ts-expect-error` for the negative rows) and whether it validates. Written
+  first, following the coverage matrix below.
+- **Compiles and validates must agree,** except in cases listed in advance: a
+  missing required slice, a `CodeableConcept` binding, an invariant, a value
+  set that cannot be expanded offline, and a `_field` primitive extension.
+  Types that reject what the validator accepts, or accept what it rejects
+  outside that list, are bugs. The list changes only by a reviewed edit to
+  this document.
 - **Golden tests**: generated output for a fixed set of US Core and IPS profiles
-  matches committed files.
+  matches committed files. They detect change, not correctness, so each golden
+  file is reviewed against its profile before it is committed.
 - **Compatibility**: generated output type-checks under the oldest supported
   TypeScript and under both `NodeNext` and `bundler` module resolution.
 - **No Medplum server.** `validateProfiled` promises Medplum's validator at the
@@ -253,4 +309,4 @@ edge case that should not (or that records a known limit).
 | Recursion | an element that refers back to itself (`Questionnaire.item.item`) |
 | Naming | two profiles whose type names would collide |
 | Primitive extensions | a required primitive present only as `_field` with a data-absent-reason: record what the validator does; the types do not allow it |
-| Whole resources | realistic US Core Patient, Blood Pressure, lab result and Condition examples |
+| Whole resources | all 230 of US Core 9.0.0's published examples, plus synthetic Patient, Blood Pressure, lab result and Condition fixtures |

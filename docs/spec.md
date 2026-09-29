@@ -335,11 +335,19 @@ A good test asserts what a developer sees: whether a resource compiles against
 a type, and what the validator says about it. Never how the generator walks a
 schema.
 
+**Tests check what should happen, not what Plumb does.** Every expected result
+comes from a source independent of the generator: Medplum's validator called
+directly, HL7's published examples (US Core ships 230, under CC0-1.0), or the
+profile's own rules, written down before the code. "Compiles" and "validates"
+must agree except in cases listed in advance in
+[design 01](design/01-generator.md). The fixtures and the harness are built
+first, and the generator is built until they pass.
+
 All fixture resources are synthetic, and all profiles under test come from
 published IGs (US Core, IPS) or Plumb's own test profiles, written in FSH with
 SUSHI's output committed. SUSHI is a dev dependency for editing those test
-profiles only. Before committing copies of a published IG's files, confirm its
-license allows it.
+profiles only. US Core is CC0-1.0, so its files may be committed as fixtures;
+confirm the license of any other IG first.
 
 1. **Profile contract tables.** For each test profile, a table of fixtures, each
    stating whether it compiles against the generated type and whether it
@@ -349,7 +357,8 @@ license allows it.
    generator handles gets a happy path and its edge cases, and the tables are
    written before the code that makes them pass.
 2. **Generator golden tests.** For a fixed set of IG profiles, the generated
-   output matches committed files.
+   output matches committed files. They detect change, not correctness, so
+   each is reviewed against its profile before it is committed.
 3. **Compatibility.** Generated output type-checks under the oldest supported
    TypeScript and under a Medplum-style `tsconfig`.
 4. **No Medplum server in v0.1.** v0.1 makes no claim about the server. The

@@ -11,11 +11,14 @@
   accepted in [`design/01-generator.md`](design/01-generator.md): full-depth
   narrowing, plain arrays with typed slice helpers, literal unions for
   bindings listable offline, and committed output one file per profile.
-- **Before building:** turn design 01 into GitHub issues.
+- **Build order:** tests first (fixtures with their expected results, then the
+  harness), then config, package fetching, the loader and the emitter. The work
+  is tracked in the v0.1 milestone on GitHub.
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
-- Work is tracked in GitHub Issues on this repository. None exist yet.
+- Work is tracked in GitHub Issues on this repository, under the v0.1
+  milestone.
 
 ## Contents
 
