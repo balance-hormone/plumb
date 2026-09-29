@@ -1,10 +1,11 @@
 # Design 01: Profile Compiler and Type Generator
 
-**Status: proposed.** Four decisions below are open and need the maintainer's
-call before implementation starts. Everything else is the working default.
+**Status: accepted.** The four emission decisions were settled on 2026-09-29
+(below). Implementation can start.
 
 Spec: [`../spec.md`](../spec.md) (Inputs, Parsing, Generated types).
 Prototype: [`../research/prototype.md`](../research/prototype.md).
+Prior art: [`../research/prior-art.md`](../research/prior-art.md).
 
 ## Job
 
@@ -67,15 +68,15 @@ Plumb adds.
 | FHIR feature | TypeScript |
 |---|---|
 | Required element (`min ≥ 1`) | Non-optional field, via `Require<>` |
-| Required nested element | Non-optional inside its parent (depth: decision 1) |
+| Required nested element | Non-optional inside its parent, at any depth (decision 1) |
 | `max: 0` (prohibited) | `?: never` |
 | Choice type narrowed to one type | Only that property, e.g. `valueQuantity` |
 | Required choice with several types | "Exactly one of": a union where each branch sets one and forbids the rest |
 | Fixed value (`fixedCode`, `fixedUri`) | A literal type |
 | Pattern value (`patternCodeableConcept`) | Must include that coding; the rest stays open |
-| Required binding to an enumerable value set | A literal union of codes (decision 3) |
-| Fixed-value slice | A named type per slice (representation: decision 2) |
-| Extension slice (by URL) | A named, typed extension, plus a getter and setter |
+| Required binding | A literal union where the value set can be listed offline, otherwise `string` (decision 3) |
+| Slice | A typed shape per slice and generated helpers; the array stays plain (decision 2) |
+| Extension slice (by URL) | A named, typed extension with helpers, like any other slice |
 | Invariant (FHIRPath) | Doc comment only; enforced by the server (in strict mode) and `validateProfiled`, except below `error` severity and the four Medplum skips |
 | Must Support | Doc comment only; never changes optionality |
 | Child profile (BMI → vital signs) | Child type is assignable to the parent type |
@@ -84,69 +85,149 @@ Plumb adds.
 generated type works in every Medplum SDK call and React component with no
 casts. The generator never emits a parallel base R4 tree.
 
-## Open decisions
+**Anything the types cannot enforce is written in the doc comment,** with a
+note that `validateProfiled` checks it: required slices, required bindings on
+`CodeableConcept`, invariants and value sets that cannot be expanded offline.
 
-### 1. Depth of required-field narrowing
+## Decisions
 
-- **Recommended: full depth.** Narrow along every path of required elements;
-  `Require<>` composes, and only required paths are touched, so types stay
-  readable.
-- Alternative: one level (the prototype). Simpler, but misses rules such as
-  "every `component` needs a `code`".
+### 1. Depth of required-field narrowing: full depth
 
-### 2. Representation of required slices
+Narrow along every path of required elements, not only the top level. US Core
+Patient requires `identifier`, and inside each identifier `system` and `value`,
+so `identifier: [{}]` must not compile:
 
-TypeScript can say "an array whose first entry is a phone" but not "an array
-containing a phone somewhere".
+```ts
+type USCorePatient = Omit<Patient, 'identifier' | 'name' | 'gender'> & {
+  identifier: Require<Identifier, 'system' | 'value'>[];
+  name: HumanName[];
+  gender: 'male' | 'female' | 'other' | 'unknown';
+};
+```
 
-- **Recommended: both a type and a builder.** The type means "at least one
-  phone, anywhere", enforced by a branded array that only a generated builder
-  produces: `telecom: USCorePatient.telecom({ phone: [...], rest: [...] })`.
-  Reads go through typed slice getters. This removes the prototype's worst gap
-  (arrays built with `.map()` failing to type-check).
-- Alternative: leading tuple positions (the prototype). Pure types, no helper,
-  but order-sensitive and fragile.
+`Require<>` composes and only required paths are touched, so types stay
+readable. One-level narrowing (the prototype) was rejected: it misses nested
+rules such as `identifier.system`, `telecom.value` and `component.code`, which
+are common in IGs.
 
-### 3. Required bindings
+### 2. Slices: plain arrays, typed slices, helpers
 
-- **Recommended: offline expansion where enumerable.** Expand a value set when
-  its codes can be listed from the loaded packages (explicit concepts, or whole
-  local CodeSystems) and emit a literal union. Otherwise (VSAC and other
-  intensional value sets) emit `string`, with the value set URL in the doc
-  comment.
-- Alternative: expand through a live Medplum `$expand` at generate time. More
-  complete, but `generate` would then need a server, breaking offline,
-  deterministic builds.
+TypeScript can say "the first entry is a systolic reading" but not "the array
+contains a systolic reading somewhere", in any order. Every generator surveyed
+makes the same trade (see [prior art](../research/prior-art.md)):
+json-schema-to-typescript and openapi-typescript ignore JSON Schema's
+`contains` and keep plain arrays; `@atomic-ehr/codegen` and fhir-dsl generate
+slice accessors and check presence at runtime. Plumb follows them:
 
-### 4. Where generated code lives
+- **Arrays stay plain arrays,** so `.map()`, spreading and API data work.
+- **Each slice gets a typed shape** (`USCoreBloodPressureSystolic`) and
+  **generated helpers** that build an entry with its fixed discriminator values
+  filled in, and read one back:
 
-- **Recommended: in the project's repo**, for example `src/fhir/generated/`,
-  committed, one module per profile plus an index and a helpers module
-  (`Require`, slice builders) emitted alongside them, so the app never imports
-  Plumb at runtime. The Drizzle model: a profile change is a reviewable diff,
-  and `plumb generate --check` fails CI when output is stale.
-- Alternative: into `node_modules` (the Prisma client model). Nothing to
-  commit, but invisible in review and regenerated on every install.
+  ```ts
+  component: [
+    USCoreBloodPressure.systolic({ valueQuantity: q(120) }),
+    USCoreBloodPressure.diastolic({ valueQuantity: q(80) }),
+  ],
+  USCoreBloodPressure.getSystolic(bp); // typed read
+  ```
+
+- **A missing required slice is caught by `validateProfiled`,** not the
+  compiler, and the type's doc comment says so.
+- **Ordered slicing (`ordered: true`) becomes a tuple,** because there order is
+  part of the FHIR rule, as openapi-typescript does for `prefixItems`.
+- **Closed slicing (`rules: closed`) makes the element type a union of the
+  slice shapes,** so an entry that matches no slice fails to compile.
+
+Rejected:
+
+- **Leading tuple positions for unordered slices** (the prototype):
+  order-sensitive when the server is not, factorial in the number of required
+  slices, and incompatible with arrays built by `.map()`.
+- **A branded array only a builder can produce:** compile-time presence, but
+  every write must go through the builder, spreading and `.map()` lose the
+  brand, server data never has it, and no surveyed tool does it. It remains a
+  possible opt-in later, built on the same helpers.
+
+### 3. Bindings: literal unions where they are honest
+
+| Case | Generated type |
+|---|---|
+| Required binding, value set listable offline, on a `code` or `Coding` | A literal union of the codes |
+| Required binding on a `CodeableConcept` | The base type, plus exported code constants; checked by `validateProfiled` |
+| Required binding whose value set cannot be listed offline (filters, VSAC) | `string`, with the value set URL in the doc comment |
+| More than about 100 codes (configurable) | `string`, with the value set URL in the doc comment |
+| Extensible binding on a `code` | `'a' \| 'b' \| (string & {})`: autocomplete without rejecting other codes |
+| Preferred or example | The base type |
+
+A `CodeableConcept`'s required binding means "at least one coding from the
+set", the same "contains" rule as a slice, so it is checked in tests.
+
+Expansion follows `@medplum/generator`'s `getValueSetValues`
+(`packages/generator/src/valuesets.ts`), which is offline too: explicit
+`include.concept` lists and every code of an included code system, walking
+nested concepts, from the ValueSets and CodeSystems in the loaded packages.
+Rule-based includes are not expanded.
+
+Rejected for v0.1: expanding through a Medplum server's `ValueSet/$expand` at
+generate time. It would make `generate` need a server, credentials and
+network, and make its output depend on what that server has loaded. If
+rule-based value sets turn out to matter, an opt-in step can expand them once
+and save the result next to `plumb.lock`, keeping `generate` offline.
+
+### 4. Where generated code lives: committed, one file per profile
+
+```text
+src/fhir/generated/            ← `out` in plumb.config.ts
+├── index.ts                   re-exports every type, URL constant and helper
+├── _plumb.ts                  shared helpers: Require<>, slice utilities
+├── USCorePatient.ts           the type, its …ProfileUrl constant, its helpers
+├── USCoreBloodPressure.ts
+└── …                          one file per profile
+```
+
+- **Committed to the project's repository** (Principle 2), as openapi-typescript
+  output, Supabase's generated types and Prisma's newer generator are. Rejected:
+  `node_modules` (invisible in review, regenerated on install, unverifiable),
+  and gitignored output generated at build time (reviewers cannot see type
+  changes, and every clone and CI job needs a generate step first).
+- **One file per profile, plus an index,** so a profile change touches one file.
+  Apps import from the index.
+- **`.ts`, not `.d.ts`,** because the slice and code helpers are small runtime
+  functions. The app's own build compiles them.
+- **The only import is types from `@medplum/fhirtypes`,** so apps take no
+  runtime dependency on Plumb.
+- **Relative imports carry `.js` suffixes** (`./USCorePatient.js`), which work
+  under `NodeNext`, `bundler` and older module settings alike.
+- **Plumb owns the folder:** `generate` removes files for profiles no longer
+  listed, and refuses to run if the folder holds a file without a Plumb header.
+- **`out` is required,** with no hidden default.
+- A single file for everything (openapi-typescript's layout) was rejected:
+  with dozens of profiles it becomes one large file with noisy diffs.
 
 ## Defaults (change only with a reason)
 
 - Type names come from the profile's `name` (`USCorePatientProfile` becomes
   `USCorePatient`).
-- Every generated file has a header with the profile URL, its version and the
-  source package's hash, so staleness is detected exactly.
-- Output is deterministic: stable ordering, no timestamps.
+- Every generated file has a header ("generated by Plumb, do not edit") with the
+  profile URL, its version and the source package's hash, so staleness is
+  detected exactly.
+- Output is deterministic: stable ordering, no timestamps. The docs suggest
+  excluding the folder from project linters.
 - Each profile also gets a `…ProfileUrl` constant.
 
 ## Testing (from the spec's Testing Decisions)
 
-- **No Medplum server.** `validateProfiled` promises Medplum's validator at the
-  installed version, not the server's verdict, so v0.1 needs no server tests.
-
 - **Contract tables** per test profile: each fixture states whether it compiles
   (`@ts-expect-error` for the negative rows) and whether it passes
-  `validateProfiled`.
+  `validateProfiled`. Cover nested required fields, each slice rule (unordered,
+  ordered, closed) and each binding case.
 - **Golden tests**: generated output for a fixed set of US Core and IPS profiles
   matches committed files.
+- **Compatibility**: generated output type-checks under the oldest supported
+  TypeScript and under both `NodeNext` and `bundler` module resolution.
+- **No Medplum server.** `validateProfiled` promises Medplum's validator at the
+  installed version, not the server's verdict, so v0.1 needs no server tests.
 - Test profiles come only from published IGs and Plumb's own synthetic
   profiles. [`../research/us-core-9-routing.md`](../research/us-core-9-routing.md)
   lists the required elements that make good negative fixtures.
