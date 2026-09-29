@@ -49,4 +49,6 @@ npm run typecheck
 npm test
 npm run lint        # biome check
 npm run lint:fix
+npm run knip        # unused files, exports and dependencies
+npm run check       # everything CI runs except build
 ```

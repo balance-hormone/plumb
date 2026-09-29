@@ -1,0 +1,12 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    // Installed at the root so the packages' peer dependencies resolve in development.
+    ".": {
+      "ignoreDependencies": ["@medplum/core", "@medplum/definitions", "@medplum/fhirtypes", "zod"]
+    },
+    // Declared ahead of feature #1. Remove each entry once the package imports plumb.
+    "packages/plumb-kit": { "ignoreDependencies": ["plumb"] },
+    "packages/plumb-zod": { "ignoreDependencies": ["plumb"] }
+  }
+}

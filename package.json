@@ -16,7 +16,9 @@
     "test": "turbo run test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "check:agnostic": "node scripts/check-agnostic.mjs"
+    "knip": "knip",
+    "check:agnostic": "node scripts/check-agnostic.mjs",
+    "check": "npm run lint && npm run typecheck && npm run knip && npm run check:agnostic && npm test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
@@ -25,6 +27,7 @@
     "@medplum/fhirtypes": "^5.1.42",
     "@types/node": "^26.6.3",
     "esbuild": "^0.28.2",
+    "knip": "^6.38.0",
     "turbo": "^2.11.5",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2",
