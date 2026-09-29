@@ -17,5 +17,41 @@
       "suspicious": { "noExplicitAny": "error", "noImportCycles": "error" }
     }
   },
-  "javascript": { "formatter": { "quoteStyle": "single" } }
+  "javascript": { "formatter": { "quoteStyle": "single" } },
+  "overrides": [
+    {
+      "includes": ["packages/plumb/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "plumb-kit": "plumb is the runtime at the bottom of the stack: it imports no sibling package.",
+                  "plumb-zod": "plumb is the runtime at the bottom of the stack: it imports no sibling package.",
+                  "plumb-operations": "plumb is the runtime at the bottom of the stack: it imports no sibling package."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/plumb-zod/**", "packages/plumb-operations/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": { "plumb-kit": "Nothing depends on the CLI: move shared code into plumb." }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
