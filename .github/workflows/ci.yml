@@ -23,3 +23,7 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
+      - run: npm run knip
+      - run: npm run check:agnostic
+        env:
+          PLUMB_DENYLIST: ${{ secrets.PLUMB_DENYLIST }}
