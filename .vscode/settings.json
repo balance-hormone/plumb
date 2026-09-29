@@ -1,0 +1,17 @@
+{
+  "files.exclude": {
+    "**/.turbo": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/*.tsbuildinfo": true,
+    "LICENSE.txt": true,
+    "NOTICE": true,
+    "package-lock.json": true
+  },
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    "package.json": "biome.json, turbo.json, tsconfig.json, tsconfig.*.json, tsconfig.build.json, .nvmrc, .gitignore",
+    "README.md": "AGENTS.md, CLAUDE.md, LICENSE.txt, NOTICE"
+  }
+}
