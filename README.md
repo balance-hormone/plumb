@@ -34,7 +34,7 @@ npm test
 npm run lint
 ```
 
-Requires Node `^22.18.0 || >=24.2.0`, the same range as Medplum.
+Requires Node `^22.18.0 || >=24.2.0`, the same range as Medplum, and npm 11.
 
 ## License
 

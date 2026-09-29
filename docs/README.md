@@ -3,7 +3,7 @@
 ## Where things stand
 
 - The spec is drafted. Nothing is implemented; the four packages are empty
-  shells that build, typecheck and pass CI.
+  shells that build, lint and pass CI, using Medplum's own repository tooling.
 - **Next: feature #1, the profile compiler and type generator.** Its design is
   in [`design/01-generator.md`](design/01-generator.md), with **four open
   decisions** (narrowing depth, slice representation, binding expansion, output
