@@ -1,14 +1,51 @@
 {
-  "name": "root",
+  "name": "plumb",
   "version": "0.0.0",
   "private": true,
-  "workspaces": [
-    "packages/*"
+  "description": "Make Medplum's own types profile-aware: generate TypeScript types from FHIR profiles that narrow @medplum/fhirtypes.",
+  "keywords": [
+    "medplum",
+    "fhir",
+    "profiles",
+    "typescript",
+    "codegen"
+  ],
+  "homepage": "https://github.com/balance-hormone/plumb#readme",
+  "bugs": {
+    "url": "https://github.com/balance-hormone/plumb/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/balance-hormone/plumb.git"
+  },
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    "import": {
+      "types": "./dist/esm/index.d.ts",
+      "default": "./dist/esm/index.mjs"
+    },
+    "require": {
+      "types": "./dist/cjs/index.d.ts",
+      "default": "./dist/cjs/index.cjs"
+    }
+  },
+  "main": "dist/cjs/index.cjs",
+  "module": "dist/esm/index.mjs",
+  "types": "dist/esm/index.d.ts",
+  "bin": {
+    "plumb": "./dist/esm/cli.mjs"
+  },
+  "files": [
+    "dist/cjs",
+    "dist/esm",
+    "NOTICE"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
-    "typecheck": "npm run typecheck --workspaces",
-    "test": "npm test --workspaces",
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "lint": "biome check . && node scripts/check-headers.mjs",
     "lint:fix": "biome check --write .",
     "knip": "knip",
@@ -17,15 +54,22 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
+    "@medplum/core": "^5.1.42",
+    "@medplum/definitions": "^5.1.42",
+    "@medplum/fhirtypes": "^5.1.42",
     "@types/node": "^22.20.4",
     "esbuild": "^0.28.2",
     "knip": "^6.38.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"
   },
+  "peerDependencies": {
+    "@medplum/core": "^5.1.0",
+    "@medplum/definitions": "^5.1.0",
+    "@medplum/fhirtypes": "^5.1.0"
+  },
   "packageManager": "npm@11.19.1",
   "engines": {
     "node": "^22.18.0 || >=24.2.0"
-  },
-  "type": "module"
+  }
 }

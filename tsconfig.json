@@ -18,6 +18,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "erasableSyntaxOnly": true,
-    "types": []
-  }
+    "types": ["node"]
+  },
+  "include": ["src"]
 }
