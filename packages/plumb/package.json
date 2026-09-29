@@ -3,29 +3,55 @@
   "version": "0.0.0",
   "private": true,
   "description": "Profile-typed resources, routing and typed reads for Medplum. The runtime package.",
+  "keywords": [
+    "medplum",
+    "fhir",
+    "profiles",
+    "healthcare"
+  ],
+  "homepage": "https://github.com/balance-hormone/plumb#readme",
+  "bugs": {
+    "url": "https://github.com/balance-hormone/plumb/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/balance-hormone/plumb.git",
+    "directory": "packages/plumb"
+  },
   "license": "Apache-2.0",
-  "type": "module",
   "sideEffects": false,
-  "main": "dist/cjs/index.cjs",
-  "module": "dist/esm/index.mjs",
-  "types": "dist/types/index.d.ts",
+  "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/esm/index.mjs",
-      "require": "./dist/cjs/index.cjs"
+    "import": {
+      "types": "./dist/esm/index.d.ts",
+      "default": "./dist/esm/index.mjs"
+    },
+    "require": {
+      "types": "./dist/cjs/index.d.ts",
+      "default": "./dist/cjs/index.cjs"
     }
   },
+  "main": "dist/cjs/index.cjs",
+  "module": "dist/esm/index.mjs",
+  "types": "dist/esm/index.d.ts",
   "files": [
-    "dist"
+    "dist/cjs",
+    "dist/esm"
   ],
   "scripts": {
     "build": "node ../../scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@medplum/core": "^5.1.42",
+    "@medplum/fhirtypes": "^5.1.42"
   },
   "peerDependencies": {
     "@medplum/core": "^5.1.0",
     "@medplum/fhirtypes": "^5.1.0"
+  },
+  "engines": {
+    "node": "^22.18.0 || >=24.2.0"
   }
 }

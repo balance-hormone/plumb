@@ -16,8 +16,15 @@ Read [`docs/README.md`](docs/README.md) first: it says where the project stands 
   validator.
 - **Every server claim is tested against a real Medplum server.** The mock
   client enforces neither profiles, defaults, strict mode nor access policies.
-- **Match Medplum's conventions** (npm workspaces, Turborepo, esbuild dual
-  ESM/CJS output, Vitest, Apache-2.0), so Plumb can be adopted upstream.
+- **Match Medplum at the boundary, stay lean inside.** What a consumer installs
+  and what could move upstream matches Medplum: dual ESM/CJS output with
+  per-format types, Medplum's published Node range, `@medplum/*` as peers,
+  Vitest, Apache-2.0 with SPDX headers, and source that compiles under
+  `strict` and `erasableSyntaxOnly`. Build tooling, lint and formatting are
+  ours to keep simple. See Principles in [`docs/spec.md`](docs/spec.md).
+- **Earn every dependency.** The `plumb` runtime has none beyond its Medplum
+  peers. Elsewhere, prefer a Node built-in, and justify any new dependency in
+  its PR.
 - **Commands are plain functions** that take a client and return a report; the
   CLI only prints and sets the exit code.
 - `import type` for type-only imports. No `as any`. Comments explain why, not
@@ -44,11 +51,11 @@ conventional commits for commit and PR titles (`feat(plumb-kit): …`).
 ## Commands
 
 ```bash
-npm run build       # turbo: every package
+npm run build       # turbo: esbuild + tsc declarations, every package
 npm run typecheck
-npm test
-npm run lint        # biome check
-npm run lint:fix
+npm test            # vitest
+npm run lint        # biome check, plus the SPDX header check
+npm run lint:fix    # biome check --write
 npm run knip        # unused files, exports and dependencies
 npm run check       # everything CI runs except build
 ```

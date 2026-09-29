@@ -1,12 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  // Each package installs its peers as devDependencies; none is imported until feature #1.
+  "ignoreDependencies": ["@medplum/core", "@medplum/definitions", "@medplum/fhirtypes", "zod"],
   "workspaces": {
-    // Installed at the root so the packages' peer dependencies resolve in development.
-    ".": {
-      // Run by .claude/settings.json, which knip does not read.
-      "entry": [".claude/hooks/*.mjs"],
-      "ignoreDependencies": ["@medplum/core", "@medplum/definitions", "@medplum/fhirtypes", "zod"]
-    },
+    // Run by .claude/settings.json, which knip does not read.
+    ".": { "entry": [".claude/hooks/*.mjs"] },
     // Declared ahead of feature #1. Remove each entry once the package imports plumb.
     "packages/plumb-kit": { "ignoreDependencies": ["plumb"] },
     "packages/plumb-zod": { "ignoreDependencies": ["plumb"] }

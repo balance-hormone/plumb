@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // PostToolUse hook: lint the edited file and typecheck its package, so the
 // agent fixes failures in the same turn. Exit code 2 returns stderr to Claude.
 // Cross-package type errors surface only after a rebuild; CI catches those.

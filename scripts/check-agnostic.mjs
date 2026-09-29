@@ -1,8 +1,12 @@
+// SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Enforces the "agnostic, always" and "synthetic data only" rules. URL hosts
 // are allow-listed so an organization's domain fails without this file naming
 // it. Organization-specific terms come from PLUMB_DENYLIST (comma-separated),
 // kept in a CI secret and your shell, because committing them would break the
-// rule they enforce.
+// rule they enforce. Copyright attribution (SPDX headers, NOTICE) is the one
+// place the copyright holder is named, so the denylist skips it.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
@@ -19,6 +23,7 @@ const allowedHosts = [
   'npmjs.com',
   'biomejs.dev',
   'turbo.build',
+  'turborepo.org',
   'unpkg.com',
   'snomed.info',
   'loinc.org',
@@ -40,7 +45,7 @@ const denylist = (process.env.PLUMB_DENYLIST ?? '')
 const isAllowedHost = (host) =>
   allowedHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
 
-function violations(line) {
+function violations(file, line) {
   const found = [];
   for (const [, host] of line.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) {
     if (!isAllowedHost(host.toLowerCase())) found.push(`URL host not allow-listed: ${host}`);
@@ -49,7 +54,8 @@ function violations(line) {
     if (!/^example\.(com|org|net)$/i.test(host)) found.push(`email outside example.*: ${email}`);
   }
   if (/\b\d{3}-\d{2}-\d{4}\b/.test(line)) found.push('SSN-shaped number');
-  for (const term of denylist) {
+  const isAttribution = file === 'NOTICE' || line.includes('SPDX-FileCopyrightText:');
+  for (const term of isAttribution ? [] : denylist) {
     if (term.test(line)) found.push('organization-specific term (PLUMB_DENYLIST)');
   }
   return found;
@@ -61,7 +67,7 @@ for (const file of files.filter((f) => f && !skipFiles.has(f))) {
   const text = readFileSync(file, 'utf8');
   if (text.includes('\0')) continue;
   for (const [index, line] of [file, ...text.split('\n')].entries()) {
-    for (const message of violations(line)) {
+    for (const message of violations(file, line)) {
       console.error(index === 0 ? `${file}: (path) ${message}` : `${file}:${index}: ${message}`);
       failures++;
     }

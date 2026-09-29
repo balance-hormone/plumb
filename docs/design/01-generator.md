@@ -62,7 +62,7 @@ agent summaries never re-parse snapshots.
 | Required binding to an enumerable value set | A literal union of codes (decision 3) |
 | Fixed-value slice | A named type per slice (representation: decision 2) |
 | Extension slice (by URL) | A named, typed extension, plus a getter and setter |
-| Invariant (FHIRPath) | Doc comment only; enforced by the server and `validateProfiled` |
+| Invariant (FHIRPath) | Doc comment only; enforced by the server (in strict mode) and `validateProfiled`, except below `error` severity and the four Medplum skips |
 | Must Support | Doc comment only; never changes optionality |
 | Child profile (BMI → vital signs) | Child type is assignable to the parent type |
 
