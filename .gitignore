@@ -6,5 +6,5 @@ coverage/
 .env
 .env.*
 !.env.example
-# Local, never committed: resource ids from `plumb check --env`
+# Local cache of IG packages fetched by `plumb pull`
 .plumb/
