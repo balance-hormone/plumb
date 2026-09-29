@@ -30,6 +30,18 @@ Read [`docs/README.md`](docs/README.md) first: it says where the project stands 
 - `import type` for type-only imports. No `as any`. Comments explain why, not
   what.
 
+## Keeping the code small
+
+- Search for an existing helper before writing one. Change existing code before
+  adding new code.
+- No new files, packages, dependencies, abstractions or config options unless
+  the issue calls for them.
+- No speculative error handling, fallbacks or "just in case" branches: handle
+  the failures the spec names.
+- Delete the code you replace. The smallest correct diff wins.
+- Bug fixes and new logic start with a failing test, then the implementation.
+- For a non-trivial change, list the files you will touch and why before coding.
+
 ## Work tracking
 
 Tasks live in **GitHub Issues** on this repository, grouped on the project board
@@ -44,4 +56,6 @@ npm run typecheck
 npm test            # vitest
 npm run lint        # biome check, plus the SPDX header check
 npm run lint:fix    # biome check --write
+npm run knip        # unused files, exports and dependencies
+npm run check       # everything CI runs except build
 ```

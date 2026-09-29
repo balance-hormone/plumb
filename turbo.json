@@ -1,6 +1,7 @@
 {
   "$schema": "https://turborepo.org/schema.json",
   "agentGuidance": false,
+  "globalDependencies": ["tsconfig.base.json", "scripts/build.mjs"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

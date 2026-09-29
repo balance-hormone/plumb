@@ -45,3 +45,9 @@ jobs:
         run: npm run lint
       - name: Test
         run: npm test
+      - name: Knip
+        run: npm run knip
+      - name: Agnostic check
+        run: npm run check:agnostic
+        env:
+          PLUMB_DENYLIST: ${{ secrets.PLUMB_DENYLIST }}
