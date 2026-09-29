@@ -540,6 +540,7 @@ across Medplum releases.
 
 ### Reference material
 
+- **Plumb's own research** in [`research/`](research/), which records the evidence below.
 - **Medplum:** profiles and validation, `Project.defaultProfile` and project
   settings, access policies and project admin, custom FHIR operations via bots,
   the `@medplum/core` validator (`validateResource`,
