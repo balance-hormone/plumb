@@ -7,12 +7,10 @@
   that builds, lints and passes CI.
 - **Next: v0.1**, the profile type generator: `plumb pull`, `plumb generate`,
   `plumb generate --check` and `validateProfiled`, all offline. Its design is
-  in [`design/01-generator.md`](design/01-generator.md), with **four open
-  decisions** (narrowing depth, slice representation, binding expansion, output
-  location) waiting on the maintainer.
-- **Before building:** open a Medplum issue proposing profile types upstream
-  (see Upstream in the spec), settle the four decisions, then turn the design
-  into GitHub issues.
+  accepted in [`design/01-generator.md`](design/01-generator.md): full-depth
+  narrowing, plain arrays with typed slice helpers, literal unions for
+  bindings listable offline, and committed output one file per profile.
+- **Before building:** turn design 01 into GitHub issues.
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).

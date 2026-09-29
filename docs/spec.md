@@ -148,7 +148,7 @@ plumb.config.ts
   → emit     one module per profile, an index and the helpers the modules use
 ```
 
-The detailed design, including the open emission decisions, is
+The detailed design, including the four emission decisions, is
 [design 01](design/01-generator.md).
 
 ## User Stories
@@ -214,8 +214,16 @@ The detailed design, including the open emission decisions, is
 - **Narrow `@medplum/fhirtypes`**, never a parallel base tree. A profile type is
   `Omit<Base, narrowed fields> & { narrowed fields }`, so it is assignable
   wherever the base type is expected.
-- **What narrows,** and the open choices of depth, slice representation,
-  bindings and output location: [design 01](design/01-generator.md).
+- **What narrows** is settled in [design 01](design/01-generator.md):
+  - required fields at every depth, not only the top level;
+  - slices keep plain arrays, with a typed shape and generated build and read
+    helpers per slice; a missing required slice is caught by
+    `validateProfiled`; ordered slicing becomes a tuple and closed slicing a
+    union of slice shapes;
+  - required bindings become literal unions where the value set can be listed
+    offline and the field is a `code` or `Coding`, and `string` otherwise;
+  - output is committed, one `.ts` file per profile plus an index and a helpers
+    file, in the folder `out` names.
 - **Self-contained output.** Generated modules carry the helpers they need (the
   `Require<>` type, slice builders), so the app never imports Plumb.
 - **The doc comment lists what the server will not enforce,** so nobody
@@ -346,18 +354,13 @@ every file cited). Evidence and the rest of the server's behaviour are in
 Profile types are a natural fit for Medplum itself: it already has the
 definitions, the parser, the validator and a type generator, and in 2023 its
 maintainers said the generator could do the heavy lifting (Medplum discussion
-#2006). Before building, Plumb opens a Medplum issue describing the problem and
-design 01, and asks whether Medplum would take it in `@medplum/generator` or
-prefer it outside. Their answer decides whether Plumb is a separate tool or a
-staging ground for a contribution; v0.1 is built either way, in source that
-ports cleanly. Medplum closes pull requests from contributors it has not yet
-vouched for unless they link a maintainer-labelled issue, so the issue comes
-first.
+#2006). Plumb is built as a standalone tool, in source that ports cleanly, so
+it can be offered upstream later. No proposal is made now. When one is,
+it starts as an issue: Medplum closes pull requests from contributors it has
+not yet vouched for unless they link a maintainer-labelled issue.
 
 ### Open decisions
 
-- **The four emission decisions** in [design 01](design/01-generator.md):
-  narrowing depth, slice representation, binding expansion, output location.
 - **The npm name.** `plumb` is taken on npm; a scope or a new name is needed
   before the first publish.
 - **The copyright line** in `NOTICE` and the SPDX headers, confirmed by the
