@@ -2,8 +2,10 @@
 
 What Medplum's server actually does with profiles, defaults, strict mode and
 access policies. Every claim here was read from the server source
-(`medplum/medplum`, `packages/server`, releases 5.1.41–5.1.42 and `main` on
-2026-09-28) unless marked **inferred**. Line numbers drift; the function names
+(`medplum/medplum`, `packages/server` and `packages/core`, releases
+5.1.41–5.1.42 and `main` on 2026-09-28, re-checked against `main` at
+`10ee734f4` on 2026-09-29, where every file cited is unchanged from v5.1.42)
+unless marked **inferred**. Line numbers drift; the function names
 are the stable reference.
 
 Plumb's design depends on each of these, so each one is a candidate for a test
@@ -16,21 +18,53 @@ against a real Medplum server in CI.
   considered and rejected: deleted rows store `''`, every reindex rewrites
   `content` (so one bad row would block Medplum's post-deploy reindexes), and
   it would be a second hand-kept copy of the profile.
-- **With `Project.strictMode` off**, profile failures are logged as "Strict
-  validation would fail" and the write succeeds.
-- **An unknown profile URL** in `meta.profile` logs a warning and passes.
-- **A versioned `url|version` stamp** matches no loaded profile and also passes
-  (**inferred** from the lookup by bare URL).
-- **Loading or changing a StructureDefinition** only clears a five-minute
-  profile cache. Nothing re-checks stored resources. A stricter version arms a
-  failure in the next write of every stored record that does not meet it.
-- **The newest loaded version of a bare URL wins.** Loading a version is what
-  switches its rules on for every resource already stamped with that URL.
-- **Strict mode is project-wide.** Per-type strictness is an open Medplum
-  request.
-- **Deleting a StructureDefinition stops validation for it immediately.**
-  Stored resources keep their `meta.profile` and go unchecked. There is nothing
-  to undo in the data.
+- **With `Project.strictMode` off, only the base R4 JSON schema is enforced**
+  (`validation.ts`, `validateRepositoryResource`): unknown resource types,
+  wrong property types, unknown properties, missing base-required properties
+  and nulls still fail the write. Everything else (base StructureDefinition
+  cardinality and invariants, every profile, terminology) runs, and on failure
+  is only logged as "Strict validation would fail". The write succeeds.
+- **New projects start strict.** `$init` creates a project with
+  `strictMode: true` (`projectinit.ts`). Loose projects are older ones, or ones
+  someone switched off.
+- **Even in strict mode, some rules are never enforced** (`core`,
+  `typeschema/validation.ts`):
+  - a constraint whose severity is not `error` is skipped entirely, not even
+    warned;
+  - the invariants `ele-1`, `dom-3`, `org-1` and `sdf-19` are skipped;
+  - a `Reference` whose `targetProfile` is an IG profile (US Core Patient,
+    say) is not checked at all; one whose target is a base or Medplum type
+    only warns on a mismatch.
+  So a profile's `Reference(X)` narrowing is documentation, not a rule.
+- **An unknown profile URL** in `meta.profile` logs "Unknown profile
+  referenced" and passes.
+- **A versioned `url|version` stamp** matches no loaded profile and also passes.
+  The lookup is an exact match on `url` and nothing splits off `|version`.
+- **Creating or updating a StructureDefinition** clears its entry in a Redis
+  profile cache (five-minute TTL, keyed by project and URL). Nothing re-checks
+  stored resources. A stricter version arms a failure in the next write of
+  every stored record that does not meet it.
+- **"Newest" is a text sort on `version`, then `date`** (`loadProfile`, whose
+  own comment says it "approximates version resolution"). `version` is a token
+  column, sorted alphabetically, so `1.9.0` is newer than `1.10.0`. With more
+  than one StructureDefinition per URL in a project, the one that validates is
+  not reliably the one intended. Loading a version is what switches its rules
+  on for every resource already stamped with that URL.
+- **The lookup spans linked projects.** A profile is found in the caller's
+  project, in any linked project that exports StructureDefinition (or exports
+  nothing), and in Medplum's base R4 project (`repo.ts`, `accesspolicy.ts`).
+  The cache prefers the caller's own project; the database search does not.
+- **Strict mode is project-wide.** There is no per-type setting.
+- **Deleting a StructureDefinition does not clear the cache.** A cached copy
+  keeps validating for up to five minutes, then validation for that URL stops.
+  Stored resources keep their `meta.profile` and go unchecked.
+- **`POST /:resourceType/$validate` always validates strictly**, whatever
+  `strictMode` says, against the profiles loaded in the project. The body is
+  the raw resource (not `Parameters`), and `defaultProfile` is not applied, so
+  the resource must carry its `meta.profile`.
+- **Writes through the system repository get no default profile**: it has no
+  current project (`repo.ts`), so for example a ClientApplication created by
+  `POST /admin/projects/:id/client` is never defaulted.
 
 ## `Project.defaultProfile`
 
@@ -96,6 +130,8 @@ if (!resource.meta?.profile) {
     swapping `accessPolicy`;
   - the `X-Medplum-On-Behalf-Of` header lets an admin act as any membership in
     the project, under that membership's policy.
+- **Protected types** (DomainConfiguration, Enterprise, JsonWebKey, Login) are
+  reachable only by super admin or the system (`core/src/access.ts`).
 - **Project-admin-only types:** Cron, Package, PackageRelease,
   PackageInstallation, Project, ProjectMembership, User, UserSecurityRequest
   (`core/src/access.ts`). A `*` policy entry never covers them. For a
@@ -104,6 +140,13 @@ if (!resource.meta?.profile) {
 - **ClientApplication, Bot, Subscription, AccessPolicy, OperationDefinition and
   StructureDefinition are ordinary types**, governed purely by AccessPolicy. A
   `*` entry matches them.
+- **Policy entries are a union.** An interaction is allowed if *any* entry
+  allows it (`accessPolicySupportsInteraction`, `.some`). A read-only entry for
+  StructureDefinition therefore does not restrict a `*` entry that allows
+  writes: the `*` entry still matches and the write succeeds.
+- **Field rules come from the first matching entry** (`satisfiedAccessPolicy`,
+  `.find`), so entry order decides which `hiddenFields` and `readonlyFields`
+  apply.
 - **SearchParameter and StructureDefinition** are added read-only by default
   only when no policy entry names them explicitly; a `*` entry does not count.
 - **A membership with no AccessPolicy** falls back to legacy
@@ -112,9 +155,14 @@ if (!resource.meta?.profile) {
 
 ### The lockdown recipe these facts imply
 
-- People: `admin: false`, and a policy listing the configuration types
-  explicitly as read-only (a `*` entry would otherwise make them writable),
-  with ClientApplication `secret` and `retiringSecret` hidden.
+- People: `admin: false`, and a policy with **no writable `*` entry**. Because
+  entries are a union, the only way to keep configuration types read-only is
+  to never grant them write: list the clinical types people may write
+  explicitly, and give the configuration types (ClientApplication, Bot,
+  Subscription, OperationDefinition, StructureDefinition, SearchParameter,
+  AccessPolicy) read-only entries, or none. A `*` entry, if present, must be
+  `readonly: true`. ClientApplication `secret` and `retiringSecret` are hidden,
+  in the first entry that matches ClientApplication.
 - The CI client: `admin: true` and an explicit policy granting write on the
   configuration types only.
 - Super admin: the break-glass, and the only way to change `strictMode` and
@@ -146,21 +194,102 @@ An OperationDefinition routes an operation to a bot through this extension:
 }
 ```
 
-The OperationDefinition's `code`, `resource`, `system`, `type` and `instance`
-decide which URLs invoke it. `plumb-operations` generates this resource from a
-contract.
+- **Operations are found by `code` alone** (`operations/custom.ts`). `resource`,
+  `system` and `type` are ignored, so `/Patient/$send` and `/$send` reach the
+  same bot, and two OperationDefinitions with the same code resolve
+  arbitrarily. Codes must be unique within a project.
+- **Custom operations run only when no built-in route matches**
+  (`routes.ts`), so a custom code can never override a built-in operation.
+- **`instance: true`** only decides the input: for `/Patient/123/$op` the bot
+  receives the stored Patient, and the POST body is dropped.
+- **Otherwise the bot receives the raw POST body, or the query object for
+  GET.** There is no `Parameters` unwrapping and no validation against the
+  OperationDefinition's `in` parameters.
+- **Output:** a returned `Parameters` passes straight through. Anything else is
+  mapped to the `out` parameters with min/max checks, and a single `return`
+  parameter is returned bare.
 
-## `@medplum/core` validator (5.1.41)
+`plumb-operations` generates the OperationDefinition from a contract, and the
+contract's runtime parse is the only input validation there is.
+
+## `@medplum/core` validator (5.1.42)
 
 ```ts
 indexStructureDefinitionBundle(bundle: StructureDefinition[] | Bundle): void;
 validateResource(resource: Resource, options?: ValidatorOptions): OperationOutcomeIssue[];
+// ValidatorOptions: { profile?, collect?, base64BinaryMaxBytes? }
 ```
 
-`validateResource` returns the issues rather than throwing (earlier versions
-threw an `OperationOutcomeError`). Base R4 definitions come from
+`validateResource` **throws** an `OperationOutcomeError` carrying every issue
+when any issue has severity `error`, and otherwise returns the warnings. A
+caller that wants a report catches the error and reads its outcome. It works
+offline; Medplum's own generator uses it that way. Base R4 definitions come from
 `@medplum/definitions` (`fhir/r4/profiles-types.json`,
 `fhir/r4/profiles-resources.json`) and must be indexed before a profile is.
+
+## Other server features that touch Plumb's plans
+
+- **`$clone`, `$expunge` and `$reindex`** are unrelated admin operations: copy a
+  project, permanently delete resources, rebuild search indexes. None
+  re-validates stored data.
+
+### The marketplace (in progress)
+
+Package, PackageRelease and PackageInstallation are the resources behind
+Medplum's marketplace. A Package is, in Medplum's docs, "a set of automated
+actions" such as a subscription or a workflow.
+
+- **On `main`** (since March 2026, `2fabadfab`): the three resource types and a
+  basic `PackageRelease/$install`. A project admin installs a release, which is
+  a FHIR Bundle stored in a Binary, applied to the project as a batch and
+  recorded as a PackageInstallation (`operations/packageinstall.ts`).
+- **On unmerged branches** (June to September 2026, `medplum/medplum#9406`,
+  branches `oleg-marketplace-*`):
+  - a catalog in a publisher project, visible to customer projects through
+    `Project.link` and exports;
+  - a Stage 2 install that validates configuration against a bundled
+    Questionnaire, runs a setup bot, links the project to the publisher's
+    implementation project, and can be re-run as its own recovery;
+  - `@medplum/package-types`, with a `defineManifest()` manifest, validators
+    and a manifest-to-Bundle compiler, and `medplum package validate | build |
+    publish` in the CLI (dry-run unless `--apply`).
+- **A manifest declares** a type (`bot-integration`, `reference-data` or
+  `mixed`), implementation bots hosted once in a shared publisher project,
+  consumer-side linked, webhook and proxy bots, client applications,
+  operations (`code`, `parameter`, `delegatesTo`, with the wire shapes they
+  accept: `parameters` or `plain-json`), data bundles, a configuration
+  Questionnaire, a `postInstall` hook and migrations.
+
+What it means for Plumb:
+
+- **Plumb as a whole is not a marketplace package.** A package installs into a
+  project; Plumb's generator, CLI, types and checks live in a developer's
+  repository and in npm.
+- **Three parts could be:** profile packs as `reference-data` packages
+  (profiles, value sets, defaults and routing rows); an in-project conformance
+  bot for `check`; and marketplace operation entries generated from
+  `plumb-operations` contracts.
+- **It overlaps with `push` and `migrate`.** Idempotent installs, migrations
+  and a typed manifest are the same idea as Plumb's project state as code,
+  applied to installable packages. Plumb should not build a rival; it tracks
+  the work and aligns once it merges.
+- **It is not stable.** The Stage 2 work is unmerged, the manifest will likely
+  change, and whether anyone but Medplum can publish to the catalog is not
+  settled.
+- **`@medplum/cli`** covers login, connection profiles, projects, bots, bulk
+  data, REST verbs, HL7, agents and DICOMweb. It has no config-as-code,
+  migration or profile type generation, so Plumb does not overlap it.
+- **`@medplum/generator`** builds `@medplum/fhirtypes` from the base
+  definitions only. Nothing upstream narrows types by profile.
+- **Other project context:** `checkReferencesOnWrite`, and the
+  `validate-terminology` feature, which turns on binding checks.
+
+## Contributing upstream
+
+- Medplum requires a **DCO** (`Signed-off-by` on every commit), not a CLA.
+- **PRs from contributors not yet vouched for are closed automatically**
+  unless they link a maintainer-labelled issue (`.github/VOUCHED.td`,
+  `vouch-check-*.yml`). Upstream proposals start as issues.
 
 ## Operational lessons
 

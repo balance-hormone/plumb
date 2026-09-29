@@ -44,8 +44,10 @@ other and with the code.
   happens.
 - **Some failures are silent.** An unknown profile URL, a versioned
   `url|version` stamp, or an empty `meta.profile: []` all pass validation
-  against nothing. With `strictMode` off, profile failures are logged and the
-  write succeeds.
+  against nothing. With `strictMode` off, only the base R4 JSON schema is
+  enforced: profile failures are logged and the write succeeds. Even in strict
+  mode, a profile's `Reference(X)` narrowing and its non-error constraints are
+  never checked.
 - **Project configuration is console state.** `strictMode`, features, default
   profiles, access policies and client applications are usually set by hand,
   cannot be reviewed, and cannot be reproduced in a second environment.
@@ -181,7 +183,7 @@ plumb migrate    apply pending data migrations; dry-run unless --write
 7. As an engineer, I want required elements, nested required elements, choice types, required bindings and fixed-value slices expressed in the types, so that a non-conforming resource fails to compile.
 8. As an engineer, I want each generated type's doc comment to list the invariants the type cannot express, so that I know what the server still checks.
 9. As an engineer, I want the generated types to extend `@medplum/fhirtypes`, so that they work with every Medplum SDK method and component unchanged.
-10. As an engineer, I want `validateProfiled` in tests, backed by Medplum's own validator, so that a passing test means the server would accept the write.
+10. As an engineer, I want `validateProfiled` in tests, backed by Medplum's own validator, so that a passing test means a strict project would accept the write.
 
 **Defaults and routing**
 
@@ -286,6 +288,12 @@ plumb migrate    apply pending data migrations; dry-run unless --write
   non-optional; choice types become "exactly one of"; required bindings become
   literal unions; fixed-value slices become named types; invariants go in the
   doc comment.
+- **The doc comment also lists what the server will not enforce**, so nobody
+  mistakes documentation for a rule: constraints below `error` severity, the
+  invariants Medplum skips (`ele-1`, `dom-3`, `org-1`, `sdf-19`), and
+  `Reference` target profiles, which Medplum does not check against IG
+  profiles. Where TypeScript can express a target type, the generated type
+  still narrows it; the server just will not back it up.
 - Borrowed from `@atomic-ehr/codegen` (evaluated, not adopted, because it cannot
   build on `@medplum/fhirtypes`): named extension accessors, slice accessors
   that set the discriminator, must-support gaps as warnings, and a `create`
@@ -342,7 +350,13 @@ plumb migrate    apply pending data migrations; dry-run unless --write
   routing strays; per-profile conformance of stored resources, computed
   offline with Medplum's validator against the local StructureDefinitions,
   reported as counts and reasons, with resource ids written only to a local,
-  gitignored file.
+  gitignored file. Offline, because the profiles that matter are the ones not
+  loaded yet. The server's own `POST /:type/$validate`, which always
+  validates strictly against loaded profiles, is what the server tests use to
+  prove the offline answer matches the server's.
+- **Profile shadowing:** more than one StructureDefinition for a canonical URL
+  in the project, or one in a linked project that exports StructureDefinition,
+  because Medplum's lookup would then pick between them (see the load gate).
 - **Strict mode detection** reads `GET /auth/me`, which returns
   `project.strictMode` and `project.features` to any member (read from
   Medplum's source), not the log lines Medplum emits when it is off.
@@ -350,8 +364,13 @@ plumb migrate    apply pending data migrations; dry-run unless --write
   plans first: StructureDefinitions to add or update (dependencies first),
   defaults, settings, clients and policies. A second run with no config change
   is an empty plan.
-- **The load gate:** Medplum validates against the newest loaded version of a
-  bare profile URL, so loading is what switches a rule on. `push` refuses to
+- **One StructureDefinition per canonical URL.** Medplum picks the "newest"
+  profile for a bare URL by sorting `version` as text, then `date`, so `1.9.0`
+  beats `1.10.0`, and its lookup also reaches linked projects. Rather than rely
+  on that, `push` keeps exactly one StructureDefinition per URL in the project
+  and loads a new version by updating it in place; `check` fails on any
+  duplicate or shadowing copy.
+- **The load gate:** loading is what switches a rule on. `push` refuses to
   load a profile version while `check` reports stored resources that fail it,
   then re-runs `check` straight after the load. This is Postgres's `ADD
   CONSTRAINT … NOT VALID` followed by `VALIDATE CONSTRAINT`.
@@ -399,10 +418,16 @@ A project starting clean skips steps 2 and 3 and has an empty baseline.
   - project admin does **not** bypass an AccessPolicy, but it can create
     clients through the system repository, edit any ProjectMembership, and act
     on behalf of another membership;
-  - so people get `admin: false` and a policy that lists the configuration
-    types (ClientApplication, Bot, Subscription, OperationDefinition,
-    StructureDefinition, SearchParameter, AccessPolicy) **explicitly** as
-    read-only, because a `*` entry would otherwise match them;
+  - policy entries are a **union**: an interaction is allowed if any entry
+    allows it, so a read-only entry for a type does not restrict a `*` entry
+    that allows writing it. Field rules (`hiddenFields`, `readonlyFields`)
+    come from the **first** matching entry, so order matters;
+  - so people get `admin: false` and a policy with **no writable `*` entry**:
+    the clinical types they may write are listed explicitly, the
+    configuration types (ClientApplication, Bot, Subscription,
+    OperationDefinition, StructureDefinition, SearchParameter, AccessPolicy)
+    are read-only or absent, and any `*` entry is `readonly: true`. `check`
+    flags a people policy with a writable `*` entry;
   - the CI client gets `admin: true` **and** an explicit policy, because an
     admin with no policy falls back to full access;
   - super admin is the break-glass.
@@ -472,8 +497,19 @@ export const sendMessage = defineOperation({
   `https://medplum.com/fhir/StructureDefinition/operationDefinition-implementation`
   extension references the Bot. `plumb generate` emits the OperationDefinition
   from the contract and `push` loads it, so the signature cannot drift.
-- Operations that return JSON inside a `Parameters` string are unwrapped by the
-  contract, so callers never see the envelope.
+- **Medplum finds a custom operation by `code` alone**, ignoring `resource`,
+  `system` and `type`, and runs it only when no built-in operation matches. So
+  a contract's `code` must be unique in the project and must not collide with
+  a built-in; `check` enforces both. `resourceType` and `level` shape the
+  generated OperationDefinition and the typed caller's URL, not the routing.
+- **The bot receives the raw POST body** (or, for `instance` operations, the
+  stored resource), with no `Parameters` unwrapping and no validation against
+  the OperationDefinition. The handler's parse of the contract's input is
+  therefore the only input validation, which is why it is not optional.
+- **Output:** a returned `Parameters` passes through; anything else is mapped to
+  the `out` parameters, and a single `return` parameter comes back bare. The
+  typed caller unwraps whichever shape the contract declares, so callers never
+  see the envelope.
 - Contracts import only Zod and FHIR types, so they stay small in a bot bundle.
 
 ### Agent-facing output
@@ -546,18 +582,35 @@ Plumb's repository.
 
 ### What Medplum does and does not do (read from server source, 5.1.41–5.1.42)
 
+Rechecked against `main` at `10ee734f4` (2026-09-29); every file cited is
+unchanged from v5.1.42. Evidence is in
+[`research/medplum-server-behaviour.md`](research/medplum-server-behaviour.md).
+
 - Validation runs in Node before the insert; Postgres never sees a profile.
-- With `strictMode` off, profile failures are logged and the write succeeds.
+- With `strictMode` off, the base R4 JSON schema is still enforced; base
+  cardinality, invariants, profiles and terminology are only logged. New
+  projects start strict.
+- Even in strict mode: constraints below `error` severity, four skipped
+  invariants and IG `Reference` target profiles are not enforced.
 - An unknown profile URL logs a warning and passes; `url|version` matches
   nothing and passes.
-- `defaultProfile` applies only when `meta.profile` is absent, writes its URLs
-  into the stored resource, uses the first entry per type, and every listed
-  profile must pass.
-- Loading a StructureDefinition clears a five-minute profile cache; nothing
-  re-checks stored resources.
+- `defaultProfile` applies only when `meta.profile` is absent (`[]` counts as
+  present), writes its URLs into the stored resource, uses the first entry per
+  type, and every listed profile must pass. System-repository writes get no
+  default.
+- The profile for a URL is the highest `version` sorted as text, then `date`,
+  found across the project and its linked projects.
+- Creating or updating a StructureDefinition clears a five-minute profile
+  cache; deleting one does not. Nothing re-checks stored resources.
+- `POST /:type/$validate` always validates strictly, whatever `strictMode` says.
 - Strict mode is project-wide.
 - `strictMode` and `features` are super-admin only; `GET /auth/me` exposes both
   to any member.
+- AccessPolicy entries are a union; field rules come from the first match.
+- Custom operations are routed by `code` alone, receive the raw request body,
+  and are never validated against their OperationDefinition.
+- `validateResource` in `@medplum/core` throws on any error-severity issue and
+  returns only warnings.
 
 These are what the server tests (Testing Decisions, 5) exist to keep true
 across Medplum releases.
@@ -635,12 +688,50 @@ Plumb is built so that Medplum could adopt any part of it. The generator is
 the most natural candidate, because Medplum already generates
 `@medplum/fhirtypes` from its definitions. Two smaller upstream proposals follow
 from the server reading: making an empty `meta.profile` apply the default, and
-per-type strict mode. Each is raised with Medplum as Plumb matures, not before.
+per-type strict mode. The source reading adds two more: version-aware profile
+resolution (semantic rather than text order), and enforcing `Reference` target
+profiles. Each is raised with Medplum as Plumb matures, not before, and always
+as an issue first: Medplum automatically closes pull requests from
+contributors it has not yet vouched for unless they link a maintainer-labelled
+issue.
+
+### Related Medplum work: the marketplace
+
+Medplum is building a marketplace (evidence in
+[`research/medplum-server-behaviour.md`](research/medplum-server-behaviour.md)):
+Package, PackageRelease and PackageInstallation, and `PackageRelease/$install`
+are on `main`; a catalog, configurable re-runnable installs, a
+`defineManifest()` format and `medplum package` CLI commands are on unmerged
+branches (`medplum/medplum#9406`). Plumb tracks it and does not build on it
+until it merges.
+
+- **Plumb is not a marketplace package.** Its generator, CLI, types and checks
+  live in a developer's repository; a package is something installed into a
+  project.
+- **Two parts of Plumb could ship as packages later:** profile packs (a
+  `reference-data` package of profiles, value sets, defaults and routing rows),
+  and the in-project conformance bot below.
+- **An in-project conformance bot is the likely answer to `check`'s data
+  problem.** `check --env` as specified reads every stored resource onto the
+  machine that runs it. A bot running inside the project could validate there
+  and return only counts and reasons, so patient data never leaves Medplum.
+- **`plumb-operations` should emit marketplace operation entries** from a
+  contract rather than compete with them. The marketplace's operation entry
+  (`code`, `parameter`, `delegatesTo`, accepted wire shapes) covers the same
+  ground.
+- **The manifest overlaps with `push` and `migrate`.** Once the work merges,
+  Plumb raises alignment on the issue, which is also the route Medplum's
+  contribution rules require.
 
 ### Open decisions
 
 - **The npm scope**, chosen before the first public publish.
 - **Supported Medplum versions**: the floor of the version matrix.
 - **Lint integration**: a Biome plugin, an ESLint plugin, or a `check` rule only.
+- **How `push` loads profiles**: plain FHIR writes (as specified), or through
+  `PackageRelease/$install` once Medplum's marketplace settles.
+- **Where `check --env` validates**: on the machine that runs it (as
+  specified), or in the project through a conformance bot, so patient data
+  never leaves Medplum.
 - **The first adopter's work** lives in its own adoption project and is not
   specified here.
