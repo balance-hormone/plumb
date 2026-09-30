@@ -135,12 +135,19 @@ export function compileCases(name: string, cases: CompileCase[]): string[][] {
   );
 
   const diagnostics: string[][] = cases.map(() => []);
+  let last: string[] | undefined;
   for (const line of result.stdout.split('\n').filter(Boolean)) {
+    // An indented line continues the diagnostic above it.
+    if (/^\s/.test(line) && last) {
+      last[last.length - 1] += `\n${line}`;
+      continue;
+    }
     const at = new RegExp(`^${name}\\.ts\\((\\d+),\\d+\\): (.*)$`).exec(line);
     const i = at ? lineToCase.get(Number(at[1]) - header.length) : undefined;
     // A diagnostic outside any case (an import, the config) would hide every result.
     if (i === undefined) throw new Error(`tsc: ${line}${result.stderr}`);
-    diagnostics[i]?.push(at?.[2] ?? line);
+    last = diagnostics[i];
+    last?.push(at?.[2] ?? line);
   }
   if (result.status !== 0 && !result.stdout) throw new Error(`tsc failed: ${result.stderr}`);
   return diagnostics;

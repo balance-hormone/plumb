@@ -159,11 +159,10 @@
     },
     {
       "name": "official name without family",
-      "rule": "name:official.family 1..1",
+      "rule": "name:official.family 1..1; name slicing is ordered, so the first name is the official slice",
       "conforms": false,
-      "compiles": true,
+      "compiles": false,
       "validates": true,
-      "typeGap": "slice",
       "validatorGap": "slice-contents",
       "resource": {
         "resourceType": "Patient",

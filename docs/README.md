@@ -48,9 +48,13 @@
   that narrows `@medplum/fhirtypes`: required paths at every depth, `max: 0`,
   choices, fixed and pattern values, narrowed backbone elements, reference
   targets, and doc comments for what the types cannot check. The harness now
-  compiles every fixture against generated types; 11 rows remain expected
-  failures, all slices, extension slices and bindings. **Next:** slices (#15)
-  and bindings (#16).
+  compiles every fixture against generated types.
+- **Slices:** a type per slice (an extension slice from its extension
+  profile), a union for closed slicing, a tuple for ordered slicing, and
+  builders and readers (`USCoreBloodPressure.systolic(...)`,
+  `getSystolic(bp)`) that fill in and match discriminator values. Open
+  slicing, which every extension slicing is, keeps a plain array. Only the two
+  binding rows remain expected failures. **Next:** bindings (#16).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).

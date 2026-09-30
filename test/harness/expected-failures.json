@@ -1,13 +1,4 @@
 [
   "http://example.org/fhir/plumb-test/StructureDefinition/bindings-patient#gender other",
-  "http://example.org/fhir/plumb-test/StructureDefinition/bindings-patient#meta.tag outside its value set",
-  "http://example.org/fhir/plumb-test/StructureDefinition/optional-extensions-patient#care note with a value as well",
-  "http://example.org/fhir/plumb-test/StructureDefinition/optional-extensions-patient#contact window start as a string",
-  "http://example.org/fhir/plumb-test/StructureDefinition/optional-extensions-patient#favorite color as a string",
-  "http://example.org/fhir/plumb-test/StructureDefinition/optional-extensions-patient#favorite color outside its value set",
-  "http://example.org/fhir/plumb-test/StructureDefinition/primitives-basic#extension without a value",
-  "http://example.org/fhir/plumb-test/StructureDefinition/primitives-basic#integer extension holding a string",
-  "http://example.org/fhir/plumb-test/StructureDefinition/sliced-patient#an identifier that matches no slice",
-  "http://example.org/fhir/plumb-test/StructureDefinition/sliced-patient#nickname before official",
-  "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient#race category as a string"
+  "http://example.org/fhir/plumb-test/StructureDefinition/bindings-patient#meta.tag outside its value set"
 ]

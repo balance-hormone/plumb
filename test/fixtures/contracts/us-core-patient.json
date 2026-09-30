@@ -326,8 +326,9 @@
       "name": "race category as a string",
       "rule": "us-core-race ombCategory value[x] only Coding",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": true,
+      "typeGap": "slice",
       "validatorGap": "extension-contents",
       "resource": {
         "resourceType": "Patient",
