@@ -1,6 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  // The hook runs from .claude/settings.json, which knip does not read. The CLI is
-  // reached through `bin` (dist/esm/cli.mjs), which knip cannot map back to src.
-  "entry": [".claude/hooks/*.mjs", "src/cli.ts"]
+  // The hook runs from .claude/settings.json, which knip does not read. The library
+  // and CLI are reached through `exports` and `bin` (dist/), which knip cannot map
+  // back to src.
+  "entry": [".claude/hooks/*.mjs", "src/index.ts", "src/cli.ts"]
 }
