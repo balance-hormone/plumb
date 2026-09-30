@@ -1,5 +1,5 @@
 {
-  "name": "plumb",
+  "name": "plumb-fhir",
   "version": "0.0.0",
   "private": true,
   "description": "Make Medplum's own types profile-aware: generate TypeScript types from FHIR profiles that narrow @medplum/fhirtypes.",
