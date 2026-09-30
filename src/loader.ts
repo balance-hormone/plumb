@@ -31,6 +31,8 @@ const BASE_FILES = [
   'fhir/r4/v2-tables.json',
 ];
 
+type LoadWarningCode = 'version-conflict' | 'unparseable-skipped';
+
 type LoadErrorCode =
   | 'profile-not-found'
   | 'no-snapshot'
@@ -64,7 +66,7 @@ export interface LoadProfilesResult {
    * provides them, or a code system ships without its concepts (SNOMED CT in base R4).
    */
   unresolved: { url: string; from: string }[];
-  warnings: LoadIssue<'version-conflict'>[];
+  warnings: LoadIssue<LoadWarningCode>[];
   errors: LoadIssue<LoadErrorCode>[];
 }
 
@@ -75,6 +77,7 @@ export interface LoadProfilesOptions {
   igs: string[];
   /** A folder of the project's own StructureDefinition, ValueSet and CodeSystem JSON. */
   local?: string;
+  /** Canonical URLs, or `name/*` for every resource profile in an IG `igs` lists. */
   profiles: string[];
 }
 
@@ -151,7 +154,9 @@ export function loadProfiles(options: LoadProfilesOptions): LoadProfilesResult {
   const errors = [...sources.errors];
   const closure = new Closure(sources.all);
   const selected: Entry[] = [];
-  for (const url of options.profiles) {
+  const { urls, wildcard, missing } = expand(options, sources.packages);
+  errors.push(...missing);
+  for (const url of urls) {
     const entry = resolve(url, sources.everything);
     if (!entry) {
       errors.push({ code: 'profile-not-found', url, message: `No source provides ${url}.` });
@@ -162,8 +167,57 @@ export function loadProfiles(options: LoadProfilesOptions): LoadProfilesResult {
   }
   errors.push(...closure.errors);
   if (errors.length > 0) return result(false, [], closure, errors);
-  const parsed = parse(closure, selected);
+  const parsed = parse(closure, selected, wildcard);
+  closure.warnings.push(...parsed.skipped);
   return result(parsed.errors.length === 0, parsed.profiles, closure, parsed.errors);
+}
+
+const ALL_PROFILES = /^(.+)\/\*$/;
+
+/**
+ * Expands each `name/*` to the IG's resource profiles, sorted by URL, and
+ * drops repeats. `wildcard` holds the URLs only a wildcard selected.
+ */
+function expand(options: LoadProfilesOptions, packages: Map<string, { source: Source }>) {
+  const urls: string[] = [];
+  const explicit = new Set<string>();
+  const wildcard = new Set<string>();
+  const missing: LoadIssue<LoadErrorCode>[] = [];
+  for (const profile of options.profiles) {
+    const name = ALL_PROFILES.exec(profile)?.[1];
+    if (!name) {
+      explicit.add(profile);
+      urls.push(profile);
+      continue;
+    }
+    const ig = options.igs.find((id) => id.slice(0, id.lastIndexOf('@')) === name);
+    const pkg = ig ? packages.get(ig) : undefined;
+    if (!pkg) {
+      missing.push({
+        code: 'profile-not-found',
+        url: profile,
+        message: `${profile} names ${name}, which was not fetched.`,
+      });
+      continue;
+    }
+    const found = [...pkg.source.defs.values()]
+      .filter((e) => {
+        const sd = content(e) as StructureDefinition;
+        return (
+          sd.resourceType === 'StructureDefinition' &&
+          sd.kind === 'resource' &&
+          sd.derivation === 'constraint'
+        );
+      })
+      .map((e) => e.url)
+      .sort();
+    for (const url of found) {
+      wildcard.add(url);
+      urls.push(url);
+    }
+  }
+  for (const url of explicit) wildcard.delete(url);
+  return { urls: [...new Set(urls)], wildcard, missing };
 }
 
 /** Indexes base R4, the packages and the local folder, and works out each IG's scope. */
@@ -209,31 +263,41 @@ function gather(options: LoadProfilesOptions) {
     const root = options.igs.find((ig) => packages.get(ig)?.dependencies.includes(source));
     return root ? scopeOf(root) : everything;
   };
-  return { errors, everything, scopeFor, all: [base, ...localFirst, ...packageSources] };
+  return {
+    errors,
+    packages,
+    everything,
+    scopeFor,
+    all: [base, ...localFirst, ...packageSources],
+  };
 }
 
 /** Registers every profile, parent and extension with Medplum, then parses the selected ones. */
-function parse(closure: Closure, selected: Entry[]) {
+/**
+ * Registers every profile, parent and extension with Medplum, then parses the
+ * selected ones. A profile only a wildcard selected is skipped with a warning
+ * when Medplum cannot parse it, so one such profile does not block its IG.
+ */
+function parse(closure: Closure, selected: Entry[], wildcard: Set<string>) {
   const errors: LoadIssue<LoadErrorCode>[] = [];
+  const skipped: LoadIssue<LoadWarningCode>[] = [];
   registerCore();
   for (const url of closure.deep) {
     try {
       loadDataType(closure.definitions.get(url)?.resource as StructureDefinition);
     } catch (err) {
-      errors.push({
-        code: 'unparseable',
-        url,
-        message: `Medplum cannot parse ${url}: ${err instanceof Error ? err.message : String(err)}`,
-      });
+      const message = `Medplum cannot parse ${url}: ${err instanceof Error ? err.message : String(err)}`;
+      if (wildcard.has(url)) skipped.push({ code: 'unparseable-skipped', url, message });
+      else errors.push({ code: 'unparseable', url, message });
     }
   }
   const profiles: LoadedProfile[] = [];
   for (const entry of selected) {
     const sd = content(entry) as StructureDefinition;
-    if (errors.some((e) => e.url === sd.url)) continue;
+    if ([...errors, ...skipped].some((e) => e.url === sd.url)) continue;
     profiles.push({ url: sd.url, source: entry.source, sd, schema: parseStructureDefinition(sd) });
   }
-  return { profiles, errors };
+  return { profiles, errors, skipped };
 }
 
 function result(
@@ -283,7 +347,7 @@ function dependenciesOf(dir: string): string[] {
 class Closure {
   readonly definitions = new Map<string, { resource: Conformance; source: string }>();
   readonly unresolved: { url: string; from: string }[] = [];
-  readonly warnings: LoadIssue<'version-conflict'>[] = [];
+  readonly warnings: LoadIssue<LoadWarningCode>[] = [];
   readonly errors: LoadIssue<LoadErrorCode>[] = [];
   /** StructureDefinitions walked in full, as opposed to reference targets. */
   readonly deep = new Set<string>();

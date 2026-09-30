@@ -42,8 +42,8 @@
 - **Loader:** `loadProfiles` selects the configured profiles, closes over what
   they depend on, resolves each reference in its IG's own scope, and parses
   each profile with Medplum. It loads all 54 parseable US Core 9.0.0 resource
-  profiles in about 2 seconds. **Next:** `name/*` expansion (#27), then the
-  emitter (#14).
+  profiles in about 2 seconds. `hl7.fhir.us.core/*` selects all of them,
+  skipping Provenance with a warning. **Next:** the emitter (#14).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
