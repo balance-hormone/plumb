@@ -38,6 +38,7 @@ export interface ContractTable {
 export interface UsCoreExpectations {
   baseTypeOnly: { files: Record<string, string> };
   bundles: { files: string[] };
+  primitiveExtensions: { files: string[] };
   unparseableProfiles: { profiles: Record<string, string> };
 }
 
@@ -49,6 +50,8 @@ export interface UsCoreCase {
   profile?: string;
   /** The profile cannot be parsed, so validating against it must throw. */
   unparseable: boolean;
+  /** Uses a `_field`, which no type from @medplum/fhirtypes allows. */
+  primitiveExtension: boolean;
 }
 
 // Design 01, Testing. These lists change only with a reviewed edit there.
@@ -63,6 +66,7 @@ export const TYPE_GAPS = new Set([
   'unexpandable-valueset',
   'oversize-valueset',
   'target-profile',
+  'reference-string',
   'primitive-extension',
 ]);
 export const VALIDATOR_GAPS = new Set([
@@ -111,6 +115,7 @@ export const usCoreCases: UsCoreCase[] = readdirSync(join(US_CORE, 'example'))
       resource: r,
       profile,
       unparseable: profile !== undefined && profile in unparseable,
+      primitiveExtension: usCoreExpectations.primitiveExtensions.files.includes(file),
     });
     if (file in usCoreExpectations.baseTypeOnly.files) return [toCase(file, resource, undefined)];
     if (usCoreExpectations.bundles.files.includes(file)) {

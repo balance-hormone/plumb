@@ -479,8 +479,9 @@
       "name": "subject is a Group",
       "rule": "subject only Reference(US Core Patient)",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": true,
+      "typeGap": "reference-string",
       "validatorGap": "reference-target",
       "resource": {
         "resourceType": "Observation",

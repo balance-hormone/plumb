@@ -26,6 +26,13 @@
       "Bundle-docref-example-2.json"
     ]
   },
+  "primitiveExtensions": {
+    "reason": "@medplum/fhirtypes has no _field properties for extensions on primitive values, so an example that uses one compiles against no type, generated or base. It is still validated against its profile.",
+    "files": [
+      "QuestionnaireResponse-glascow-coma-score.json",
+      "QuestionnaireResponse-hunger-vital-sign-example.json"
+    ]
+  },
   "unparseableProfiles": {
     "reason": "@medplum/core 5.1.42's parseStructureDefinition throws on this profile, so neither Plumb nor the validator can use it. Entries that declare it compile against their base type, and validating them against the profile throws.",
     "profiles": {

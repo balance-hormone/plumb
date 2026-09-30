@@ -5,10 +5,15 @@ import {
   baseType,
   type CompileCase,
   compileCases,
-  expectedFailures,
-  profileTypes,
+  generateTypes,
+  isExpectedFailure,
 } from './compile.js';
 import { type UsCoreCase, usCoreCases, usCoreExpectations, validates } from './fixtures.js';
+
+const profileTypes = generateTypes(
+  'us-core-examples',
+  usCoreCases.flatMap((c) => (c.profile && !c.unparseable ? [c.profile] : [])),
+);
 
 // Examples with no parseable US Core profile compile against their base type.
 const typeOf = (c: UsCoreCase) =>
@@ -34,7 +39,13 @@ describe.each(usCoreCases)('$name', (c) => {
     });
   }
 
-  const pending = c.profile !== undefined && expectedFailures.has(c.profile);
+  if (c.primitiveExtension) {
+    test('does not compile, for its _field', () => {
+      expect(diagnostics.get(c)?.some((d) => d.includes('"_'))).toBe(true);
+    });
+    return;
+  }
+  const pending = c.profile !== undefined && isExpectedFailure(c.profile, c.name);
   (pending ? test.fails : test)('compiles', () => {
     expect(typeOf(c), 'no generated type').toBeDefined();
     expect(diagnostics.get(c)).toEqual([]);

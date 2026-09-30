@@ -42,8 +42,9 @@
       "name": "subject is a Group",
       "rule": "subject only Reference(Patient) (a base target: the validator only warns)",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": true,
+      "typeGap": "reference-string",
       "validatorGap": "reference-target",
       "resource": {
         "resourceType": "Observation",
@@ -65,8 +66,9 @@
       "name": "performer is a Practitioner",
       "rule": "performer only Reference(CardinalityPatient) (a profile target: the validator does not check it)",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": true,
+      "typeGap": "reference-string",
       "validatorGap": "reference-target",
       "resource": {
         "resourceType": "Observation",
