@@ -23,6 +23,12 @@ describe('printExpr', () => {
     );
   });
 
+  test('an open string keeps its suggestions', () => {
+    expect(
+      printExpr({ kind: 'union', of: [{ kind: 'literal', value: 'g' }, { kind: 'otherString' }] }),
+    ).toBe("'g' | (string & {})");
+  });
+
   test('arrays wrap unions and intersections in parentheses', () => {
     expect(printExpr({ kind: 'array', of: ref('HumanName') })).toBe('HumanName[]');
     expect(printExpr({ kind: 'array', of: { kind: 'union', of: [ref('A'), ref('B')] } })).toBe(
@@ -130,6 +136,7 @@ describe('printFiles', () => {
     typeName: 'ExamplePatient',
     doc: ['Example Patient', '', 'A patient.'],
     helpers: [],
+    constants: [],
     decls: [
       {
         name: 'ExamplePatient',
@@ -185,6 +192,31 @@ describe('printFiles', () => {
         '',
         "export type ExamplePatientContact = Require<PatientContact, 'name'>;",
         '',
+      ].join('\n'),
+    );
+  });
+
+  test('exports the codes of a CodeableConcept binding', () => {
+    const files = printFiles(
+      [
+        {
+          ...model,
+          constants: [
+            {
+              name: 'ExamplePatientMaritalStatusCodes',
+              codes: [{ system: 'http://example.org/cs', code: 'red', display: 'Red' }],
+            },
+          ],
+        },
+      ],
+      () => 'sha256-abc',
+    );
+    expect(files.get('ExamplePatient.ts')).toContain(
+      [
+        '/** The codes of ExamplePatientMaritalStatus. */',
+        'export const ExamplePatientMaritalStatusCodes = [',
+        "  { system: 'http://example.org/cs', code: 'red', display: 'Red' },",
+        '] as const;',
       ].join('\n'),
     );
   });

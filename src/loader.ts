@@ -386,9 +386,12 @@ class Closure {
       // Only a target's resource type matters, so it is not walked.
       for (const target of type.targetProfile ?? []) this.find(target, scope, from, 'target');
     }
-    if (element.binding?.strength === 'required' && element.binding.valueSet) {
-      this.valueSet(element.binding.valueSet, scope, from);
-    }
+    // Extensible bindings on a code are typed too, as suggestions (design 01, decision 3).
+    const binding = element.binding;
+    const typed =
+      binding?.strength === 'required' ||
+      (binding?.strength === 'extensible' && element.type?.some((t) => t.code === 'code'));
+    if (typed && binding?.valueSet) this.valueSet(binding.valueSet, scope, from);
   }
 
   private valueSet(ref: string, scope: Source[], from: string): void {

@@ -88,6 +88,8 @@ export function printExpr(t: TypeExpr): string {
       return `Require<${printExpr(t.base)}, ${t.keys.map(quote).join(' | ')}>`;
     case 'never':
       return 'never';
+    case 'otherString':
+      return '(string & {})';
     case 'narrow': {
       const base = printExpr(t.base);
       const keys = t.omit.map(quote);
@@ -195,6 +197,13 @@ function printProfile(model: ProfileModel, hash: string): string {
   b.newLine();
   b.appendNoWrap(`/** The canonical URL of ${model.typeName}. */`);
   b.appendNoWrap(`export const ${model.typeName}ProfileUrl = ${quote(model.url)};`);
+  for (const constant of model.constants) {
+    b.newLine();
+    b.appendNoWrap(`/** The codes of ${constant.name.slice(0, -'Codes'.length)}. */`);
+    b.appendNoWrap(`export const ${constant.name} = [`);
+    for (const c of constant.codes) b.appendNoWrap(`  ${printValue(c)},`);
+    b.appendNoWrap('] as const;');
+  }
   model.decls.forEach((d, i) => {
     b.newLine();
     if (i === 0) for (const line of docLines(model.doc, WIDTH - 3)) b.appendNoWrap(line);

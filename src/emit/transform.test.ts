@@ -278,6 +278,83 @@ describe('transform', () => {
     });
   });
 
+  describe('bindings', () => {
+    const colors = 'http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors';
+    const literals = (...values: string[]) => ({
+      kind: 'union',
+      of: values.map((value) => ({ kind: 'literal', value })),
+    });
+
+    test('a required binding on a code, listable, is a literal union', () => {
+      expect(field(decl(model('bindings-patient')), 'gender').type).toEqual(
+        literals('female', 'male'),
+      );
+    });
+
+    test('a required binding on a Coding is a union per system', () => {
+      const meta = field(decl(model('bindings-patient')), 'meta').type;
+      if (meta.kind !== 'narrow') throw new Error('meta is not narrowed');
+      expect(field(meta, 'tag').type).toEqual({
+        kind: 'array',
+        of: {
+          kind: 'narrow',
+          base: { kind: 'ref', name: 'Coding' },
+          omit: ['system', 'code'],
+          fields: [],
+          oneOf: [
+            [
+              [
+                { name: 'system', optional: false, type: { kind: 'literal', value: colors } },
+                { name: 'code', optional: false, type: literals('red', 'green', 'blue') },
+              ],
+            ],
+          ],
+        },
+      });
+    });
+
+    test('a required binding on a CodeableConcept keeps the type and exports the codes', () => {
+      const m = model('bindings-patient');
+      const t = decl(m);
+      if (t.kind !== 'narrow') throw new Error('not narrowed');
+      expect(t.fields.some((f) => f.name === 'maritalStatus')).toBe(false);
+      expect(m.constants).toContainEqual({
+        name: 'BindingsPatientMaritalStatusCodes',
+        codes: [
+          { system: colors, code: 'red', display: 'Red' },
+          { system: colors, code: 'green', display: 'Green' },
+          { system: colors, code: 'blue', display: 'Blue' },
+        ],
+      });
+    });
+
+    test('a value set that cannot be listed, or is too large, keeps the base type and is documented', () => {
+      const patient = model('bindings-patient');
+      const meta = field(decl(patient), 'meta').type;
+      if (meta.kind !== 'narrow') throw new Error('meta is not narrowed');
+      expect(meta.fields.some((f) => f.name === 'security')).toBe(false);
+      expect(patient.doc.join('\n')).toContain('plumb-test-findings');
+      const observation = model('bindings-observation');
+      expect(JSON.stringify(decl(observation))).not.toContain('c001');
+      expect(observation.doc.join('\n')).toContain('plumb-test-large-vs');
+    });
+
+    test('an extensible binding on a code suggests its codes without rejecting others', () => {
+      const component = decl(model('bindings-observation'), 'BindingsObservationComponent');
+      if (component.kind !== 'narrow') throw new Error('component is not narrowed');
+      const quantity = field(component, 'valueQuantity').type;
+      if (quantity.kind !== 'narrow') throw new Error('valueQuantity is not narrowed');
+      expect(field(quantity, 'code').type).toEqual({
+        kind: 'union',
+        of: [
+          { kind: 'literal', value: 'g' },
+          { kind: 'literal', value: 'kg' },
+          { kind: 'otherString' },
+        ],
+      });
+    });
+  });
+
   test('lists invariants the type cannot check in the doc comment', () => {
     expect(model('nesting-patient').doc.join('\n')).toContain('plumb-name-part');
   });
