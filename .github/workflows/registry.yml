@@ -1,0 +1,49 @@
+name: Registry
+# The offline tests cannot notice a change in packages.fhir.org or in published
+# packages, so this runs the README against the real registry, on a schedule.
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  registry:
+    name: Real FHIR registry
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install npm from packageManager
+        run: npm install -g "$(node -p "require('./package.json').packageManager")"
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: The README and IPS against the real registry
+        run: npx vitest run test/e2e/registry.test.ts
+        env:
+          PLUMB_REGISTRY: '1'
+      - name: Report a scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='Nightly registry run failing'
+          open=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "Still failing: $RUN_URL"
+          else
+            gh issue create --title "$title" --label bug --body "The nightly run against packages.fhir.org failed: $RUN_URL
+
+          It runs \`test/e2e/registry.test.ts\`, the README quickstart and IPS 2.0.1 with an empty package cache. A failure means the registry, a published package, or the README has drifted from what Plumb expects."
+          fi
