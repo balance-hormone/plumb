@@ -162,6 +162,38 @@ describe('loadConfig', () => {
     expect(!result.ok && result.errors[0]?.path).toBe('profiles[0]');
   });
 
+  test('accepts a value-set size limit', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', bindings: { maxCodes: 250 } };`,
+    });
+    expect(result.ok && result.config.bindings).toEqual({ maxCodes: 250 });
+  });
+
+  test.each([
+    ['0', 'invalid-max-codes', 'bindings.maxCodes'],
+    ['2.5', 'invalid-max-codes', 'bindings.maxCodes'],
+    ["'100'", 'invalid-max-codes', 'bindings.maxCodes'],
+  ])('invalid-max-codes: %s', (value, code, path) => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', bindings: { maxCodes: ${value} } };`,
+    });
+    expect(codes(result)).toEqual([code]);
+    expect(!result.ok && result.errors[0]?.path).toBe(path);
+  });
+
+  test('unknown-key inside bindings, and bindings that is not an object', () => {
+    const unknown = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', bindings: { max: 5 } };`,
+    });
+    expect(!unknown.ok && unknown.errors.map((e) => [e.code, e.path])).toEqual([
+      ['unknown-key', 'bindings.max'],
+    ]);
+    const wrong = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', bindings: 5 };`,
+    });
+    expect(codes(wrong)).toEqual(['invalid-type']);
+  });
+
   test.each([
     'us-core-patient',
     'http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient|9.0.0',

@@ -87,7 +87,7 @@ interface TransformIssue {
 }
 
 const NUMBERS = new Set(['integer', 'decimal', 'positiveInt', 'unsignedInt']);
-// A value set with more codes than this is typed as its base type, not a union.
+// By default, a value set with more codes than this is typed as its base type, not a union.
 const MAX_CODES = 100;
 const BASE_URL = 'http://hl7.org/fhir/StructureDefinition/';
 
@@ -182,17 +182,20 @@ class ProfileTransform {
   private readonly typeName: string;
   private readonly targetType: (url: string) => string | undefined;
   private readonly expand: (url: string) => Code[] | undefined;
+  private readonly maxCodes: number;
 
   constructor(
     schema: InternalTypeSchema,
     typeName: string,
     targetType: (url: string) => string | undefined,
     expand: (url: string) => Code[] | undefined,
+    maxCodes: number,
   ) {
     this.schema = schema;
     this.typeName = typeName;
     this.targetType = targetType;
     this.expand = expand;
+    this.maxCodes = maxCodes;
   }
 
   get sliceCount(): number {
@@ -535,8 +538,8 @@ class ProfileTransform {
       base && bare(base.valueSet) === bare(binding.valueSet) && base.strength === binding.strength;
     if (!typed || unchanged) return undefined;
     const codes = this.expand(binding.valueSet);
-    if (codes && codes.length <= MAX_CODES) return codes;
-    const why = codes ? `more than ${MAX_CODES} codes` : 'codes that cannot be listed offline';
+    if (codes && codes.length <= this.maxCodes) return codes;
+    const why = codes ? `more than ${this.maxCodes} codes` : 'codes that cannot be listed offline';
     this.notes.push(
       `${path} is bound to ${bare(binding.valueSet)}, which has ${why}; only a server checks it.`,
     );
@@ -698,7 +701,10 @@ function docFor(sd: StructureDefinition, notes: string[]): string[] {
 }
 
 /** Turns the loaded profiles into type models, naming each type. */
-export function transform(loaded: LoadProfilesResult): {
+export function transform(
+  loaded: LoadProfilesResult,
+  options: { maxCodes?: number } = {},
+): {
   models: ProfileModel[];
   errors: TransformIssue[];
   /** What the types leave out because Medplum's parse cannot support it. */
@@ -734,7 +740,13 @@ export function transform(loaded: LoadProfilesResult): {
   const expand = (url: string) => expandValueSet(url, lookup);
   const warnings: string[] = [];
   const models = loaded.profiles.map((p, i): ProfileModel => {
-    const t = new ProfileTransform(p.schema, final[i] as string, targetType, expand);
+    const t = new ProfileTransform(
+      p.schema,
+      final[i] as string,
+      targetType,
+      expand,
+      options.maxCodes ?? MAX_CODES,
+    );
     const decls = t.decls();
     warnings.push(...t.warnings);
     return {

@@ -173,7 +173,7 @@ Rejected:
 | Required binding, value set listable offline, on a `code` or `Coding` | A literal union of the codes |
 | Required binding on a `CodeableConcept` | The base type, plus exported code constants; not checked offline (see below) |
 | Required binding whose value set cannot be listed offline (filters, VSAC) | The base type (`string` for a plain code), with the value set URL in the doc comment |
-| More than 100 codes (a constant for v0.1) | The base type (`string` for a plain code), with the value set URL in the doc comment |
+| More than `bindings.maxCodes` codes (100 by default) | The base type (`string` for a plain code), with the value set URL in the doc comment |
 | Extensible binding on a `code` | `'a' \| 'b' \| (string & {})`: autocomplete without rejecting other codes |
 | Preferred or example | The base type |
 

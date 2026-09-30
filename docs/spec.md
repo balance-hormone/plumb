@@ -208,8 +208,11 @@ Named after the tools developers already know:
   TypeScript-only syntax such as `enum`, relative imports without a `.ts`
   extension, and `tsconfig` path aliases, none of which Node resolves.
 - **Checked with plain code** when loaded: unknown keys, a missing `out`, a
-  malformed IG name or version, and a profile URL no package provides are each
-  a named error.
+  malformed IG name or version, a bad `bindings.maxCodes`, and a profile URL no
+  package provides are each a named error.
+- **`bindings.maxCodes`** (optional, 100 by default): a required binding whose
+  value set has more codes keeps its base type rather than becoming a literal
+  union. It must be a whole number of at least 1.
 - **`profiles` lists canonical URLs, or `name/*` for a whole IG:** every
   resource profile in a package `igs` lists (`kind: resource`,
   `derivation: constraint`). The version stays in `igs`, and a wildcard naming

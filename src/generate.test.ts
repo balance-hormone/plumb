@@ -69,6 +69,12 @@ describe('generate', () => {
     expect(result.totalMs).toBeGreaterThanOrEqual(0);
   });
 
+  test('passes the value-set size limit to the emitter', async () => {
+    const p = project(['bindings-observation']);
+    await generate({ ...p, config: { ...p.config, bindings: { maxCodes: 200 } } });
+    expect(readFileSync(join(p.config.out, 'BindingsObservation.ts'), 'utf8')).toContain("'c101'");
+  });
+
   test('headers carry each profile version and source hash', async () => {
     const p = project();
     await generate(p);
