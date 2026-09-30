@@ -30,9 +30,10 @@ const allowedHosts = [
   'nlm.nih.gov',
 ];
 const skipFiles = new Set(['package-lock.json']);
-// Published IG packages, copied unmodified: their example hosts, emails and
-// identifiers are the IG authors', so only the denylist applies to them.
-const publishedPackages = 'test/fixtures/packages/';
+// Published IG packages, copied unmodified, and SUSHI's output, whose snapshots
+// repeat the base FHIR definitions: their example hosts, emails and identifiers
+// are HL7's, so only the denylist applies. The FSH that SUSHI reads is checked.
+const hl7Content = ['test/fixtures/packages/', 'test/fixtures/profiles/fsh-generated/'];
 
 const denylist = (process.env.PLUMB_DENYLIST ?? '')
   .split(',')
@@ -60,7 +61,7 @@ function realDataViolations(line) {
 }
 
 function violations(file, line) {
-  const found = file.startsWith(publishedPackages) ? [] : realDataViolations(line);
+  const found = hl7Content.some((dir) => file.startsWith(dir)) ? [] : realDataViolations(line);
   const isAttribution = file === 'NOTICE' || line.includes('SPDX-FileCopyrightText:');
   for (const term of isAttribution ? [] : denylist) {
     if (term.test(line)) found.push('organization-specific term (PLUMB_DENYLIST)');

@@ -51,6 +51,10 @@ npm run fixtures:profiles
 SUSHI fetches `hl7.fhir.r4.core` into `~/.fhir/packages` the first time. It is
 needed only to edit these profiles; the tests read the committed JSON.
 
+The snapshots repeat base FHIR definition text, with HL7's example hosts, so
+the agnostic check applies only its denylist to `fsh-generated`; the FSH
+itself gets the full check.
+
 ## `contracts`
 
 One contract table per test profile, and one each for four US Core profiles
