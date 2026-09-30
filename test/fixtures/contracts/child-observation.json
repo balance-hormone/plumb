@@ -1,0 +1,142 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/child-observation",
+  "matrix": ["Inheritance"],
+  "assignableTo": ["http://example.org/fhir/plumb-test/StructureDefinition/parent-observation"],
+  "fixtures": [
+    {
+      "name": "all rules met",
+      "rule": "ParentObservation, plus code LOINC 39156-5 and valueQuantity.value 1..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "39156-5"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z",
+        "valueQuantity": {
+          "value": 22.5,
+          "unit": "kg/m2",
+          "system": "http://unitsofmeasure.org",
+          "code": "kg/m2"
+        }
+      }
+    },
+    {
+      "name": "subject missing",
+      "rule": "subject 1..1, inherited from ParentObservation",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "39156-5"
+            }
+          ]
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z",
+        "valueQuantity": {
+          "value": 22.5,
+          "unit": "kg/m2",
+          "system": "http://unitsofmeasure.org",
+          "code": "kg/m2"
+        }
+      }
+    },
+    {
+      "name": "valueQuantity without value",
+      "rule": "valueQuantity.value 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "39156-5"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z",
+        "valueQuantity": {
+          "unit": "kg/m2"
+        }
+      }
+    },
+    {
+      "name": "valueString",
+      "rule": "value[x] only Quantity",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "39156-5"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z",
+        "valueString": "normal"
+      }
+    },
+    {
+      "name": "code without the BMI coding",
+      "rule": "code must contain LOINC 39156-5",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "pattern-coding",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "29463-7"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z",
+        "valueQuantity": {
+          "value": 22.5,
+          "unit": "kg/m2",
+          "system": "http://unitsofmeasure.org",
+          "code": "kg/m2"
+        }
+      }
+    }
+  ]
+}

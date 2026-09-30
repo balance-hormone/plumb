@@ -1,0 +1,123 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/recursive-questionnaire",
+  "matrix": ["Recursion"],
+  "fixtures": [
+    {
+      "name": "every item has text",
+      "rule": "item 1..*; item.text 1..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Questionnaire",
+        "status": "active",
+        "item": [
+          {
+            "linkId": "1",
+            "text": "About you",
+            "type": "group",
+            "item": [
+              {
+                "linkId": "1.1",
+                "text": "Name",
+                "type": "string"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "three levels deep",
+      "rule": "item.item refers back to item",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Questionnaire",
+        "status": "active",
+        "item": [
+          {
+            "linkId": "1",
+            "text": "A",
+            "type": "group",
+            "item": [
+              {
+                "linkId": "1.1",
+                "text": "B",
+                "type": "group",
+                "item": [
+                  {
+                    "linkId": "1.1.1",
+                    "text": "C",
+                    "type": "string"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "no items",
+      "rule": "item 1..*",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Questionnaire",
+        "status": "active"
+      }
+    },
+    {
+      "name": "top-level item without text",
+      "rule": "item.text 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Questionnaire",
+        "status": "active",
+        "item": [
+          {
+            "linkId": "1",
+            "type": "group",
+            "item": [
+              {
+                "linkId": "1.1",
+                "text": "Name",
+                "type": "string"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "nested item without text",
+      "rule": "item.item is a contentReference to the profiled item, so item.text 1..1 applies at every level",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "content-reference",
+      "resource": {
+        "resourceType": "Questionnaire",
+        "status": "active",
+        "item": [
+          {
+            "linkId": "1",
+            "text": "About you",
+            "type": "group",
+            "item": [
+              {
+                "linkId": "1.1",
+                "type": "string"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

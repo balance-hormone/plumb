@@ -88,7 +88,10 @@ generated type works in every Medplum SDK call and React component with no
 casts. The generator never emits a parallel base R4 tree.
 
 **Anything the types cannot enforce is written in the doc comment,** with who
-checks it. `validateProfiled` checks required slices and invariants. No
+checks it. `validateProfiled` checks invariants and how many entries each
+slice has, except extension slices, which Medplum's validator never matches, so
+a required extension slice fails even when present
+([research](../research/medplum-server-behaviour.md#what-it-checks-run-against-us-core-900)). No
 offline check covers terminology: Medplum's validator checks no binding, so
 required bindings on a `CodeableConcept` and value sets that cannot be expanded
 offline are checked only by a server with the `validate-terminology` feature
@@ -137,7 +140,10 @@ slice accessors and check presence at runtime. Plumb follows them:
   ```
 
 - **A missing required slice is caught by `validateProfiled`,** not the
-  compiler, and the type's doc comment says so.
+  compiler, and the type's doc comment says so. Medplum's validator counts a
+  slice's entries but does not check each entry against the slice's own rules,
+  nor `ordered` or `closed`, and never matches an extension slice, so the doc
+  comment says that too.
 - **Ordered slicing (`ordered: true`) becomes a tuple,** because there order is
   part of the FHIR rule, as openapi-typescript does for `prefixItems`.
 - **Closed slicing (`rules: closed`) makes the element type a union of the
@@ -270,33 +276,50 @@ expected result comes from a source independent of the generator:
    (CC0-1.0). Every one must compile against its generated type and pass the
    validator.
 3. **The profile's own rules, read by a person.** For each synthetic fixture,
-   "compiles" or "does not compile" is written from the profile's text
+   "conforms" and "compiles" are written from the profile's text
    ("`birthDate` is 1..1") before any generator code exists. Generated output
    is never used to decide an expected result.
 
-- **Contract tables** per test profile: each fixture states whether it compiles
-  (`@ts-expect-error` for the negative rows) and whether it validates. Written
-  first, following the coverage matrix below.
-- **Compiles and validates must agree,** except in cases listed in advance.
-  "Validates" means `validateResource` reports no `error` issue; warnings do
-  not count. The cases, from what Medplum's validator was found to check
-  ([research](../research/medplum-server-behaviour.md#what-it-checks-run-against-us-core-900)):
-  - *compiles, does not validate:* a required slice missing or repeated past
-    its `max`, and an invariant;
-  - *does not compile, validates:* a code outside a required binding on a
-    `code` or `Coding` (the validator checks no binding), a `Reference` to a
-    resource type the profile excludes (unchecked for IG target profiles, a
-    warning otherwise), an extension whose contents break the extension's own
-    profile (the validator checks extensions against the base type), and a
-    required primitive present only as a `_field` extension;
-  - *compiles and validates, though the profile forbids it:* a
-    `CodeableConcept` with no coding from its required value set, and a code
-    from a value set that cannot be expanded offline. Neither side can check
-    these offline.
+- **Contract tables** per test profile
+  ([`test/fixtures/contracts`](../../test/fixtures/contracts/)), written first,
+  following the coverage matrix below. Each fixture states three things:
+  - *conforms*: whether the resource meets the profile's rules, written from
+    the profile's text by a person;
+  - *compiles*: whether it compiles against the generated type
+    (`@ts-expect-error` for the negative rows);
+  - *validates*: whether `validateResource` reports no `error` issue (warnings
+    do not count), checked against Medplum's validator itself.
+- **Compiles and validates each agree with conforms,** except in gaps listed
+  in advance. A row that differs names its gap. Types that differ from
+  conforms outside the type gaps are Plumb bugs; the validator gaps are
+  Medplum's behaviour at the installed version
+  ([research](../research/medplum-server-behaviour.md#what-it-checks-run-against-us-core-900)).
+  - *Type gaps* (`typeGap`), where the types cannot say the rule:
+    `array-length` (arrays shorter than `min` or longer than `max`),
+    `slice` (a required slice missing or repeated, an entry breaking its
+    slice's rules, a required sub-extension missing), `pattern-coding` (a
+    `CodeableConcept` missing its pattern's coding), `invariant`,
+    `primitive-format` (a string or number breaking its primitive's format),
+    `choice-conflict` (two types of an optional choice),
+    `codeableconcept-binding`, `unexpandable-valueset`, `oversize-valueset`,
+    `target-profile` (a reference whose target breaks the target profile), and
+    `primitive-extension` (a required primitive present only as `_field`,
+    which conforms but does not compile).
+  - *Validator gaps* (`validatorGap`), where Medplum's validator does not
+    apply the rule: `binding` (no terminology binding is checked),
+    `reference-target` (a target of the wrong type only warns, or is not
+    checked at all when the target is an IG profile, and a target's
+    conformance is never checked), `extension-contents` (an
+    extension is checked against the base type, not its own profile),
+    `extension-slice` (an extension slice never matches, so a required one
+    always fails and an optional one is never counted), `slice-contents`,
+    `slicing-rules` (`closed` and `ordered`), `binding-slice` (a slice keyed
+    on a required binding matches anything), `choice-type` (a type the profile
+    removed from a choice still validates), `choice-conflict` (only a
+    warning), and `content-reference` (a profile's rules on
+    `Questionnaire.item` do not reach `item.item`).
 
-  Types that reject what the validator accepts, or accept what it rejects
-  outside that list, are bugs. The list changes only by a reviewed edit to
-  this document.
+  The lists change only by a reviewed edit to this document.
 - **Golden tests**: generated output for a fixed set of US Core and IPS profiles
   matches committed files. They detect change, not correctness, so each golden
   file is reviewed against its profile before it is committed.

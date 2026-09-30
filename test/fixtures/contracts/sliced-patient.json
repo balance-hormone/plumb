@@ -1,0 +1,185 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/sliced-patient",
+  "matrix": ["Slices"],
+  "fixtures": [
+    {
+      "name": "the required slices",
+      "rule": "identifier:mrn 1..1, name:official 1..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "M1"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "family": "Tester"
+          }
+        ]
+      }
+    },
+    {
+      "name": "every slice, in order",
+      "rule": "identifier closed (mrn, member); name ordered (official, then nickname)",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "M1"
+          },
+          {
+            "system": "http://example.org/fhir/sid/member",
+            "value": "X9"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "family": "Tester"
+          },
+          {
+            "use": "nickname",
+            "given": ["Pip"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "member before mrn",
+      "rule": "closed slicing is unordered here",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/member",
+            "value": "X9"
+          },
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "M1"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "family": "Tester"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an identifier that matches no slice",
+      "rule": "identifier slicing is closed",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "slicing-rules",
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "M1"
+          },
+          {
+            "system": "http://example.org/fhir/sid/other",
+            "value": "Z"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "family": "Tester"
+          }
+        ]
+      }
+    },
+    {
+      "name": "nickname before official",
+      "rule": "name slicing is ordered: official first",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "slicing-rules",
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "M1"
+          }
+        ],
+        "name": [
+          {
+            "use": "nickname",
+            "given": ["Pip"]
+          },
+          {
+            "use": "official",
+            "family": "Tester"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mrn missing",
+      "rule": "identifier:mrn 1..1",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "slice",
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/member",
+            "value": "X9"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "family": "Tester"
+          }
+        ]
+      }
+    },
+    {
+      "name": "official name without family",
+      "rule": "name:official.family 1..1",
+      "conforms": false,
+      "compiles": true,
+      "validates": true,
+      "typeGap": "slice",
+      "validatorGap": "slice-contents",
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "M1"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "given": ["Pat"]
+          }
+        ]
+      }
+    }
+  ]
+}

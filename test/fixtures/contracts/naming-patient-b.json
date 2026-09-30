@@ -1,0 +1,38 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/naming-patient-b",
+  "matrix": ["Naming"],
+  "note": "Shares its StructureDefinition.name, NamingPatient, with the other naming profile: both must generate, under distinct type names.",
+  "fixtures": [
+    {
+      "name": "all rules met",
+      "rule": "gender 1..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ],
+        "gender": "unknown"
+      }
+    },
+    {
+      "name": "gender missing",
+      "rule": "gender 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ]
+      }
+    }
+  ]
+}

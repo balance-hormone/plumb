@@ -1,0 +1,284 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/nesting-patient",
+  "matrix": ["Nesting"],
+  "fixtures": [
+    {
+      "name": "all rules met",
+      "rule": "identifier.system, identifier.value, contact.name.family, contact.telecom.system and .value present",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "A1"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ],
+        "contact": [
+          {
+            "name": {
+              "family": "Kin"
+            },
+            "telecom": [
+              {
+                "system": "phone",
+                "value": "555-0100"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "no contact",
+      "rule": "contact is 0..*; its children are required only when it is present",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "A1"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ]
+      }
+    },
+    {
+      "name": "identifier missing",
+      "rule": "identifier 1..*",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ],
+        "contact": [
+          {
+            "name": {
+              "family": "Kin"
+            },
+            "telecom": [
+              {
+                "system": "phone",
+                "value": "555-0100"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "identifier empty object",
+      "rule": "identifier.system 1..1 and identifier.value 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [{}],
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ],
+        "contact": [
+          {
+            "name": {
+              "family": "Kin"
+            },
+            "telecom": [
+              {
+                "system": "phone",
+                "value": "555-0100"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "identifier without system",
+      "rule": "identifier.system 1..1 (depth 2)",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "value": "A1"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ],
+        "contact": [
+          {
+            "name": {
+              "family": "Kin"
+            },
+            "telecom": [
+              {
+                "system": "phone",
+                "value": "555-0100"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "contact without name",
+      "rule": "contact.name 1..1 (inside a backbone element)",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "A1"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ],
+        "contact": [
+          {
+            "telecom": [
+              {
+                "system": "phone",
+                "value": "555-0100"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "contact name without family",
+      "rule": "contact.name.family 1..1 (depth 3)",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "A1"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ],
+        "contact": [
+          {
+            "name": {
+              "given": ["Kin"]
+            },
+            "telecom": [
+              {
+                "system": "phone",
+                "value": "555-0100"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "contact telecom without value",
+      "rule": "contact.telecom.value 1..1 (depth 3)",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "A1"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ],
+        "contact": [
+          {
+            "name": {
+              "family": "Kin"
+            },
+            "telecom": [
+              {
+                "system": "phone"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "name with only text",
+      "rule": "invariant plumb-name-part: every name has a family or given name",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "invariant",
+      "resource": {
+        "resourceType": "Patient",
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "A1"
+          }
+        ],
+        "name": [
+          {
+            "text": "Pat Tester"
+          }
+        ],
+        "contact": [
+          {
+            "name": {
+              "family": "Kin"
+            },
+            "telecom": [
+              {
+                "system": "phone",
+                "value": "555-0100"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

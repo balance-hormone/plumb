@@ -1,0 +1,132 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/extensions-patient",
+  "matrix": ["Extensions"],
+  "fixtures": [
+    {
+      "name": "the required extensions",
+      "rule": "favoriteColor 1..1 (simple), careNote 1..1 (complex)",
+      "conforms": true,
+      "compiles": true,
+      "validates": false,
+      "validatorGap": "extension-slice",
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/favorite-color",
+            "valueCode": "blue"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/care-note",
+            "extension": [
+              {
+                "url": "instruction",
+                "valueString": "Call before visiting"
+              },
+              {
+                "url": "author",
+                "valueReference": {
+                  "reference": "RelatedPerson/1"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "every extension",
+      "rule": "nickname 0..1 (simple), contactWindow 0..1 (complex)",
+      "conforms": true,
+      "compiles": true,
+      "validates": false,
+      "validatorGap": "extension-slice",
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/favorite-color",
+            "valueCode": "blue"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/nickname",
+            "valueString": "Pip"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/care-note",
+            "extension": [
+              {
+                "url": "instruction",
+                "valueString": "Call before visiting"
+              },
+              {
+                "url": "author",
+                "valueReference": {
+                  "reference": "RelatedPerson/1"
+                }
+              }
+            ]
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/contact-window",
+            "extension": [
+              {
+                "url": "start",
+                "valueTime": "09:00:00"
+              },
+              {
+                "url": "end",
+                "valueTime": "17:00:00"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "favorite color missing",
+      "rule": "favoriteColor 1..1",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "slice",
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/care-note",
+            "extension": [
+              {
+                "url": "instruction",
+                "valueString": "Call before visiting"
+              },
+              {
+                "url": "author",
+                "valueReference": {
+                  "reference": "RelatedPerson/1"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "care note missing",
+      "rule": "careNote 1..1",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "slice",
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/favorite-color",
+            "valueCode": "blue"
+          }
+        ]
+      }
+    }
+  ]
+}

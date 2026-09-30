@@ -1,0 +1,326 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/bindings-patient",
+  "matrix": ["Bindings"],
+  "fixtures": [
+    {
+      "name": "every code in its value set",
+      "rule": "decision 3: code, CodeableConcept, Coding (listable and not) and preferred bindings",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "tag": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "green"
+            }
+          ],
+          "security": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "22298006"
+            }
+          ]
+        },
+        "gender": "female",
+        "maritalStatus": {
+          "coding": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "red"
+            }
+          ]
+        },
+        "communication": [
+          {
+            "language": {
+              "coding": [
+                {
+                  "system": "urn:ietf:bcp:47",
+                  "code": "en"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "gender absent",
+      "rule": "gender is 0..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "tag": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "green"
+            }
+          ],
+          "security": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "22298006"
+            }
+          ]
+        },
+        "maritalStatus": {
+          "coding": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "red"
+            }
+          ]
+        },
+        "communication": [
+          {
+            "language": {
+              "coding": [
+                {
+                  "system": "urn:ietf:bcp:47",
+                  "code": "en"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "gender other",
+      "rule": "gender required from female or male (code, listable: a literal union)",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "binding",
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "tag": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "green"
+            }
+          ],
+          "security": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "22298006"
+            }
+          ]
+        },
+        "gender": "other",
+        "maritalStatus": {
+          "coding": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "red"
+            }
+          ]
+        },
+        "communication": [
+          {
+            "language": {
+              "coding": [
+                {
+                  "system": "urn:ietf:bcp:47",
+                  "code": "en"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "meta.tag outside its value set",
+      "rule": "meta.tag required from plumb-test-colors (Coding, listable: a literal union)",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "binding",
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "tag": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "purple"
+            }
+          ],
+          "security": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "22298006"
+            }
+          ]
+        },
+        "gender": "female",
+        "maritalStatus": {
+          "coding": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "red"
+            }
+          ]
+        },
+        "communication": [
+          {
+            "language": {
+              "coding": [
+                {
+                  "system": "urn:ietf:bcp:47",
+                  "code": "en"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "maritalStatus outside its value set",
+      "rule": "maritalStatus required from plumb-test-colors (CodeableConcept: the base type)",
+      "conforms": false,
+      "compiles": true,
+      "validates": true,
+      "typeGap": "codeableconcept-binding",
+      "validatorGap": "binding",
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "tag": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "green"
+            }
+          ],
+          "security": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "22298006"
+            }
+          ]
+        },
+        "gender": "female",
+        "maritalStatus": {
+          "coding": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "purple"
+            }
+          ]
+        },
+        "communication": [
+          {
+            "language": {
+              "coding": [
+                {
+                  "system": "urn:ietf:bcp:47",
+                  "code": "en"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "meta.security outside its value set",
+      "rule": "meta.security required from a rule-based value set (not listable offline: string)",
+      "conforms": false,
+      "compiles": true,
+      "validates": true,
+      "typeGap": "unexpandable-valueset",
+      "validatorGap": "binding",
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "tag": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "green"
+            }
+          ],
+          "security": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "363698007"
+            }
+          ]
+        },
+        "gender": "female",
+        "maritalStatus": {
+          "coding": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "red"
+            }
+          ]
+        },
+        "communication": [
+          {
+            "language": {
+              "coding": [
+                {
+                  "system": "urn:ietf:bcp:47",
+                  "code": "en"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "language from elsewhere",
+      "rule": "communication.language preferred: any code",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "tag": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "green"
+            }
+          ],
+          "security": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "22298006"
+            }
+          ]
+        },
+        "gender": "female",
+        "maritalStatus": {
+          "coding": [
+            {
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+              "code": "red"
+            }
+          ]
+        },
+        "communication": [
+          {
+            "language": {
+              "coding": [
+                {
+                  "system": "urn:ietf:bcp:47",
+                  "code": "fr"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

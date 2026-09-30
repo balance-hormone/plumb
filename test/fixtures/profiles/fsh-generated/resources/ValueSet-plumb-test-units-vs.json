@@ -1,0 +1,16 @@
+{
+  "resourceType": "ValueSet",
+  "status": "draft",
+  "name": "PlumbTestUnitsVS",
+  "id": "plumb-test-units-vs",
+  "title": "Plumb test units",
+  "version": "0.1.0",
+  "url": "http://example.org/fhir/plumb-test/ValueSet/plumb-test-units-vs",
+  "compose": {
+    "include": [
+      {
+        "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-units"
+      }
+    ]
+  }
+}

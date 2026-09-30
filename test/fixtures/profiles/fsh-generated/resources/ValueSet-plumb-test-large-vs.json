@@ -1,0 +1,16 @@
+{
+  "resourceType": "ValueSet",
+  "status": "draft",
+  "name": "PlumbTestLargeVS",
+  "id": "plumb-test-large-vs",
+  "title": "101 codes, over the size limit",
+  "version": "0.1.0",
+  "url": "http://example.org/fhir/plumb-test/ValueSet/plumb-test-large-vs",
+  "compose": {
+    "include": [
+      {
+        "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-large"
+      }
+    ]
+  }
+}

@@ -1,0 +1,234 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/cardinality-patient",
+  "matrix": ["Cardinality", "Primitive extensions"],
+  "fixtures": [
+    {
+      "name": "all rules met",
+      "rule": "birthDate 1..1, name 1..*, address 0..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "birthDate": "1970-01-01",
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "address": [
+          {
+            "city": "Springfield"
+          }
+        ]
+      }
+    },
+    {
+      "name": "only the required elements",
+      "rule": "0..1 (gender, address) and 0..* (identifier) may be absent",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "birthDate": "1970-01-01",
+        "name": [
+          {
+            "family": "Tester"
+          }
+        ]
+      }
+    },
+    {
+      "name": "several identifiers and names",
+      "rule": "identifier 0..* and name 1..* take any number",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "birthDate": "1970-01-01",
+        "name": [
+          {
+            "family": "Tester"
+          },
+          {
+            "family": "Other"
+          }
+        ],
+        "address": [
+          {
+            "city": "Springfield"
+          }
+        ],
+        "identifier": [
+          {
+            "value": "a"
+          },
+          {
+            "value": "b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "birthDate missing",
+      "rule": "birthDate 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "address": [
+          {
+            "city": "Springfield"
+          }
+        ]
+      }
+    },
+    {
+      "name": "name missing",
+      "rule": "name 1..*",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "birthDate": "1970-01-01",
+        "address": [
+          {
+            "city": "Springfield"
+          }
+        ]
+      }
+    },
+    {
+      "name": "name empty",
+      "rule": "name 1..*: an empty array has no name",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "array-length",
+      "resource": {
+        "resourceType": "Patient",
+        "birthDate": "1970-01-01",
+        "name": [],
+        "address": [
+          {
+            "city": "Springfield"
+          }
+        ]
+      }
+    },
+    {
+      "name": "photo present",
+      "rule": "photo 0..0",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "birthDate": "1970-01-01",
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "address": [
+          {
+            "city": "Springfield"
+          }
+        ],
+        "photo": [
+          {
+            "contentType": "image/png"
+          }
+        ]
+      }
+    },
+    {
+      "name": "two addresses",
+      "rule": "address 0..1: at most one",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "array-length",
+      "resource": {
+        "resourceType": "Patient",
+        "birthDate": "1970-01-01",
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "address": [
+          {
+            "city": "Springfield"
+          },
+          {
+            "city": "Shelbyville"
+          }
+        ]
+      }
+    },
+    {
+      "name": "address as an object",
+      "rule": "address 0..1 is still a JSON array",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "birthDate": "1970-01-01",
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "address": {
+          "city": "Springfield"
+        }
+      }
+    },
+    {
+      "name": "birthDate only as _birthDate with a data-absent-reason",
+      "rule": "birthDate 1..1; FHIR allows the value to be replaced by an extension",
+      "conforms": true,
+      "compiles": false,
+      "validates": true,
+      "typeGap": "primitive-extension",
+      "resource": {
+        "resourceType": "Patient",
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "address": [
+          {
+            "city": "Springfield"
+          }
+        ],
+        "_birthDate": {
+          "extension": [
+            {
+              "url": "http://hl7.org/fhir/StructureDefinition/data-absent-reason",
+              "valueCode": "unknown"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
