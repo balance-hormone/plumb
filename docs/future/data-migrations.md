@@ -12,7 +12,8 @@ re-implements batching, idempotency and bookkeeping, and some get it wrong.
 ## Sketch
 
 - **Numbered TypeScript files and a journal in the repo,** scaffolded by
-  `migrate:new`, in Drizzle's style.
+  `plumb migrate new` and applied by `plumb migrate deploy`, as Prisma splits
+  writing a migration (`migrate dev`) from applying it (`migrate deploy`).
 - **`defineMigration({ name, resourceType, search, transform })`,** where
   `transform` returns a JSON Patch, or `null` for "already done", so re-runs
   skip finished records.

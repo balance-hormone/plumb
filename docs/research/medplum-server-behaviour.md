@@ -83,7 +83,7 @@ if (!resource.meta?.profile) {
 
 - **Applies only when `meta.profile` is absent.** An empty array `[]` is truthy,
   so a resource written with `meta.profile: []` skips the default and is
-  validated against nothing. Plumb's `check` must flag this, and it is a
+  validated against nothing. Plumb's `validate` must flag this, and it is a
   candidate upstream fix.
 - **Writes the default's URLs into the stored resource.** A record validated
   under its default carries the stamp afterwards, which is what lets typed
@@ -348,7 +348,7 @@ What it means for Plumb:
   repository and in npm.
 - **Three parts could be:** profile packs as `reference-data` packages
   (profiles, value sets, defaults and routing rows); an in-project conformance
-  bot for `check`; and marketplace operation entries generated from
+  bot for `validate`; and marketplace operation entries generated from
   operation contracts (all parked in [`../future/`](../future/)).
 - **It overlaps with `push` and `migrate`.** Idempotent installs, migrations
   and a typed manifest are the same idea as Plumb's project state as code,
@@ -402,4 +402,4 @@ No FHIR server or document store surveyed re-checks stored data when a schema
 tightens: HAPI, Smile CDR, Firely, Azure Health Data Services, Google Cloud
 Healthcare, Aidbox, MongoDB, CouchDB, Firestore. The recurring pattern is
 report, fix, then enforce. In Postgres terms, loading a profile is
-`ADD CONSTRAINT … NOT VALID` and Plumb's `check` is `VALIDATE CONSTRAINT`.
+`ADD CONSTRAINT … NOT VALID` and Plumb's `validate` is `VALIDATE CONSTRAINT`.
