@@ -213,11 +213,18 @@ Named after the tools developers already know:
 
 - **IG packages** come only from the FHIR package registry (`packages.fhir.org`,
   npm-compatible tarballs), declared by name and exact version. `generate`
-  fetches any that are missing, with their dependencies, into the shared FHIR
-  package cache (`~/.fhir/packages`), which SUSHI, Firely Terminal and the IG
-  Publisher also use. It records each package's version and integrity hash in
-  `plumb.lock` (committed) and verifies every package against it, so a cached
-  copy another tool wrote is still checked. Once packages are cached,
+  fetches any that are missing, with the dependencies each IG declares, into
+  the shared FHIR package cache (`~/.fhir/packages`), which SUSHI, Firely
+  Terminal and the IG Publisher also use. Only an IG's own dependencies are
+  fetched, not theirs: for US Core 9.0.0 that is 7 R4 packages, where the full
+  tree is 15, among them example packages, R5 packages and three versions of
+  one package. Anything a profile needs beyond them is the loader's "a
+  reference nothing provides" error. It records each package's version and
+  integrity hash (SHA-256 over the extracted files, leaving out the indexes
+  other tools regenerate) in `plumb.lock` (committed) and verifies every
+  package against it, so a cached copy another tool wrote is still checked. A
+  package enters the lock only after it matches the registry's tarball, so a
+  copy already in the cache is checked against the registry once. Once packages are cached,
   `generate` is offline and deterministic. `--check` writes nothing to the
   project: it may fill the package cache (so it works on a fresh CI runner),
   but it fails if the lockfile is missing, disagrees with the config, or does
