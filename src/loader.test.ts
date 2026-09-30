@@ -345,6 +345,30 @@ describe('loadProfiles', () => {
     });
   });
 
+  test('name/* selects only constraints on resources, sorted by URL', () => {
+    const custom = variant(
+      'StructureDefinition-cardinality-patient.json',
+      `${PLUMB}/custom`,
+      (sd) => {
+        sd.derivation = 'specialization';
+      },
+    );
+    const ig = cachedPackage(
+      'example.fhir.ig@1.0.0',
+      {},
+      variant('StructureDefinition-cardinality-patient.json', `${PLUMB}/zeta`),
+      custom,
+      variant('StructureDefinition-cardinality-patient.json', `${PLUMB}/alpha`),
+    );
+    const result = loadProfiles({
+      packages: [ig],
+      igs: ['example.fhir.ig@1.0.0'],
+      profiles: ['example.fhir.ig/*'],
+    });
+    expect(codes(result)).toEqual([]);
+    expect(result.profiles.map((p) => p.url)).toEqual([`${PLUMB}/alpha`, `${PLUMB}/zeta`]);
+  });
+
   describe('US Core 9.0.0', () => {
     test('loads Blood Pressure with its parent chain', () => {
       const result = loadProfiles({
@@ -375,6 +399,59 @@ describe('loadProfiles', () => {
       });
       expect(result.errors).toEqual([]);
       expect(result.profiles).toHaveLength(urls.length - 1);
+    });
+
+    test('name/* selects every resource profile in the IG, skipping what Medplum cannot parse', () => {
+      const result = loadProfiles({
+        packages: usCorePackages,
+        igs: [US_CORE_IG],
+        profiles: ['hl7.fhir.us.core/*'],
+      });
+      expect(codes(result)).toEqual([]);
+      expect(result.ok).toBe(true);
+      expect(result.profiles).toHaveLength(54);
+      expect(result.profiles.every((p) => p.source === US_CORE_IG)).toBe(true);
+      expect(result.profiles.every((p) => p.sd.kind === 'resource')).toBe(true);
+      // Extensions are dependencies only, and a dependency's profiles are not selected.
+      expect(result.profiles.some((p) => p.url.endsWith('us-core-race'))).toBe(false);
+      expect(result.definitions.get(`${US_CORE}/us-core-race`)?.source).toBe(US_CORE_IG);
+      expect(result.profiles.some((p) => p.url.includes('/uv/sdc/'))).toBe(false);
+      expect(result.warnings.map((w) => [w.code, w.url])).toContainEqual([
+        'unparseable-skipped',
+        `${US_CORE}/us-core-provenance`,
+      ]);
+      // Deterministic: sorted by URL.
+      const urls = result.profiles.map((p) => p.url);
+      expect(urls).toEqual([...urls].sort());
+    });
+
+    test('a profile selected both by URL and by name/* is loaded once', () => {
+      const result = loadProfiles({
+        packages: usCorePackages,
+        igs: [US_CORE_IG],
+        profiles: [`${US_CORE}/us-core-patient`, 'hl7.fhir.us.core/*'],
+      });
+      expect(codes(result)).toEqual([]);
+      expect(result.profiles.filter((p) => p.url === `${US_CORE}/us-core-patient`)).toHaveLength(1);
+      expect(result.profiles[0]?.url).toBe(`${US_CORE}/us-core-patient`);
+    });
+
+    test('a profile listed by URL is still an error when Medplum cannot parse it', () => {
+      const result = loadProfiles({
+        packages: usCorePackages,
+        igs: [US_CORE_IG],
+        profiles: [`${US_CORE}/us-core-provenance`, 'hl7.fhir.us.core/*'],
+      });
+      expect(codes(result)).toEqual(['unparseable']);
+    });
+
+    test('profile-not-found: name/* for a package that was not fetched', () => {
+      const result = loadProfiles({
+        packages: usCorePackages,
+        igs: [US_CORE_IG, 'hl7.fhir.uv.ips@2.0.0'],
+        profiles: ['hl7.fhir.uv.ips/*'],
+      });
+      expect(codes(result)).toEqual(['profile-not-found']);
     });
 
     test('unparseable: US Core Provenance', () => {
