@@ -257,13 +257,28 @@ reads:
    listed by URL, and skipped with a warning in the report when reached by a
    wildcard, so one unparseable profile does not block the rest of an IG.
 3. **Close over their dependencies:** the parent chain (US Core Blood Pressure →
-   US Core Vital Signs → Observation), the extensions they use, and the value
-   sets behind their required bindings with the code systems those need.
-   A dependency never pulls in a whole IG.
-4. **Check,** each failure a named error: a profile URL no package provides; a
-   profile without a snapshot; a reference nothing provides; two sources
-   defining the same URL; a definition that is not FHIR R4.
-5. **Parse** with Medplum (next section).
+   US Core Vital Signs → Observation), the extensions and profiled types they
+   use, the profiles their references target (for the target's resource type
+   only), and the value sets behind their required bindings with the value sets
+   and code systems those include. A dependency never pulls in a whole IG.
+4. **Resolve** each reference most specific first: the `local` folder, the
+   referring definition's own package, then its IG, the IG's dependencies in
+   declared order, and base R4; a `|version` pin wins when a source has that
+   version. That is how each IG was published, and a canonical URL is defined
+   more than once in practice: US Core 9.0.0 and its dependencies define 2,029
+   URLs that base R4 also defines, mostly newer terminology and extensions.
+   Base R4's resource and type definitions always come from Medplum, so the
+   types narrow exactly what `@medplum/fhirtypes` describes. When one URL
+   resolves to different definitions in different places, the first is kept
+   and the report warns.
+5. **Check,** each failure a named error: a profile URL no source provides; a
+   profile without a snapshot; a profile, parent, extension or reference target
+   nothing provides; the `local` folder redefining a URL a package or base R4
+   defines; a definition that is not FHIR R4; a profile Medplum cannot parse.
+   A value set or code system nothing provides, or a code system shipped
+   without its concepts (SNOMED CT in base R4), is not an error: it is listed
+   as unresolved, and a binding to it is widened (design 01, decision 3).
+6. **Parse** with Medplum (next section).
 
 ### Parsing: Medplum's, not Plumb's
 

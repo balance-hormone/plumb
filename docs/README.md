@@ -38,7 +38,12 @@
 - **Packages:** `fetchPackages` fetches each IG and the dependencies it
   declares from the FHIR registry into `~/.fhir/packages`, checks each
   download's SHA-1, and locks a SHA-256 of every package's files in
-  `plumb.lock`. **Next:** the loader (#13).
+  `plumb.lock`.
+- **Loader:** `loadProfiles` selects the configured profiles, closes over what
+  they depend on, resolves each reference in its IG's own scope, and parses
+  each profile with Medplum. It loads all 54 parseable US Core 9.0.0 resource
+  profiles in about 2 seconds. **Next:** `name/*` expansion (#27), then the
+  emitter (#14).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
