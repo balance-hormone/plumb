@@ -76,6 +76,24 @@ interface Lock {
   packages: Record<string, { integrity: string }>;
 }
 
+const DEFAULT_CACHE = join(homedir(), '.fhir', 'packages');
+
+/**
+ * The cached packages plumb.lock lists, without checking their hashes:
+ * `generate --check` does that. Throws when the lock or a package is missing.
+ */
+export function lockedPackages(lockPath: string, cacheDir = DEFAULT_CACHE) {
+  if (!existsSync(lockPath)) throw new Error(`No lockfile at ${lockPath}. Run plumb generate.`);
+  const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as Lock;
+  return Object.keys(lock.packages).map((id) => {
+    const at = id.lastIndexOf('@');
+    const pkg = { name: id.slice(0, at), version: id.slice(at + 1) };
+    const dir = join(cacheDir, `${pkg.name}#${pkg.version}`);
+    if (!existsSync(dir)) throw new Error(`${id} is not in the package cache. Run plumb generate.`);
+    return { ...pkg, dir };
+  });
+}
+
 class Failure extends Error {
   readonly code: PackageErrorCode;
   constructor(code: PackageErrorCode, message: string) {
@@ -93,7 +111,7 @@ type Files = [path: string, data: Buffer][];
  */
 export async function fetchPackages(options: FetchPackagesOptions): Promise<FetchPackagesResult> {
   const { lockPath, check = false, fetch = globalThis.fetch } = options;
-  const cacheDir = options.cacheDir ?? join(homedir(), '.fhir', 'packages');
+  const cacheDir = options.cacheDir ?? DEFAULT_CACHE;
   const igs = [...options.igs].sort();
   const lock = existsSync(lockPath)
     ? (JSON.parse(readFileSync(lockPath, 'utf8')) as Lock)
