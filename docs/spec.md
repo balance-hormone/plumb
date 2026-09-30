@@ -127,6 +127,8 @@ export default defineConfig({
 plumb generate            fetch any missing IG packages, then emit the types into `out`
 plumb generate --check    in CI: write nothing to the project; fail on stale output,
                           a lockfile mismatch or a profile without a snapshot
+  --config <path>         another config file; --json prints the report, --quiet only problems
+  exit codes              0 success, 1 problems found, 2 usage or config errors
 ```
 
 ```ts
