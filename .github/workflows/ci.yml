@@ -84,6 +84,8 @@ jobs:
           npx tsc -p test/golden/tsconfig.nodenext.json
           npx tsc -p test/golden/tsconfig.bundler.json
       - name: Tests under the oldest supported @medplum/* (5.1.0)
+        # Built first, so the test of the built CLI runs against these versions too.
         run: |
           npm install --no-save @medplum/core@5.1.0 @medplum/definitions@5.1.0 @medplum/fhirtypes@5.1.0
+          npm run build
           npm test
