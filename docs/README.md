@@ -62,8 +62,11 @@
 - **`generate`:** one plain function runs the pipeline (packages, load, emit,
   then write, or with `--check` a byte-for-byte comparison that writes
   nothing to the project), reporting each step as it finishes. The CLI's
-  output format is agreed in the spec. **Next:** `validateProfiled` (#18),
-  then the CLI (#19).
+  output format is agreed in the spec.
+- **`validateProfiled`:** `await validateProfiled(resource, ProfileUrl)` runs
+  Medplum's validator against a selected profile, offline, loading the
+  project's config, lock and cached packages once; its verdict matches a
+  direct `validateResource` call on every fixture. **Next:** the CLI (#19).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
