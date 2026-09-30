@@ -29,18 +29,40 @@ function models(...names: string[]): ProfileModel[] {
   return result.models;
 }
 
-function bloodPressure(): ProfileModel {
+/** A profile from one of the fixture IG packages. */
+function fromPackageResult(ig: string, url: string) {
   const dir = join(import.meta.dirname, '../../test/fixtures/packages');
   const loaded = loadProfiles({
     packages: readdirSync(dir).map((folder) => {
       const [name, version] = folder.split('#') as [string, string];
       return { name, version, dir: join(dir, folder) };
     }),
-    igs: ['hl7.fhir.us.core@9.0.0'],
-    profiles: ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure'],
+    igs: [ig],
+    profiles: [url],
   });
+  expect(loaded.errors).toEqual([]);
+  return transform(loaded);
+}
+
+function fromPackage(ig: string, url: string): ProfileModel {
+  const dir = join(import.meta.dirname, '../../test/fixtures/packages');
+  const loaded = loadProfiles({
+    packages: readdirSync(dir).map((folder) => {
+      const [name, version] = folder.split('#') as [string, string];
+      return { name, version, dir: join(dir, folder) };
+    }),
+    igs: [ig],
+    profiles: [url],
+  });
+  expect(loaded.errors).toEqual([]);
   return transform(loaded).models[0] as ProfileModel;
 }
+
+const bloodPressure = () =>
+  fromPackage(
+    'hl7.fhir.us.core@9.0.0',
+    'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure',
+  );
 
 function model(name: string): ProfileModel {
   return models(name)[0] as ProfileModel;
@@ -271,6 +293,37 @@ describe('transform', () => {
           },
         ],
       });
+    });
+
+    test('slicing Medplum parses inconsistently gets no slice types, and a warning', () => {
+      // Medplum flattens IPS Composition's slices inside section slices into one list.
+      const { models, warnings } = fromPackageResult(
+        'hl7.fhir.uv.ips@2.0.1',
+        'http://hl7.org/fhir/uv/ips/StructureDefinition/Composition-uv-ips',
+      );
+      const m = models[0] as ProfileModel;
+      expect(m.decls.some((d) => d.name.includes('SectionNote'))).toBe(false);
+      expect(warnings).toContainEqual(
+        expect.stringMatching(/^Composition\.section: Medplum parses/),
+      );
+      expect(m.doc.join('\n')).toContain('Composition.section: Medplum parses');
+      const names = m.decls.map((d) => d.name);
+      expect(new Set(names).size).toBe(names.length);
+    });
+
+    test('a slice name repeated across elements still gives unique types and helpers', () => {
+      const m = model('sliced-patient');
+      const names = m.decls.map((d) => d.name);
+      expect(new Set(names).size).toBe(names.length);
+      const helpers = m.helpers.map((h) => h.name);
+      expect(new Set(helpers).size).toBe(helpers.length);
+    });
+
+    test('a helper is named after its slice type', () => {
+      const m = model('sliced-observation');
+      expect(
+        m.helpers.filter((h) => h.shape === 'SlicedObservationPulse').map((h) => h.name),
+      ).toEqual(['pulse', 'getPulse']);
     });
 
     test('the doc comment says a missing required slice is caught at run time', () => {

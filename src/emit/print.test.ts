@@ -42,23 +42,15 @@ describe('printExpr', () => {
     ).toBe("(Omit<Coding, 'code'> & {})[]");
   });
 
-  test('a long Omit key list goes one key per line', () => {
-    const keys = [
-      'subject',
-      'effectiveDateTime',
-      'effectivePeriod',
-      'effectiveTiming',
-      'effectiveInstant',
-    ];
+  test('a long Omit key list fills lines, one union per line', () => {
+    const keys = Array.from({ length: 12 }, (_, i) => `effectiveKey${i}`);
     expect(printExpr({ kind: 'narrow', base: ref('Observation'), omit: keys, fields: [] })).toBe(
       [
         'Omit<',
         '  Observation,',
-        "  | 'subject'",
-        "  | 'effectiveDateTime'",
-        "  | 'effectivePeriod'",
-        "  | 'effectiveTiming'",
-        "  | 'effectiveInstant'",
+        "  | 'effectiveKey0' | 'effectiveKey1' | 'effectiveKey2' | 'effectiveKey3' | 'effectiveKey4'",
+        "  | 'effectiveKey5' | 'effectiveKey6' | 'effectiveKey7' | 'effectiveKey8' | 'effectiveKey9'",
+        "  | 'effectiveKey10' | 'effectiveKey11'",
         '> & {}',
       ].join('\n'),
     );

@@ -6,7 +6,8 @@
       "!**/dist",
       "!**/node_modules",
       "!test/fixtures/packages",
-      "!test/fixtures/profiles/fsh-generated"
+      "!test/fixtures/profiles/fsh-generated",
+      "!test/golden/generated"
     ]
   },
   "formatter": {

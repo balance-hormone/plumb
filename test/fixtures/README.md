@@ -41,6 +41,11 @@ them, fetch US Core into a cache with `fetchPackages`, load every US Core
 resource profile with `loadProfiles`, and copy the files for each definition
 whose source is one of these packages.
 
+`hl7.fhir.uv.ips#2.0.1` holds the 19 definitions IPS Patient and IPS
+Composition reach, plus its `package.json`, copied unmodified from the
+registry (CC0-1.0), for the golden tests; the extensions package above also
+holds the four IPS needs.
+
 ## `us-core-examples.json`
 
 What each US Core example should do: compile against the type for its
@@ -85,3 +90,19 @@ rows it covers, and its fixtures. A fixture has:
 `assignableTo` lists parent profiles the generated type must be assignable to.
 The gap names, and what each means, are defined in design 01's Testing
 section; a new one needs a reviewed edit there.
+
+## Goldens (`../golden`)
+
+`test/golden/generated` is Plumb's output for four US Core and two IPS
+profiles, generated from these fixtures and committed. The golden test
+regenerates it and compares byte for byte. Goldens detect change, not
+correctness, so each file is read against its profile before it is committed.
+To regenerate after an intended change:
+
+```bash
+GOLDEN_UPDATE=1 npx vitest run test/golden
+```
+
+CI type-checks them under TypeScript 5.0 and the project's TypeScript, with
+`NodeNext` and `bundler` resolution (`test/golden/tsconfig.*.json`).
+
