@@ -257,6 +257,9 @@ reads:
 - It is the same parse Medplum's validator and `<ResourceForm>` use, so the
   generated types cannot disagree with the validator about cardinality, slices
   or fixed values.
+- A profile it cannot parse is a named error, because Medplum's validator
+  cannot use it either. US Core 9.0.0's Provenance is one
+  ([research](research/medplum-server-behaviour.md#what-it-checks-run-against-us-core-900)).
 - It is marked `@experimental`. Plumb declares a supported `@medplum/core`
   range, and its golden tests catch a change in shape.
 
@@ -305,10 +308,11 @@ package hash, so a difference points at its cause.
   both as one report.
 - **What it promises:** the verdict of Medplum's own validator, at the
   `@medplum/core` version the project has installed. It does not promise the
-  server's verdict. A server on a newer Medplum release, terminology checks
-  against value sets that cannot be expanded offline, and which loaded profile
-  version the server picks can all differ. The docs advise keeping `@medplum/*`
-  in step with the server.
+  server's verdict. A server on a newer Medplum release, terminology, and which
+  loaded profile version the server picks can all differ. Medplum's validator
+  checks no terminology binding, so `validateProfiled` does not either; a server
+  with the `validate-terminology` feature can reject a code it accepts. The
+  docs advise keeping `@medplum/*` in step with the server.
 
 ## Later releases of the same tool
 

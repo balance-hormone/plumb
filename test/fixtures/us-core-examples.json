@@ -1,0 +1,35 @@
+{
+  "package": "hl7.fhir.us.core#9.0.0",
+  "examples": "packages/hl7.fhir.us.core#9.0.0/package/example",
+  "rule": "Every example compiles against the type generated for the profile in its meta.profile, with the |version suffix dropped, and validates against that profile with @medplum/core's validateResource. The exceptions below are the only ones.",
+  "baseTypeOnly": {
+    "reason": "No US Core profile is declared, so the example compiles against its @medplum/fhirtypes base type and validates against base R4.",
+    "files": {
+      "Library-USCore-ModelInfo.json": "no meta.profile",
+      "Media-chest-xray.json": "no meta.profile",
+      "Media-ekg-strip.json": "no meta.profile",
+      "Questionnaire-AUDIT-C.json": "declares sdc-questionnaire, from hl7.fhir.uv.sdc",
+      "Questionnaire-TAPS.json": "declares sdc-questionnaire, from hl7.fhir.uv.sdc",
+      "Questionnaire-exercise-vital-sign.json": "declares sdc-questionnaire, from hl7.fhir.uv.sdc",
+      "Questionnaire-hunger-vital-sign-example.json": "declares sdc-questionnaire, from hl7.fhir.uv.sdc",
+      "Questionnaire-phq-9-example.json": "declares sdc-questionnaire, from hl7.fhir.uv.sdc",
+      "Questionnaire-prapare-example.json": "declares sdc-questionnaire, from hl7.fhir.uv.sdc"
+    }
+  },
+  "bundles": {
+    "reason": "The Bundle itself declares no profile: it compiles against Bundle and validates against base R4. Each entry.resource is checked on its own against its meta.profile, or its base type when it declares none, because validating a Bundle does not validate its entries against their profiles.",
+    "files": [
+      "Bundle-66c8856b-ba11-4876-8aa8-467aad8c11a2.json",
+      "Bundle-allergyintolerance-provenance-example1.json",
+      "Bundle-allergyintolerance-provenance-example2.json",
+      "Bundle-docref-example-1.json",
+      "Bundle-docref-example-2.json"
+    ]
+  },
+  "unparseableProfiles": {
+    "reason": "@medplum/core 5.1.42's parseStructureDefinition throws on this profile, so neither Plumb nor the validator can use it. Entries that declare it compile against their base type, and validating them against the profile throws.",
+    "profiles": {
+      "http://hl7.org/fhir/us/core/StructureDefinition/us-core-provenance": "Invalid slice start before discriminator: ProvenanceTransmitter (Provenance.entity.agent)"
+    }
+  }
+}

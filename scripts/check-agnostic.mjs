@@ -17,6 +17,7 @@ const allowedHosts = [
   'example.org',
   'example.net',
   'hl7.org',
+  'fhir.org',
   'medplum.com',
   'apache.org',
   'github.com',
@@ -29,6 +30,9 @@ const allowedHosts = [
   'nlm.nih.gov',
 ];
 const skipFiles = new Set(['package-lock.json']);
+// Published IG packages, copied unmodified: their example hosts, emails and
+// identifiers are the IG authors', so only the denylist applies to them.
+const publishedPackages = 'test/fixtures/packages/';
 
 const denylist = (process.env.PLUMB_DENYLIST ?? '')
   .split(',')
@@ -42,7 +46,8 @@ const denylist = (process.env.PLUMB_DENYLIST ?? '')
 const isAllowedHost = (host) =>
   allowedHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
 
-function violations(file, line) {
+// Hosts, emails and SSN-shaped numbers that would mark a line as real data.
+function realDataViolations(line) {
   const found = [];
   for (const [, host] of line.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) {
     if (!isAllowedHost(host.toLowerCase())) found.push(`URL host not allow-listed: ${host}`);
@@ -51,6 +56,11 @@ function violations(file, line) {
     if (!/^example\.(com|org|net)$/i.test(host)) found.push(`email outside example.*: ${email}`);
   }
   if (/\b\d{3}-\d{2}-\d{4}\b/.test(line)) found.push('SSN-shaped number');
+  return found;
+}
+
+function violations(file, line) {
+  const found = file.startsWith(publishedPackages) ? [] : realDataViolations(line);
   const isAttribution = file === 'NOTICE' || line.includes('SPDX-FileCopyrightText:');
   for (const term of isAttribution ? [] : denylist) {
     if (term.test(line)) found.push('organization-specific term (PLUMB_DENYLIST)');
