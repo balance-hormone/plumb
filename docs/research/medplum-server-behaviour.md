@@ -255,7 +255,9 @@ example's profile as `options.profile`.
   - **The inside of an extension.** Children are validated against their base
     type (`getDataType(value.type)`), not the element's type profile, so a
     `us-core-race` extension missing its required `text`, or holding a
-    `valueString` where a `Coding` belongs, validates.
+    `valueString` where a `Coding` belongs, validates. Medplum knows: its own
+    suite keeps this as a failing test, "Nested extensions are not yet
+    validated" (`typeschema/validation.test.ts`).
 - **A required primitive present only as `_field` validates.**
   `Observation.status` (1..1) removed and replaced by `_status` with a
   data-absent-reason extension passes, as FHIR allows.
@@ -269,7 +271,11 @@ example's profile as `options.profile`.
     are counted against the slice's `min` and `max`, but the entry is then
     validated against the base type, never against the slice's own
     elements, so `name:official.family 1..1` and US Core Blood Pressure's
-    `component:systolic.value[x].code = mm[Hg]` are not enforced;
+    `component:systolic.value[x].code = mm[Hg]` are not enforced. Reported as
+    [medplum#8677](https://github.com/medplum/medplum/issues/8677); a
+    community fix, [medplum#8678](https://github.com/medplum/medplum/pull/8678),
+    was reviewed but auto-closed unmerged in August 2026 for want of an issue
+    labelled `open-to-community`;
   - `rules: closed` and `ordered: true` are ignored;
   - a slice whose discriminator element has only a required binding
     (US Core Condition's `category:us-core`) matches any value, by design
@@ -279,7 +285,17 @@ example's profile as `options.profile`.
     `matchDiscriminant` finds no `url` element and returns false. A required
     extension slice therefore fails every resource, even one that has the
     extension, and an optional one's `max` is never checked. US Core 9
-    requires no extension, which is why its examples pass.
+    requires no extension, which is why its examples pass. This is a known
+    limitation, open as
+    [medplum#8625](https://github.com/medplum/medplum/issues/8625) since
+    March 2026. A maintainer's reading is that matching through the slice's
+    `type.profile` "Medplum's validator doesn't currently support", because it
+    means resolving nested profiles; the fix is wanted but unscheduled, and
+    the suggested workaround (a `$this` discriminator with a pattern) is not
+    what published IGs or SUSHI produce. Medplum's form code already matches
+    these slices: `getValueSliceName` (`typeschema/slices.ts`) loads the
+    extension's profile and matches its fixed `url`, and on the same resource
+    it finds the slice the validator counts as missing.
 - **A choice narrowed by a profile is not enforced.** With `value[x] only
   Quantity`, `valueString` validates; with `effective[x] only dateTime`,
   `effectivePeriod` validates. Types the base allows are accepted.
