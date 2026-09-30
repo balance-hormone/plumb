@@ -58,7 +58,12 @@
   required binding on a `code` or `Coding` becomes a literal union, an
   extensible one on a `code` suggests its codes, and a `CodeableConcept`'s
   codes are exported as a constant. The harness has no expected failures
-  left. **Next:** `generate --check` (#17) and `validateProfiled` (#18).
+  left.
+- **`generate`:** one plain function runs the pipeline (packages, load, emit,
+  then write, or with `--check` a byte-for-byte comparison that writes
+  nothing to the project), reporting each step as it finishes. The CLI's
+  output format is agreed in the spec. **Next:** `validateProfiled` (#18),
+  then the CLI (#19).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).

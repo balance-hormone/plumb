@@ -48,6 +48,8 @@ interface CachedPackage {
   dir: string;
   /** Downloaded by this run, rather than found in the cache. */
   fetched: boolean;
+  /** The SHA-256 of its files, as plumb.lock records it. */
+  integrity: string;
 }
 
 export interface FetchPackagesResult {
@@ -210,7 +212,7 @@ async function ensureCached(
       `${id} in ${dir} does not match plumb.lock. Delete that folder and run again.`,
     );
   }
-  return { pkg: { name, version, dir, fetched }, integrity };
+  return { pkg: { name, version, dir, fetched, integrity }, integrity };
 }
 
 interface Manifest {

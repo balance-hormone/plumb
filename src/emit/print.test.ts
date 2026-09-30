@@ -137,6 +137,7 @@ describe('printFiles', () => {
     doc: ['Example Patient', '', 'A patient.'],
     helpers: [],
     constants: [],
+    slices: 0,
     decls: [
       {
         name: 'ExamplePatient',
