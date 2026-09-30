@@ -138,10 +138,10 @@ plumb generate --check    in CI: write nothing to the project; fail on stale out
 ```
 
 ```ts
-import { type USCorePatient, USCorePatientProfileUrl } from './fhir/generated';
+import { type USCorePatient, USCorePatientProfileUrl } from './fhir/generated/index.js';
 
 const p: USCorePatient = { resourceType: 'Patient', name: [{ family: 'Doe' }] };
-//    ^ compile error: 'identifier' and 'gender' are required
+//    ^ compile error: property 'identifier' is missing
 
 // In tests: Medplum's own validator, offline
 expect((await validateProfiled(p, USCorePatientProfileUrl)).ok).toBe(true);
