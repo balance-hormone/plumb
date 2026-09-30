@@ -1,9 +1,13 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Resource } from '@medplum/fhirtypes';
+import { printFiles } from '../../src/emit/print.js';
+import { transform } from '../../src/emit/transform.js';
+import { writeFiles } from '../../src/emit/write.js';
+import { loadProfiles } from '../../src/loader.js';
 
 const ROOT = join(import.meta.dirname, '../..');
 // Inside node_modules so the check file resolves @medplum/fhirtypes from the project.
@@ -15,13 +19,49 @@ export interface ProfileType {
   typeName: string;
 }
 
-/** Filled from `generate`'s report once the generator lands (#14). Keyed by profile URL. */
-export const profileTypes = new Map<string, ProfileType>();
+const FIXTURES = join(ROOT, 'test/fixtures');
 
-/** Profiles whose compile rows fail until the generator handles them. The list only shrinks. */
-export const expectedFailures = new Set<string>(
+/**
+ * Generates types for the profiles with Plumb, into a folder per suite (the
+ * suites run in parallel), and says where each profile's type is. Keyed by URL.
+ */
+export function generateTypes(suite: string, urls: string[]): Map<string, ProfileType> {
+  const packages = readdirSync(join(FIXTURES, 'packages')).map((folder) => {
+    const [name, version] = folder.split('#') as [string, string];
+    return { name, version, dir: join(FIXTURES, 'packages', folder) };
+  });
+  const loaded = loadProfiles({
+    packages,
+    igs: ['hl7.fhir.us.core@9.0.0'],
+    local: join(FIXTURES, 'profiles/fsh-generated/resources'),
+    profiles: [...new Set(urls)],
+  });
+  const { models, errors } = transform(loaded);
+  const problems = [...loaded.errors, ...errors];
+  if (problems.length > 0) throw new Error(`generate: ${JSON.stringify(problems)}`);
+  const folder = `${suite}-generated`;
+  const written = writeFiles(
+    join(OUT, folder),
+    printFiles(models, () => 'harness'),
+  );
+  if (!written.ok) throw new Error(`generate: ${JSON.stringify(written.errors)}`);
+  return new Map(
+    models.map((m) => [m.url, { module: `./${folder}/${m.typeName}.js`, typeName: m.typeName }]),
+  );
+}
+
+/**
+ * Compile rows that fail until a later issue: a profile URL for all its rows,
+ * or `url#row` for one. The list only shrinks.
+ */
+const expectedFailures = new Set<string>(
   JSON.parse(readFileSync(join(import.meta.dirname, 'expected-failures.json'), 'utf8')) as string[],
 );
+
+export const isExpectedFailure = (profile: string, row: string) =>
+  expectedFailures.has(profile) || expectedFailures.has(`${profile}#${row}`);
+
+export const expectedFailureEntries = [...expectedFailures];
 
 export interface CompileCase {
   type: ProfileType;

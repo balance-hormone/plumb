@@ -1,7 +1,13 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, test } from 'vitest';
-import { type CompileCase, compileCases, expectedFailures, profileTypes } from './compile.js';
+import {
+  type CompileCase,
+  compileCases,
+  expectedFailureEntries,
+  generateTypes,
+  isExpectedFailure,
+} from './compile.js';
 import {
   type ContractFixture,
   contractTables,
@@ -11,6 +17,10 @@ import {
   validates,
 } from './fixtures.js';
 
+const profileTypes = generateTypes(
+  'contracts',
+  contractTables.flatMap((table) => [table.profile, ...(table.assignableTo ?? [])]),
+);
 const cases = new Map<ContractFixture | string, CompileCase>();
 for (const table of contractTables) {
   const type = profileTypes.get(table.profile);
@@ -28,9 +38,10 @@ for (const table of contractTables) {
 const results = compileCases('contracts', [...cases.values()]);
 const diagnostics = new Map([...cases.keys()].map((key, i) => [key, results[i]]));
 
-// A profile on the list runs its compile rows as expected failures, so CI stays
-// green while they stay visible; one that starts passing fails until it is removed.
-const compileTest = (profile: string) => (expectedFailures.has(profile) ? test.fails : test);
+// A row on the list runs as an expected failure, so CI stays green while it
+// stays visible; one that starts passing fails until it is removed.
+const compileTest = (profile: string, row: string) =>
+  isExpectedFailure(profile, row) ? test.fails : test;
 
 describe.each(contractTables)('$file', (table) => {
   describe.each(table.fixtures)('$name', (fixture) => {
@@ -38,7 +49,7 @@ describe.each(contractTables)('$file', (table) => {
       expect(validates(fixture.resource, table.profile)).toBe(fixture.validates);
     });
 
-    compileTest(table.profile)(`compiles: ${fixture.compiles}`, () => {
+    compileTest(table.profile, fixture.name)(`compiles: ${fixture.compiles}`, () => {
       expect(profileTypes.has(table.profile), 'no generated type').toBe(true);
       expect(diagnostics.get(fixture)).toEqual([]);
     });
@@ -53,7 +64,7 @@ describe.each(contractTables)('$file', (table) => {
   });
 
   for (const parent of table.assignableTo ?? []) {
-    compileTest(table.profile)(`is assignable to ${parent}`, () => {
+    compileTest(table.profile, `assignable to ${parent}`)(`is assignable to ${parent}`, () => {
       expect(profileTypes.has(table.profile) && profileTypes.has(parent), 'no generated type').toBe(
         true,
       );
@@ -62,10 +73,14 @@ describe.each(contractTables)('$file', (table) => {
   }
 });
 
-test('expected-failures.json lists only profiles under test', () => {
-  const underTest = new Set([
-    ...contractTables.map((table) => table.profile),
-    ...usCoreCases.flatMap((c) => (c.profile && !c.unparseable ? [c.profile] : [])),
+test('expected-failures.json lists only rows under test', () => {
+  const rows = new Set([
+    ...contractTables.flatMap((table) => [
+      table.profile,
+      ...table.fixtures.map((f) => `${table.profile}#${f.name}`),
+      ...(table.assignableTo ?? []).map((p) => `${table.profile}#assignable to ${p}`),
+    ]),
+    ...usCoreCases.flatMap((c) => (c.profile ? [c.profile, `${c.profile}#${c.name}`] : [])),
   ]);
-  expect([...expectedFailures].filter((url) => !underTest.has(url))).toEqual([]);
+  expect(expectedFailureEntries.filter((entry) => !rows.has(entry))).toEqual([]);
 });

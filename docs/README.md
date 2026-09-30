@@ -43,7 +43,14 @@
   they depend on, resolves each reference in its IG's own scope, and parses
   each profile with Medplum. It loads all 54 parseable US Core 9.0.0 resource
   profiles in about 2 seconds. `hl7.fhir.us.core/*` selects all of them,
-  skipping Provenance with a warning. **Next:** the emitter (#14).
+  skipping Provenance with a warning.
+- **Emitter core:** transform, print and write turn each profile into a file
+  that narrows `@medplum/fhirtypes`: required paths at every depth, `max: 0`,
+  choices, fixed and pattern values, narrowed backbone elements, reference
+  targets, and doc comments for what the types cannot check. The harness now
+  compiles every fixture against generated types; 11 rows remain expected
+  failures, all slices, extension slices and bindings. **Next:** slices (#15)
+  and bindings (#16).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
