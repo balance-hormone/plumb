@@ -104,7 +104,13 @@ These decide the questions the rest of the spec does not answer.
    ported code with its own tooling anyway.
 5. **Compatibility is tested where it lives.** The real risk is the types Plumb
    generates, not its build. CI type-checks generated output under the oldest
-   supported TypeScript and under a Medplum-style `tsconfig`.
+   supported TypeScript and under a Medplum-style `tsconfig`, and runs the tests
+   against the oldest supported `@medplum/*`.
+   - **Supported versions:** TypeScript 5.0 and later, and `@medplum/*` 5.1.0
+     and later (the peer range). TypeScript 4.9 cannot read
+     `@medplum/fhirtypes`; 5.0 through 7 type-check the goldens alike under
+     `NodeNext` and `bundler`, and `@medplum/core` 5.1.0 generates output
+     byte-identical to 5.1.42.
 6. **Readable output.** Published and generated code is not minified, so a
    stack trace or a type error leads somewhere a person can read.
 
@@ -517,5 +523,4 @@ not yet vouched for unless they link a maintainer-labelled issue.
   before the first publish.
 - **The copyright line** in `NOTICE` and the SPDX headers, confirmed by the
   copyright holder.
-- **Supported versions**: the oldest `@medplum/core` and TypeScript Plumb
-  supports.
+

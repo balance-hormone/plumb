@@ -19,7 +19,8 @@ const files = execFileSync(
   },
 )
   .split('\n')
-  .filter(Boolean);
+  // Plumb's own generated output, as projects receive it: no SPDX header.
+  .filter((file) => file && !file.startsWith('test/golden/generated/'));
 
 const missing = files.filter(
   (file) =>

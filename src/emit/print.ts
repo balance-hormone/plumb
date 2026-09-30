@@ -61,6 +61,18 @@ function block(fields: Field[]): string {
   return `{\n${fields.map((f) => `  ${indentRest(printField(f), '  ')}`).join('\n')}\n}`;
 }
 
+/** Joins keys with ' | ' into lines no wider than `width`. */
+function fill(keys: string[], width: number): string[] {
+  const lines: string[] = [];
+  for (const key of keys) {
+    const last = lines.at(-1);
+    if (last !== undefined && last.length + key.length + 3 <= width)
+      lines[lines.length - 1] = `${last} | ${key}`;
+    else lines.push(key);
+  }
+  return lines;
+}
+
 /** A type expression as TypeScript; nested lines are indented relative to the first. */
 export function printExpr(t: TypeExpr): string {
   switch (t.kind) {
@@ -100,7 +112,9 @@ export function printExpr(t: TypeExpr): string {
           ? base
           : inline.length <= 80
             ? inline
-            : `Omit<\n  ${base},\n${keys.map((k) => `  | ${k}`).join('\n')}\n>`;
+            : `Omit<\n  ${base},\n${fill(keys, WIDTH - 4)
+                .map((line) => `  | ${line}`)
+                .join('\n')}\n>`;
       const groups = (t.oneOf ?? []).map(
         (branches) =>
           ` & (\n${branches.map((b) => `  | ${indentRest(block(b), '    ')}`).join('\n')}\n)`,
@@ -162,7 +176,7 @@ function printHelper(h: Helper): string[] {
   const keys = Object.keys(h.values);
   if (h.kind === 'build') {
     return [
-      `  /** A ${h.element} entry in the ${h.slice} slice, with ${keys.join(' and ')} filled in. */`,
+      `  /** ${/^[aeiou]/i.test(h.element) ? 'An' : 'A'} ${h.element} entry in the ${h.slice} slice, with ${keys.join(' and ')} filled in. */`,
       `  ${h.name}: (entry: OmitEach<${h.shape}, ${keys.map(quote).join(' | ')}>): ${h.shape} => ({`,
       '    ...entry,',
       ...keys.map((key) => `    ${key}: ${printValue(h.values[key])},`),

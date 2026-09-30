@@ -30,10 +30,15 @@ const allowedHosts = [
   'nlm.nih.gov',
 ];
 const skipFiles = new Set(['package-lock.json']);
-// Published IG packages, copied unmodified, and SUSHI's output, whose snapshots
-// repeat the base FHIR definitions: their example hosts, emails and identifiers
-// are HL7's, so only the denylist applies. The FSH that SUSHI reads is checked.
-const hl7Content = ['test/fixtures/packages/', 'test/fixtures/profiles/fsh-generated/'];
+// Published IG packages, copied unmodified, SUSHI's output, whose snapshots
+// repeat the base FHIR definitions, and the goldens generated from them: their
+// example hosts, emails and identifiers are HL7's, so only the denylist
+// applies. The FSH that SUSHI reads is checked.
+const hl7Content = [
+  'test/fixtures/packages/',
+  'test/fixtures/profiles/fsh-generated/',
+  'test/golden/generated/',
+];
 
 const denylist = (process.env.PLUMB_DENYLIST ?? '')
   .split(',')

@@ -104,15 +104,19 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     loaded.warnings.map((w) => w.message),
   );
 
-  const { models, errors } = transform(loaded);
+  const { models, errors, warnings } = transform(loaded);
   if (errors.length > 0) return fail('emit', errors);
   const integrity = new Map(fetched.packages.map((p) => [`${p.name}@${p.version}`, p.integrity]));
   const files = printFiles(models, (m) => integrity.get(m.source) ?? hashOf(m));
-  finish('emit', {
-    types: models.length,
-    slices: models.reduce((n, m) => n + m.slices, 0),
-    codeLists: models.reduce((n, m) => n + m.constants.length, 0),
-  });
+  finish(
+    'emit',
+    {
+      types: models.length,
+      slices: models.reduce((n, m) => n + m.slices, 0),
+      codeLists: models.reduce((n, m) => n + m.constants.length, 0),
+    },
+    warnings,
+  );
 
   if (check) {
     const compared = compareFiles(config.out, files);

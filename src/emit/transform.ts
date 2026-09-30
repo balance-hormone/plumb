@@ -169,6 +169,7 @@ const firstSentence = (text: string | undefined) => text?.split(/(?<=\.)\s/)[0]?
 /** Turns one parsed profile into its type declarations. */
 class ProfileTransform {
   readonly notes: string[] = [];
+  readonly warnings: string[] = [];
   readonly helpers: Helper[] = [];
   readonly constants: { name: string; codes: Code[] }[] = [];
   private inner = new Map<string, string>();
@@ -215,6 +216,7 @@ class ProfileTransform {
     }
     // The final pass records notes, slice types and helpers once.
     this.notes.length = 0;
+    this.warnings.length = 0;
     this.helpers.length = 0;
     this.constants.length = 0;
     this.sliceDecls.length = 0;
@@ -338,6 +340,13 @@ class ProfileTransform {
   private slices(key: string, e: InternalSchemaElement, path: string, item: TypeExpr) {
     const slicing = e.slicing as SlicingRules;
     const code = e.type[0]?.code ?? 'Element';
+    const names = slicing.slices.map((slice) => slice.name);
+    if (new Set(names).size !== names.length) {
+      const message = `${path}: Medplum parses its slicing inconsistently (a slice appears more than once, as it does for slices inside slices), so no slice types are generated for it. Medplum's validator reads the same parse.`;
+      this.notes.push(message);
+      this.warnings.push(message);
+      return undefined;
+    }
     const shapes: { slice: SliceDefinition; type: TypeExpr }[] = [];
     for (const slice of slicing.slices) {
       const name = this.uniqueName(`${this.typeName}${this.prefix.join('')}`, key, slice.name);
@@ -358,9 +367,12 @@ class ProfileTransform {
     } satisfies TypeExpr;
   }
 
+  /** The slice's name, then with its element's, then numbered, until no other type has it. */
   private uniqueName(stem: string, key: string, slice: string): string {
-    let name = `${stem}${pascal(slice)}`;
-    if (this.usedNames.has(name)) name = `${stem}${pascal(key)}${pascal(slice)}`;
+    const plain = `${stem}${pascal(slice)}`;
+    const qualified = `${stem}${pascal(key)}${pascal(slice)}`;
+    let name = this.usedNames.has(plain) ? qualified : plain;
+    for (let n = 2; this.usedNames.has(name); n++) name = `${qualified}${n}`;
     this.usedNames.add(name);
     return name;
   }
@@ -392,7 +404,8 @@ class ProfileTransform {
   /** A slice narrows its element; an extension slice takes its extension profile's type. */
   private sliceShape(slice: SliceDefinition, code: string, path: string): TypeExpr {
     const profile = code === 'Extension' ? slice.type?.[0]?.profile?.[0] : undefined;
-    const schema = profile ? tryGetProfile(profile) : undefined;
+    // A slice may name its extension with a version; Medplum keys profiles by URL alone.
+    const schema = profile ? tryGetProfile(profile.split('|')[0] as string) : undefined;
     const elements = schema?.elements ?? slice.elements;
     return this.node(code, elements, getDataType(code).elements, path);
   }
@@ -406,9 +419,8 @@ class ProfileTransform {
   ): void {
     const values = discriminatorValues(slicing, slice);
     if (!values) return;
-    const stem = `${this.prefix.join('')}${pascal(slice.name)}`;
-    const taken = this.helpers.some((h) => h.name === `get${stem}`);
-    const name = taken ? `${pascal(element)}${stem}` : stem;
+    // The slice type's name is unique, so a helper named after it is too.
+    const name = shape.slice(this.typeName.length);
     const common = { shape, element, item, slice: slice.name, values };
     // A leading run of capitals lowercases as a run: VSCat gives vsCat, MRN gives mrn.
     const build = name.replace(/^[A-Z]+(?=[A-Z][a-z0-9]|$)|^[A-Z]/, (m) => m.toLowerCase());
@@ -612,16 +624,29 @@ export function discriminatorValues(slicing: SlicingRules, slice: SliceDefinitio
   const values: Record<string, unknown> = {};
   for (const d of slicing.discriminator) {
     if (d.type !== 'value' && d.type !== 'pattern') return undefined;
+    if (d.path === '$this') {
+      const whole = wholeValue(slice);
+      if (!whole) return undefined;
+      Object.assign(values, whole);
+      continue;
+    }
     const element = slice.elements[d.path];
     // An extension slice names its extension by profile rather than a fixed url.
     const value =
       element?.fixed?.value ??
       element?.pattern?.value ??
-      (d.path === 'url' ? slice.type?.[0]?.profile?.[0] : undefined);
+      (d.path === 'url' ? slice.type?.[0]?.profile?.[0]?.split('|')[0] : undefined);
     if (value === undefined) return undefined;
     setPath(values, d.path, value, slice);
   }
   return values;
+}
+
+/** `$this` discriminates on the whole entry, whose value is the slice's own fixed or pattern object. */
+function wholeValue(slice: SliceDefinition): Record<string, unknown> | undefined {
+  const whole = slice.fixed?.value ?? slice.pattern?.value;
+  if (whole === null || typeof whole !== 'object' || Array.isArray(whole)) return undefined;
+  return whole as Record<string, unknown>;
 }
 
 /** Sets `value` at a dotted path, where a path through a repeating element holds one entry of it. */
@@ -676,6 +701,8 @@ function docFor(sd: StructureDefinition, notes: string[]): string[] {
 export function transform(loaded: LoadProfilesResult): {
   models: ProfileModel[];
   errors: TransformIssue[];
+  /** What the types leave out because Medplum's parse cannot support it. */
+  warnings: string[];
 } {
   const targetType = (url: string): string | undefined => {
     const bare = url.split('|')[0] as string;
@@ -705,9 +732,11 @@ export function transform(loaded: LoadProfilesResult): {
 
   const lookup = (url: string) => loaded.definitions.get(url.split('|')[0] as string)?.resource;
   const expand = (url: string) => expandValueSet(url, lookup);
+  const warnings: string[] = [];
   const models = loaded.profiles.map((p, i): ProfileModel => {
     const t = new ProfileTransform(p.schema, final[i] as string, targetType, expand);
     const decls = t.decls();
+    warnings.push(...t.warnings);
     return {
       url: p.url,
       version: p.sd.version,
@@ -721,5 +750,5 @@ export function transform(loaded: LoadProfilesResult): {
       slices: t.sliceCount,
     };
   });
-  return { models, errors };
+  return { models, errors, warnings };
 }

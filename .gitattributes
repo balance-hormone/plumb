@@ -2,3 +2,5 @@
 test/fixtures/profiles/fsh-generated/** linguist-generated=true
 # HL7 packages, copied unmodified from the FHIR registry; collapsed in GitHub diffs.
 test/fixtures/packages/** linguist-generated=true
+# Golden output: regenerate with GOLDEN_UPDATE=1 npx vitest run test/golden; collapsed in GitHub diffs.
+test/golden/generated/** linguist-generated=true

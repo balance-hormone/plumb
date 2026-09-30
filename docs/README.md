@@ -70,8 +70,13 @@
 - **CLI:** `plumb generate [--check] [--config <path>] [--json] [--quiet]`
   prints a line per step and a total, as the spec's Output section says, and
   exits 0, 1 for problems found, or 2 for usage and config errors. A test
-  runs the built `dist/esm/cli.mjs`. **Next:** golden tests and the
-  compatibility job (#20), then the README (#21).
+  runs the built `dist/esm/cli.mjs`.
+- **Goldens and compatibility:** committed output for four US Core and two
+  IPS profiles, compared byte for byte; CI type-checks it under TypeScript
+  5.0 and the project's, with `NodeNext` and `bundler`, and runs the tests on
+  `@medplum/*` 5.1.0. IPS showed Medplum's parser flattens slices inside
+  slices (IPS Composition), so such slicing now gets no slice types and a
+  warning. **Next:** the README (#21).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
