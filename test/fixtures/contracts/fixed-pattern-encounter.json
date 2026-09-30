@@ -1,0 +1,244 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/fixed-pattern-encounter",
+  "matrix": ["Fixed and pattern values"],
+  "fixtures": [
+    {
+      "name": "all values match",
+      "rule": "status pattern finished; class fixed; classHistory.class pattern; priority fixed",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Encounter",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB"
+        },
+        "classHistory": [
+          {
+            "class": {
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+              "code": "IMP",
+              "display": "inpatient encounter"
+            },
+            "period": {
+              "start": "2020-01-01"
+            }
+          }
+        ],
+        "priority": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "394848005"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "priority absent",
+      "rule": "priority is 0..1; its fixed value applies only when present",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Encounter",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB"
+        },
+        "classHistory": [
+          {
+            "class": {
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+              "code": "IMP",
+              "display": "inpatient encounter"
+            },
+            "period": {
+              "start": "2020-01-01"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "status in-progress",
+      "rule": "status pattern finished",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Encounter",
+        "status": "in-progress",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB"
+        },
+        "classHistory": [
+          {
+            "class": {
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+              "code": "IMP",
+              "display": "inpatient encounter"
+            },
+            "period": {
+              "start": "2020-01-01"
+            }
+          }
+        ],
+        "priority": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "394848005"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "class with another code",
+      "rule": "class fixed to v3-ActCode AMB",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Encounter",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "IMP"
+        },
+        "classHistory": [
+          {
+            "class": {
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+              "code": "IMP",
+              "display": "inpatient encounter"
+            },
+            "period": {
+              "start": "2020-01-01"
+            }
+          }
+        ],
+        "priority": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "394848005"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "class with a display added",
+      "rule": "a fixed Coding matches exactly: no extra display",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Encounter",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB",
+          "display": "ambulatory"
+        },
+        "classHistory": [
+          {
+            "class": {
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+              "code": "IMP",
+              "display": "inpatient encounter"
+            },
+            "period": {
+              "start": "2020-01-01"
+            }
+          }
+        ],
+        "priority": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "394848005"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "classHistory.class with another code",
+      "rule": "classHistory.class pattern v3-ActCode IMP",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Encounter",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB"
+        },
+        "classHistory": [
+          {
+            "class": {
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+              "code": "AMB"
+            },
+            "period": {
+              "start": "2020-01-01"
+            }
+          }
+        ],
+        "priority": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "394848005"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "priority with text added",
+      "rule": "a fixed CodeableConcept matches exactly: no extra text",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Encounter",
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "AMB"
+        },
+        "classHistory": [
+          {
+            "class": {
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+              "code": "IMP",
+              "display": "inpatient encounter"
+            },
+            "period": {
+              "start": "2020-01-01"
+            }
+          }
+        ],
+        "priority": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "394848005"
+            }
+          ],
+          "text": "Normal"
+        }
+      }
+    }
+  ]
+}

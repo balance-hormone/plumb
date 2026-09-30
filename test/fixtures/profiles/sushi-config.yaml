@@ -1,0 +1,7 @@
+# Plumb's synthetic test profiles. Edit the FSH, then run
+# `npm run fixtures:profiles` and commit fsh-generated/ with it.
+canonical: http://example.org/fhir/plumb-test
+status: draft
+version: 0.1.0
+fhirVersion: 4.0.1
+FSHOnly: true

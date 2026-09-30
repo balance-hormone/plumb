@@ -1,0 +1,23 @@
+{
+  "resourceType": "ValueSet",
+  "status": "draft",
+  "name": "PlumbTestFindings",
+  "id": "plumb-test-findings",
+  "title": "Clinical findings (rule-based, cannot be listed offline)",
+  "version": "0.1.0",
+  "url": "http://example.org/fhir/plumb-test/ValueSet/plumb-test-findings",
+  "compose": {
+    "include": [
+      {
+        "system": "http://snomed.info/sct",
+        "filter": [
+          {
+            "property": "concept",
+            "op": "is-a",
+            "value": "404684003"
+          }
+        ]
+      }
+    ]
+  }
+}

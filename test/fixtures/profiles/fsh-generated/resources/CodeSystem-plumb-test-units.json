@@ -1,0 +1,22 @@
+{
+  "resourceType": "CodeSystem",
+  "status": "draft",
+  "content": "complete",
+  "name": "PlumbTestUnits",
+  "id": "plumb-test-units",
+  "title": "Plumb test units",
+  "version": "0.1.0",
+  "url": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-units",
+  "concept": [
+    {
+      "code": "g",
+      "display": "gram"
+    },
+    {
+      "code": "kg",
+      "display": "kilogram"
+    }
+  ],
+  "caseSensitive": true,
+  "count": 2
+}

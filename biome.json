@@ -1,7 +1,13 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "files": {
-    "includes": ["**", "!**/dist", "!**/node_modules", "!test/fixtures/packages"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!test/fixtures/packages",
+      "!test/fixtures/profiles/fsh-generated"
+    ]
   },
   "formatter": {
     "enabled": true,

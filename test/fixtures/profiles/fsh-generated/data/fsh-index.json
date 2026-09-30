@@ -1,0 +1,402 @@
+[
+  {
+    "outputFile": "CodeSystem-plumb-test-colors.json",
+    "fshName": "PlumbTestColors",
+    "fshType": "CodeSystem",
+    "fshFile": "bindings.fsh",
+    "startLine": 2,
+    "endLine": 8
+  },
+  {
+    "outputFile": "CodeSystem-plumb-test-large.json",
+    "fshName": "PlumbTestLarge",
+    "fshType": "CodeSystem",
+    "fshFile": "bindings.fsh",
+    "startLine": 43,
+    "endLine": 147
+  },
+  {
+    "outputFile": "CodeSystem-plumb-test-units.json",
+    "fshName": "PlumbTestUnits",
+    "fshType": "CodeSystem",
+    "fshFile": "bindings.fsh",
+    "startLine": 26,
+    "endLine": 31
+  },
+  {
+    "outputFile": "StructureDefinition-bindings-observation.json",
+    "fshName": "BindingsObservation",
+    "fshType": "Profile",
+    "fshFile": "bindings.fsh",
+    "startLine": 160,
+    "endLine": 168
+  },
+  {
+    "outputFile": "StructureDefinition-bindings-patient.json",
+    "fshName": "BindingsPatient",
+    "fshType": "Profile",
+    "fshFile": "bindings.fsh",
+    "startLine": 149,
+    "endLine": 158
+  },
+  {
+    "outputFile": "StructureDefinition-cardinality-patient.json",
+    "fshName": "CardinalityPatient",
+    "fshType": "Profile",
+    "fshFile": "cardinality.fsh",
+    "startLine": 2,
+    "endLine": 10
+  },
+  {
+    "outputFile": "StructureDefinition-care-note.json",
+    "fshName": "CareNote",
+    "fshType": "Extension",
+    "fshFile": "extensions.fsh",
+    "startLine": 14,
+    "endLine": 21
+  },
+  {
+    "outputFile": "StructureDefinition-child-observation.json",
+    "fshName": "ChildObservation",
+    "fshType": "Profile",
+    "fshFile": "inheritance.fsh",
+    "startLine": 12,
+    "endLine": 20
+  },
+  {
+    "outputFile": "StructureDefinition-choice-observation.json",
+    "fshName": "ChoiceObservation",
+    "fshType": "Profile",
+    "fshFile": "choice.fsh",
+    "startLine": 2,
+    "endLine": 8
+  },
+  {
+    "outputFile": "StructureDefinition-contact-window.json",
+    "fshName": "ContactWindow",
+    "fshType": "Extension",
+    "fshFile": "extensions.fsh",
+    "startLine": 23,
+    "endLine": 30
+  },
+  {
+    "outputFile": "StructureDefinition-extensions-patient.json",
+    "fshName": "ExtensionsPatient",
+    "fshType": "Profile",
+    "fshFile": "extensions.fsh",
+    "startLine": 32,
+    "endLine": 41
+  },
+  {
+    "outputFile": "StructureDefinition-favorite-color.json",
+    "fshName": "FavoriteColor",
+    "fshType": "Extension",
+    "fshFile": "extensions.fsh",
+    "startLine": 2,
+    "endLine": 7
+  },
+  {
+    "outputFile": "StructureDefinition-fixed-pattern-encounter.json",
+    "fshName": "FixedPatternEncounter",
+    "fshType": "Profile",
+    "fshFile": "fixed-pattern.fsh",
+    "startLine": 10,
+    "endLine": 18
+  },
+  {
+    "outputFile": "StructureDefinition-fixed-pattern-observation.json",
+    "fshName": "FixedPatternObservation",
+    "fshType": "Profile",
+    "fshFile": "fixed-pattern.fsh",
+    "startLine": 2,
+    "endLine": 8
+  },
+  {
+    "outputFile": "StructureDefinition-naming-patient-a.json",
+    "fshName": "NamingPatientA",
+    "fshType": "Profile",
+    "fshFile": "naming.fsh",
+    "startLine": 3,
+    "endLine": 9
+  },
+  {
+    "outputFile": "StructureDefinition-naming-patient-b.json",
+    "fshName": "NamingPatientB",
+    "fshType": "Profile",
+    "fshFile": "naming.fsh",
+    "startLine": 11,
+    "endLine": 17
+  },
+  {
+    "outputFile": "StructureDefinition-nesting-patient.json",
+    "fshName": "NestingPatient",
+    "fshType": "Profile",
+    "fshFile": "nesting.fsh",
+    "startLine": 2,
+    "endLine": 14
+  },
+  {
+    "outputFile": "StructureDefinition-nickname.json",
+    "fshName": "Nickname",
+    "fshType": "Extension",
+    "fshFile": "extensions.fsh",
+    "startLine": 9,
+    "endLine": 12
+  },
+  {
+    "outputFile": "StructureDefinition-optional-extensions-patient.json",
+    "fshName": "OptionalExtensionsPatient",
+    "fshType": "Profile",
+    "fshFile": "extensions.fsh",
+    "startLine": 43,
+    "endLine": 52
+  },
+  {
+    "outputFile": "StructureDefinition-parent-observation.json",
+    "fshName": "ParentObservation",
+    "fshType": "Profile",
+    "fshFile": "inheritance.fsh",
+    "startLine": 3,
+    "endLine": 10
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-base64-binary.json",
+    "fshName": "PrimitiveBase64Binary",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 125,
+    "endLine": 129
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-boolean.json",
+    "fshName": "PrimitiveBoolean",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 35,
+    "endLine": 39
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-canonical.json",
+    "fshName": "PrimitiveCanonical",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 95,
+    "endLine": 99
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-code.json",
+    "fshName": "PrimitiveCode",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 77,
+    "endLine": 81
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-date-time.json",
+    "fshName": "PrimitiveDateTime",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 59,
+    "endLine": 63
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-date.json",
+    "fshName": "PrimitiveDate",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 53,
+    "endLine": 57
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-decimal.json",
+    "fshName": "PrimitiveDecimal",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 47,
+    "endLine": 51
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-id.json",
+    "fshName": "PrimitiveId",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 101,
+    "endLine": 105
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-instant.json",
+    "fshName": "PrimitiveInstant",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 65,
+    "endLine": 69
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-integer.json",
+    "fshName": "PrimitiveInteger",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 41,
+    "endLine": 45
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-markdown.json",
+    "fshName": "PrimitiveMarkdown",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 119,
+    "endLine": 123
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-oid.json",
+    "fshName": "PrimitiveOid",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 107,
+    "endLine": 111
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-positive-int.json",
+    "fshName": "PrimitivePositiveInt",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 131,
+    "endLine": 135
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-string.json",
+    "fshName": "PrimitiveString",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 29,
+    "endLine": 33
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-time.json",
+    "fshName": "PrimitiveTime",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 71,
+    "endLine": 75
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-unsigned-int.json",
+    "fshName": "PrimitiveUnsignedInt",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 137,
+    "endLine": 141
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-uri.json",
+    "fshName": "PrimitiveUri",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 83,
+    "endLine": 87
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-url.json",
+    "fshName": "PrimitiveUrl",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 89,
+    "endLine": 93
+  },
+  {
+    "outputFile": "StructureDefinition-primitive-uuid.json",
+    "fshName": "PrimitiveUuid",
+    "fshType": "Extension",
+    "fshFile": "primitives.fsh",
+    "startLine": 113,
+    "endLine": 117
+  },
+  {
+    "outputFile": "StructureDefinition-primitives-basic.json",
+    "fshName": "PrimitivesBasic",
+    "fshType": "Profile",
+    "fshFile": "primitives.fsh",
+    "startLine": 3,
+    "endLine": 27
+  },
+  {
+    "outputFile": "StructureDefinition-recursive-questionnaire.json",
+    "fshName": "RecursiveQuestionnaire",
+    "fshType": "Profile",
+    "fshFile": "recursion.fsh",
+    "startLine": 3,
+    "endLine": 9
+  },
+  {
+    "outputFile": "StructureDefinition-references-observation.json",
+    "fshName": "ReferencesObservation",
+    "fshType": "Profile",
+    "fshFile": "references.fsh",
+    "startLine": 2,
+    "endLine": 9
+  },
+  {
+    "outputFile": "StructureDefinition-required-choice-observation.json",
+    "fshName": "RequiredChoiceObservation",
+    "fshType": "Profile",
+    "fshFile": "choice.fsh",
+    "startLine": 10,
+    "endLine": 16
+  },
+  {
+    "outputFile": "StructureDefinition-sliced-observation.json",
+    "fshName": "SlicedObservation",
+    "fshType": "Profile",
+    "fshFile": "slices.fsh",
+    "startLine": 2,
+    "endLine": 18
+  },
+  {
+    "outputFile": "StructureDefinition-sliced-patient.json",
+    "fshName": "SlicedPatient",
+    "fshType": "Profile",
+    "fshFile": "slices.fsh",
+    "startLine": 20,
+    "endLine": 39
+  },
+  {
+    "outputFile": "ValueSet-plumb-test-colors-vs.json",
+    "fshName": "PlumbTestColorsVS",
+    "fshType": "ValueSet",
+    "fshFile": "bindings.fsh",
+    "startLine": 10,
+    "endLine": 13
+  },
+  {
+    "outputFile": "ValueSet-plumb-test-findings.json",
+    "fshName": "PlumbTestFindings",
+    "fshType": "ValueSet",
+    "fshFile": "bindings.fsh",
+    "startLine": 21,
+    "endLine": 24
+  },
+  {
+    "outputFile": "ValueSet-plumb-test-gender-subset.json",
+    "fshName": "PlumbTestGenderSubset",
+    "fshType": "ValueSet",
+    "fshFile": "bindings.fsh",
+    "startLine": 15,
+    "endLine": 19
+  },
+  {
+    "outputFile": "ValueSet-plumb-test-large-vs.json",
+    "fshName": "PlumbTestLargeVS",
+    "fshType": "ValueSet",
+    "fshFile": "bindings.fsh",
+    "startLine": 38,
+    "endLine": 41
+  },
+  {
+    "outputFile": "ValueSet-plumb-test-units-vs.json",
+    "fshName": "PlumbTestUnitsVS",
+    "fshType": "ValueSet",
+    "fshFile": "bindings.fsh",
+    "startLine": 33,
+    "endLine": 36
+  }
+]

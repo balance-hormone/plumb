@@ -1,0 +1,106 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/parent-observation",
+  "matrix": ["Inheritance"],
+  "fixtures": [
+    {
+      "name": "all rules met",
+      "rule": "subject 1..1; effective[x] 1..1 only dateTime",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Weight"
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z"
+      }
+    },
+    {
+      "name": "a ChildObservation",
+      "rule": "a child profile instance conforms to its parent",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "39156-5"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z",
+        "valueQuantity": {
+          "value": 22.5,
+          "unit": "kg/m2",
+          "system": "http://unitsofmeasure.org",
+          "code": "kg/m2"
+        }
+      }
+    },
+    {
+      "name": "subject missing",
+      "rule": "subject 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Weight"
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z"
+      }
+    },
+    {
+      "name": "effective missing",
+      "rule": "effective[x] 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Weight"
+        },
+        "subject": {
+          "reference": "Patient/1"
+        }
+      }
+    },
+    {
+      "name": "effectivePeriod",
+      "rule": "effective[x] only dateTime",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "choice-type",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Weight"
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "effectivePeriod": {
+          "start": "2020-01-01"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/fixed-pattern-observation",
+  "matrix": ["Fixed and pattern values"],
+  "fixtures": [
+    {
+      "name": "fixed status, pattern code with display and text",
+      "rule": "status fixed to final; code must contain LOINC 8302-2, the rest stays open",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8302-2",
+              "display": "Body height"
+            }
+          ],
+          "text": "Height"
+        }
+      }
+    },
+    {
+      "name": "pattern coding after another coding",
+      "rule": "a pattern CodeableConcept is matched by any coding in the array",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "50373000"
+            },
+            {
+              "system": "http://loinc.org",
+              "code": "8302-2",
+              "display": "Body height"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "status preliminary",
+      "rule": "status fixed to final",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "preliminary",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8302-2",
+              "display": "Body height"
+            }
+          ],
+          "text": "Height"
+        }
+      }
+    },
+    {
+      "name": "code without the pattern coding",
+      "rule": "code must contain LOINC 8302-2",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "pattern-coding",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "29463-7"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

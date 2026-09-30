@@ -1,0 +1,124 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/choice-observation",
+  "matrix": ["Choice types"],
+  "fixtures": [
+    {
+      "name": "valueQuantity",
+      "rule": "value[x] only Quantity",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueQuantity": {
+          "value": 1,
+          "unit": "g",
+          "system": "http://unitsofmeasure.org",
+          "code": "g"
+        }
+      }
+    },
+    {
+      "name": "effectiveDateTime",
+      "rule": "effective[x] only dateTime or Period, optional",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z"
+      }
+    },
+    {
+      "name": "effectivePeriod",
+      "rule": "effective[x] only dateTime or Period, optional",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "effectivePeriod": {
+          "start": "2020-01-01"
+        }
+      }
+    },
+    {
+      "name": "neither value nor effective",
+      "rule": "both choices are optional",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        }
+      }
+    },
+    {
+      "name": "valueString",
+      "rule": "value[x] only Quantity",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "choice-type",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueString": "one"
+      }
+    },
+    {
+      "name": "effectiveInstant",
+      "rule": "effective[x] only dateTime or Period",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "choice-type",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "effectiveInstant": "2020-01-01T10:00:00.000Z"
+      }
+    },
+    {
+      "name": "effectiveDateTime and effectivePeriod",
+      "rule": "a choice takes one type; for an optional choice the types do not forbid both",
+      "conforms": false,
+      "compiles": true,
+      "validates": true,
+      "typeGap": "choice-conflict",
+      "validatorGap": "choice-conflict",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "effectiveDateTime": "2020-01-01T10:00:00Z",
+        "effectivePeriod": {
+          "start": "2020-01-01"
+        }
+      }
+    }
+  ]
+}

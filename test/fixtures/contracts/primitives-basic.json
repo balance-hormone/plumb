@@ -1,0 +1,344 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/primitives-basic",
+  "matrix": ["Primitive types"],
+  "fixtures": [
+    {
+      "name": "every primitive, each a valid value",
+      "rule": "each extension narrows value[x] to one primitive",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-string",
+            "valueString": "text"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-boolean",
+            "valueBoolean": true
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-integer",
+            "valueInteger": -5
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-decimal",
+            "valueDecimal": 1.25
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-date",
+            "valueDate": "2020-02-29"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-date-time",
+            "valueDateTime": "2020-02-29T10:00:00Z"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-instant",
+            "valueInstant": "2020-02-29T10:00:00.000Z"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-time",
+            "valueTime": "10:30:00"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-code",
+            "valueCode": "active"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-uri",
+            "valueUri": "urn:example:thing"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-url",
+            "valueUrl": "http://example.org/page"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-canonical",
+            "valueCanonical": "http://example.org/fhir/plumb-test/StructureDefinition/cardinality-patient"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-id",
+            "valueId": "abc-123"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-oid",
+            "valueOid": "urn:oid:1.2.3.4"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-uuid",
+            "valueUuid": "urn:uuid:c757873d-ec9a-4326-a141-556f43239520"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-markdown",
+            "valueMarkdown": "**bold**"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-base64-binary",
+            "valueBase64Binary": "aGVsbG8="
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-positive-int",
+            "valuePositiveInt": 1
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-unsigned-int",
+            "valueUnsignedInt": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "no extensions",
+      "rule": "every extension is 0..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        }
+      }
+    },
+    {
+      "name": "boolean as a string",
+      "rule": "valueBoolean is a boolean",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-boolean",
+            "valueBoolean": "true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "integer as a string",
+      "rule": "valueInteger is a number",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-integer",
+            "valueInteger": "5"
+          }
+        ]
+      }
+    },
+    {
+      "name": "decimal as a string",
+      "rule": "valueDecimal is a number",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-decimal",
+            "valueDecimal": "1.25"
+          }
+        ]
+      }
+    },
+    {
+      "name": "string as a number",
+      "rule": "valueString is a string",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-string",
+            "valueString": 5
+          }
+        ]
+      }
+    },
+    {
+      "name": "date not in date format",
+      "rule": "date is YYYY, YYYY-MM or YYYY-MM-DD",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "primitive-format",
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-date",
+            "valueDate": "yesterday"
+          }
+        ]
+      }
+    },
+    {
+      "name": "instant without time",
+      "rule": "instant has a time and a time zone",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "primitive-format",
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-instant",
+            "valueInstant": "2020-02-29"
+          }
+        ]
+      }
+    },
+    {
+      "name": "integer with a fraction",
+      "rule": "integer is a whole number",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "primitive-format",
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-integer",
+            "valueInteger": 1.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "positiveInt of zero",
+      "rule": "positiveInt is 1 or more",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "primitive-format",
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-positive-int",
+            "valuePositiveInt": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "unsignedInt below zero",
+      "rule": "unsignedInt is 0 or more",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "primitive-format",
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-unsigned-int",
+            "valueUnsignedInt": -1
+          }
+        ]
+      }
+    },
+    {
+      "name": "id with a space",
+      "rule": "id is [A-Za-z0-9-.]{1,64}",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "primitive-format",
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-id",
+            "valueId": "a b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "integer extension holding a string",
+      "rule": "primitive-integer narrows value[x] to integer",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "extension-contents",
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-integer",
+            "valueString": "five"
+          }
+        ]
+      }
+    },
+    {
+      "name": "extension without a value",
+      "rule": "value[x] 1..1, and ext-1: an extension has a value or extensions",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Basic",
+        "code": {
+          "text": "Primitives"
+        },
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/primitive-string"
+          }
+        ]
+      }
+    }
+  ]
+}

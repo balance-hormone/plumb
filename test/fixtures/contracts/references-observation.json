@@ -1,0 +1,118 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/references-observation",
+  "matrix": ["References"],
+  "fixtures": [
+    {
+      "name": "subject and performer are patients",
+      "rule": "subject only Reference(Patient); performer only Reference(CardinalityPatient)",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "performer": [
+          {
+            "reference": "Patient/2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "subject missing",
+      "rule": "subject 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        }
+      }
+    },
+    {
+      "name": "subject is a Group",
+      "rule": "subject only Reference(Patient) (a base target: the validator only warns)",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "reference-target",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "subject": {
+          "reference": "Group/1"
+        },
+        "performer": [
+          {
+            "reference": "Patient/2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "performer is a Practitioner",
+      "rule": "performer only Reference(CardinalityPatient) (a profile target: the validator does not check it)",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "reference-target",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "performer": [
+          {
+            "reference": "Practitioner/1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "performer is a patient that breaks CardinalityPatient",
+      "rule": "the contained Patient has no birthDate or name, so it does not conform to the target profile",
+      "conforms": false,
+      "compiles": true,
+      "validates": true,
+      "typeGap": "target-profile",
+      "validatorGap": "reference-target",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "performer": [
+          {
+            "reference": "#p1"
+          }
+        ],
+        "contained": [
+          {
+            "resourceType": "Patient",
+            "id": "p1"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -2,7 +2,9 @@
 
 Inputs to Plumb's tests, and the results each one should produce. Expected
 results come from the profile's rules and from `@medplum/core`'s
-`validateResource`, never from Plumb's output (design 01, Testing).
+`validateResource`, never from Plumb's output (design 01, Testing). All
+resources here are HL7's published examples or made up; none is real patient
+data.
 
 ## `packages/hl7.fhir.us.core#9.0.0`
 
@@ -34,3 +36,37 @@ What each US Core example should do: compile against the type for its
 `meta.profile` and validate against that profile. The file lists the only
 exceptions: examples with no US Core profile, Bundles (whose entries are
 checked one by one), and the profile Medplum cannot parse.
+
+## `profiles`
+
+Plumb's own synthetic test profiles, one or two per row of design 01's
+coverage matrix, under the canonical `http://example.org/fhir/plumb-test`. The
+FSH in `input/fsh` is the source; `fsh-generated/resources` is SUSHI's output,
+with snapshots, and is committed. After editing the FSH, regenerate it:
+
+```bash
+npm run fixtures:profiles
+```
+
+SUSHI fetches `hl7.fhir.r4.core` into `~/.fhir/packages` the first time. It is
+needed only to edit these profiles; the tests read the committed JSON.
+
+## `contracts`
+
+One contract table per test profile, and one each for four US Core profiles
+with synthetic records. Each file names its `profile`, the coverage-matrix
+rows it covers, and its fixtures. A fixture has:
+
+| Field | Meaning |
+|---|---|
+| `name`, `rule` | What the row tests, and the profile rule it comes from |
+| `conforms` | Whether the resource meets the profile's rules, by a person reading them |
+| `compiles` | Whether it should compile against the generated type |
+| `validates` | Whether `validateResource` reports no `error` issue, checked against Medplum's validator |
+| `typeGap` | Why `compiles` differs from `conforms`, when it does |
+| `validatorGap` | Why `validates` differs from `conforms`, when it does |
+| `resource` | The resource |
+
+`assignableTo` lists parent profiles the generated type must be assignable to.
+The gap names, and what each means, are defined in design 01's Testing
+section; a new one needs a reviewed edit there.

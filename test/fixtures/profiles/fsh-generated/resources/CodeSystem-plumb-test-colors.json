@@ -1,0 +1,26 @@
+{
+  "resourceType": "CodeSystem",
+  "status": "draft",
+  "content": "complete",
+  "name": "PlumbTestColors",
+  "id": "plumb-test-colors",
+  "title": "Plumb test colors",
+  "version": "0.1.0",
+  "url": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-colors",
+  "concept": [
+    {
+      "code": "red",
+      "display": "Red"
+    },
+    {
+      "code": "green",
+      "display": "Green"
+    },
+    {
+      "code": "blue",
+      "display": "Blue"
+    }
+  ],
+  "caseSensitive": true,
+  "count": 3
+}

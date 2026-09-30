@@ -1,0 +1,217 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/optional-extensions-patient",
+  "matrix": ["Extensions"],
+  "fixtures": [
+    {
+      "name": "every extension",
+      "rule": "favoriteColor, nickname, careNote and contactWindow, each 0..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/favorite-color",
+            "valueCode": "blue"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/nickname",
+            "valueString": "Pip"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/care-note",
+            "extension": [
+              {
+                "url": "instruction",
+                "valueString": "Call before visiting"
+              },
+              {
+                "url": "author",
+                "valueReference": {
+                  "reference": "RelatedPerson/1"
+                }
+              }
+            ]
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/contact-window",
+            "extension": [
+              {
+                "url": "start",
+                "valueTime": "09:00:00"
+              },
+              {
+                "url": "end",
+                "valueTime": "17:00:00"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "no extensions",
+      "rule": "every extension is 0..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "extension": []
+      }
+    },
+    {
+      "name": "care note without its optional author",
+      "rule": "care-note author 0..1",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/care-note",
+            "extension": [
+              {
+                "url": "instruction",
+                "valueString": "Call first"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "favorite color as a string",
+      "rule": "favorite-color value[x] only code",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "extension-contents",
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/favorite-color",
+            "valueString": "blue"
+          }
+        ]
+      }
+    },
+    {
+      "name": "favorite color outside its value set",
+      "rule": "favorite-color valueCode required from plumb-test-colors",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "binding",
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/favorite-color",
+            "valueCode": "purple"
+          }
+        ]
+      }
+    },
+    {
+      "name": "contact window start as a string",
+      "rule": "contact-window start value[x] only time",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "extension-contents",
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/contact-window",
+            "extension": [
+              {
+                "url": "start",
+                "valueString": "nine"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "care note without its instruction",
+      "rule": "care-note instruction 1..1",
+      "conforms": false,
+      "compiles": true,
+      "validates": true,
+      "typeGap": "slice",
+      "validatorGap": "extension-contents",
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/care-note",
+            "extension": [
+              {
+                "url": "author",
+                "valueReference": {
+                  "reference": "RelatedPerson/1"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "care note with a value as well",
+      "rule": "care-note value[x] 0..0, and ext-1: a value or extensions, not both",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/care-note",
+            "extension": [
+              {
+                "url": "instruction",
+                "valueString": "Call before visiting"
+              },
+              {
+                "url": "author",
+                "valueReference": {
+                  "reference": "RelatedPerson/1"
+                }
+              }
+            ],
+            "valueString": "x"
+          }
+        ]
+      }
+    },
+    {
+      "name": "two nicknames",
+      "rule": "nickname 0..1",
+      "conforms": false,
+      "compiles": true,
+      "validates": true,
+      "typeGap": "slice",
+      "validatorGap": "extension-slice",
+      "resource": {
+        "resourceType": "Patient",
+        "extension": [
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/nickname",
+            "valueString": "Pip"
+          },
+          {
+            "url": "http://example.org/fhir/plumb-test/StructureDefinition/nickname",
+            "valueString": "Pip"
+          }
+        ]
+      }
+    }
+  ]
+}

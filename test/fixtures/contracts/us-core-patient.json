@@ -1,0 +1,375 @@
+{
+  "profile": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient",
+  "matrix": ["Whole resources"],
+  "fixtures": [
+    {
+      "name": "synthetic patient",
+      "rule": "identifier 1..* (system, value), name 1..*",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "10001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email",
+            "value": "pat@example.com"
+          }
+        ]
+      }
+    },
+    {
+      "name": "with race",
+      "rule": "us-core-race: ombCategory and text",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "10001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email",
+            "value": "pat@example.com"
+          }
+        ],
+        "extension": [
+          {
+            "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-race",
+            "extension": [
+              {
+                "url": "ombCategory",
+                "valueCoding": {
+                  "system": "urn:oid:2.16.840.1.113883.6.238",
+                  "code": "2106-3",
+                  "display": "White"
+                }
+              },
+              {
+                "url": "text",
+                "valueString": "White"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "identifier missing",
+      "rule": "identifier 1..*",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email",
+            "value": "pat@example.com"
+          }
+        ]
+      }
+    },
+    {
+      "name": "identifier without system",
+      "rule": "identifier.system 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "identifier": [
+          {
+            "value": "10001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email",
+            "value": "pat@example.com"
+          }
+        ]
+      }
+    },
+    {
+      "name": "name missing",
+      "rule": "name 1..*",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "10001"
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email",
+            "value": "pat@example.com"
+          }
+        ]
+      }
+    },
+    {
+      "name": "telecom without value",
+      "rule": "telecom.value 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "10001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email"
+          }
+        ]
+      }
+    },
+    {
+      "name": "name with only text",
+      "rule": "us-core-6: a name has a family or given name, or a data-absent-reason",
+      "conforms": false,
+      "compiles": true,
+      "validates": false,
+      "typeGap": "invariant",
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "10001"
+          }
+        ],
+        "name": [
+          {
+            "text": "Pat Tester"
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email",
+            "value": "pat@example.com"
+          }
+        ]
+      }
+    },
+    {
+      "name": "gender outside AdministrativeGender",
+      "rule": "gender required from AdministrativeGender",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "binding",
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "10001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "gender": "none",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email",
+            "value": "pat@example.com"
+          }
+        ]
+      }
+    },
+    {
+      "name": "race without text",
+      "rule": "us-core-race text 1..1",
+      "conforms": false,
+      "compiles": true,
+      "validates": true,
+      "typeGap": "slice",
+      "validatorGap": "extension-contents",
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "10001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email",
+            "value": "pat@example.com"
+          }
+        ],
+        "extension": [
+          {
+            "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-race",
+            "extension": [
+              {
+                "url": "ombCategory",
+                "valueCoding": {
+                  "system": "urn:oid:2.16.840.1.113883.6.238",
+                  "code": "2106-3",
+                  "display": "White"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "race category as a string",
+      "rule": "us-core-race ombCategory value[x] only Coding",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "extension-contents",
+      "resource": {
+        "resourceType": "Patient",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]
+        },
+        "identifier": [
+          {
+            "system": "http://example.org/fhir/sid/mrn",
+            "value": "10001"
+          }
+        ],
+        "name": [
+          {
+            "family": "Tester",
+            "given": ["Pat"]
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1970-01-01",
+        "telecom": [
+          {
+            "system": "email",
+            "value": "pat@example.com"
+          }
+        ],
+        "extension": [
+          {
+            "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-race",
+            "extension": [
+              {
+                "url": "ombCategory",
+                "valueString": "White"
+              },
+              {
+                "url": "text",
+                "valueString": "White"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -18,8 +18,14 @@
   [`../test/fixtures`](../test/fixtures/), with their expected results. Running
   them through Medplum's validator showed it checks no terminology binding,
   reference target or extension contents; design 01's list of cases where
-  "compiles" and "validates" may disagree now says so. Next: Plumb's synthetic
-  FSH test profiles and their fixtures.
+  "compiles" and "validates" may disagree now says so.
+- **Fixtures, part 2:** Plumb's synthetic FSH profiles, one or two per
+  coverage-matrix row, and contract tables for them and four US Core profiles:
+  147 synthetic fixtures, each recording whether it conforms, compiles and
+  validates. They showed Medplum's validator never matches an extension slice
+  (so a required extension always fails), and does not check slice contents,
+  `closed` or `ordered` slicing, narrowed choice types, or rules through a
+  `contentReference`. **Next:** the harness (#10) and config (#11).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).

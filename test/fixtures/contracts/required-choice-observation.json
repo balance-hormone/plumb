@@ -1,0 +1,93 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/required-choice-observation",
+  "matrix": ["Choice types"],
+  "fixtures": [
+    {
+      "name": "valueQuantity",
+      "rule": "value[x] 1..1 only Quantity or string",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueQuantity": {
+          "value": 1,
+          "unit": "g",
+          "system": "http://unitsofmeasure.org",
+          "code": "g"
+        }
+      }
+    },
+    {
+      "name": "valueString",
+      "rule": "value[x] 1..1 only Quantity or string",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueString": "one"
+      }
+    },
+    {
+      "name": "no value",
+      "rule": "value[x] 1..1",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        }
+      }
+    },
+    {
+      "name": "valueQuantity and valueString",
+      "rule": "exactly one of valueQuantity or valueString",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "choice-conflict",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueQuantity": {
+          "value": 1,
+          "unit": "g",
+          "system": "http://unitsofmeasure.org",
+          "code": "g"
+        },
+        "valueString": "one"
+      }
+    },
+    {
+      "name": "valueBoolean",
+      "rule": "value[x] only Quantity or string",
+      "conforms": false,
+      "compiles": false,
+      "validates": true,
+      "validatorGap": "choice-type",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueBoolean": true
+      }
+    }
+  ]
+}

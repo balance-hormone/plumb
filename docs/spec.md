@@ -313,6 +313,12 @@ package hash, so a difference points at its cause.
   checks no terminology binding, so `validateProfiled` does not either; a server
   with the `validate-terminology` feature can reject a code it accepts. The
   docs advise keeping `@medplum/*` in step with the server.
+- **Where Medplum's validator is wrong, so is `validateProfiled`.** It never
+  matches an extension slice, so a profile with a required extension fails
+  every resource, and it does not check a slice's contents, narrowed choice
+  types or rules through a `contentReference`. Design 01 lists each gap; the
+  docs name them, and fixing them belongs upstream, not in a second
+  validator.
 
 ## Later releases of the same tool
 
@@ -342,8 +348,9 @@ schema.
 **Tests check what should happen, not what Plumb does.** Every expected result
 comes from a source independent of the generator: Medplum's validator called
 directly, HL7's published examples (US Core ships 230, under CC0-1.0), or the
-profile's own rules, written down before the code. "Compiles" and "validates"
-must agree except in cases listed in advance in
+profile's own rules, written down before the code. Each fixture records
+whether it conforms to the profile's rules, compiles, and validates; "compiles"
+and "validates" each agree with "conforms" except in gaps listed in advance in
 [design 01](design/01-generator.md). The fixtures and the harness are built
 first, and the generator is built until they pass.
 

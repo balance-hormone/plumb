@@ -262,6 +262,31 @@ example's profile as `options.profile`.
 - **Warnings are not failures.** A mismatched base reference type and
   conflicting choice properties come back as `warning` issues, which
   `validateResource` returns instead of throwing.
+- **Slices are counted, not checked** (`checkSliceElement` and
+  `validateSlices`): Plumb's synthetic profiles (`test/fixtures/profiles`)
+  showed that
+  - each entry is matched to a slice by its discriminator and the matches
+    are counted against the slice's `min` and `max`, but the entry is then
+    validated against the base type, never against the slice's own
+    elements, so `name:official.family 1..1` and US Core Blood Pressure's
+    `component:systolic.value[x].code = mm[Hg]` are not enforced;
+  - `rules: closed` and `ordered: true` are ignored;
+  - a slice whose discriminator element has only a required binding
+    (US Core Condition's `category:us-core`) matches any value, by design
+    ("cannot be implemented correctly without asynchronous validation");
+  - **an extension slice never matches.** Its discriminator is `url`, which
+    the snapshot keeps in the extension's own profile, not in the slice, so
+    `matchDiscriminant` finds no `url` element and returns false. A required
+    extension slice therefore fails every resource, even one that has the
+    extension, and an optional one's `max` is never checked. US Core 9
+    requires no extension, which is why its examples pass.
+- **A choice narrowed by a profile is not enforced.** With `value[x] only
+  Quantity`, `valueString` validates; with `effective[x] only dateTime`,
+  `effectivePeriod` validates. Types the base allows are accepted.
+- **Rules through a `contentReference` are not applied.** With `item.text
+  1..1` on Questionnaire, a nested `item.item` without `text` validates.
+- **Base invariants on the extension itself are checked:** `ext-1` rejects an
+  extension with neither a value nor extensions, or with both.
 - **`parseStructureDefinition` throws on US Core Provenance:** "Invalid slice
   start before discriminator: ProvenanceTransmitter (Provenance.entity.agent)".
   Neither the validator nor anything built on the same parse can use that

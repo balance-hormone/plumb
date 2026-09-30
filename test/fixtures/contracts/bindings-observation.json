@@ -1,0 +1,131 @@
+{
+  "profile": "http://example.org/fhir/plumb-test/StructureDefinition/bindings-observation",
+  "matrix": ["Bindings"],
+  "fixtures": [
+    {
+      "name": "every code in its value set",
+      "rule": "valueQuantity.code required (101 codes); component.valueQuantity.code extensible",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueQuantity": {
+          "value": 1,
+          "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-large",
+          "code": "c001"
+        },
+        "component": [
+          {
+            "code": {
+              "text": "Part"
+            },
+            "valueQuantity": {
+              "value": 2,
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-units",
+              "code": "kg"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "valueQuantity.code outside a value set over the size limit",
+      "rule": "valueQuantity.code required from 101 codes (over the limit: string)",
+      "conforms": false,
+      "compiles": true,
+      "validates": true,
+      "typeGap": "oversize-valueset",
+      "validatorGap": "binding",
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueQuantity": {
+          "value": 1,
+          "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-large",
+          "code": "c999"
+        },
+        "component": [
+          {
+            "code": {
+              "text": "Part"
+            },
+            "valueQuantity": {
+              "value": 2,
+              "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-units",
+              "code": "kg"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "component unit from elsewhere",
+      "rule": "component.valueQuantity.code extensible: other codes are allowed",
+      "conforms": true,
+      "compiles": true,
+      "validates": true,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueQuantity": {
+          "value": 1,
+          "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-large",
+          "code": "c001"
+        },
+        "component": [
+          {
+            "code": {
+              "text": "Part"
+            },
+            "valueQuantity": {
+              "value": 2,
+              "system": "http://unitsofmeasure.org",
+              "code": "[lb_av]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "component unit as a number",
+      "rule": "Quantity.code is a code (a string)",
+      "conforms": false,
+      "compiles": false,
+      "validates": false,
+      "resource": {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {
+          "text": "Test"
+        },
+        "valueQuantity": {
+          "value": 1,
+          "system": "http://example.org/fhir/plumb-test/CodeSystem/plumb-test-large",
+          "code": "c001"
+        },
+        "component": [
+          {
+            "code": {
+              "text": "Part"
+            },
+            "valueQuantity": {
+              "value": 2,
+              "code": 5
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
