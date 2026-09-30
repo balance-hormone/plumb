@@ -27,14 +27,14 @@ test.skipIf(!run)(
   "the README's quickstart works as written",
   () => {
     const project = freshProject('registry-readme');
-    project.write('plumb.config.ts', block("import { defineConfig } from 'plumb';"));
+    project.write('plumb.config.ts', block("import { defineConfig } from 'plumb-fhir';"));
     const generated = project.plumb('generate');
     expect(generated.status, generated.stderr).toBe(0);
     expect(generated.stderr).toMatch(/^✔ packages {2}0 cached, \d+ fetched/m);
 
     // Its usage example and validateProfiled test, as one module that prints the verdict.
     const usage = block("import { createReference } from '@medplum/core';");
-    const check = block("import { validateProfiled } from 'plumb';")
+    const check = block("import { validateProfiled } from 'plumb-fhir';")
       .replace(/test\('[^']*', async \(\) => \{/, '{')
       .replace('expect(report.errors).toEqual([]);', 'console.log(JSON.stringify(report.errors));')
       .replace(/\}\);\s*$/, '}\n');

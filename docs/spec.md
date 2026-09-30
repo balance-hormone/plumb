@@ -116,7 +116,8 @@ These decide the questions the rest of the spec does not answer.
 
 ## Solution
 
-**One dev-only package, `plumb`,** with a CLI and one library function.
+**One dev-only package, `plumb-fhir`** (`plumb` is taken on npm), with the `plumb`
+CLI and one library function.
 
 ```ts
 // plumb.config.ts
@@ -492,7 +493,7 @@ every file cited). Evidence and the rest of the server's behaviour are in
 - **A standalone repository**, separate from any adopter's code, so nothing
   adopter-shaped can leak into Plumb's code or tests.
 - **Private until v0.1 works end to end on US Core.** It goes public after
-  sign-off from the copyright holder, with the npm name chosen and Medplum's
+  sign-off from the copyright holder and with Medplum's
   contribution requirement (a DCO) copied.
 - **Apache-2.0 with a `NOTICE` file**, matching Medplum, so the code can move
   upstream by transfer rather than extraction.
@@ -522,8 +523,6 @@ not yet vouched for unless they link a maintainer-labelled issue.
 
 ### Open decisions
 
-- **The npm name.** `plumb` is taken on npm; a scope or a new name is needed
-  before the first publish.
 - **The copyright line** in `NOTICE` and the SPDX headers, confirmed by the
   copyright holder.
 

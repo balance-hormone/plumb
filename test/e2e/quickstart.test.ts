@@ -26,7 +26,7 @@ test.skipIf(!run)(
     });
     project.write(
       'plumb.config.ts',
-      `import { defineConfig } from 'plumb';
+      `import { defineConfig } from 'plumb-fhir';
 
 export default defineConfig({
   igs: [],
@@ -45,7 +45,7 @@ export default defineConfig({
     // 4. Use the types and helpers, type-checked under NodeNext.
     project.write(
       'src/app.ts',
-      `import { validateProfiled } from 'plumb';
+      `import { validateProfiled } from 'plumb-fhir';
 import { type CardinalityPatient, SlicedObservation, SlicedObservationProfileUrl } from './fhir/generated/index.js';
 
 export const patient: CardinalityPatient = { resourceType: 'Patient', birthDate: '1970-01-01', name: [{ family: 'Doe' }] };

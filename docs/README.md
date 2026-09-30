@@ -83,8 +83,8 @@
   (#39); `bindings.maxCodes` configures the value-set size limit (#40); each
   extension a profile slices in is generated once, in its own file (#41); a
   nightly workflow runs the README's own code and IPS 2.0.1 against the real
-  FHIR registry, opening an issue when it fails (#42). What is left
-  before a first release is choosing the npm name (`plumb` is taken).
+  FHIR registry, opening an issue when it fails (#42). The npm package is
+  `plumb-fhir` (`plumb` was taken); its command stays `plumb`.
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).

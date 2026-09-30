@@ -16,9 +16,9 @@ const p: USCorePatient = { resourceType: 'Patient', name: [{ family: 'Doe' }] };
 A plumb line is the weighted string a builder hangs to find true vertical. A
 project is *plumb* when its data is true to its profiles.
 
-> **Status: pre-release.** Plumb works end to end but is not published yet, and
-> its npm name is still to be chosen (`plumb` is taken). To try it, build it and
-> install the tarball, as in the quickstart below.
+> **Status: pre-release.** Plumb works end to end but is not published yet. Its
+> npm package will be `plumb-fhir`, and its command is `plumb`. To try it now,
+> build it and install the tarball, as in the quickstart below.
 
 ## Quickstart
 
@@ -26,14 +26,14 @@ project is *plumb* when its data is true to its profiles.
 narrows (5.1.0 or later):
 
 ```bash
-npm install --save-dev ./plumb-0.0.0.tgz   # from `npm pack` in this repository
+npm install --save-dev ./plumb-fhir-0.0.0.tgz   # from `npm pack` in this repository
 npm install @medplum/core @medplum/definitions @medplum/fhirtypes
 ```
 
 **2. Configure** `plumb.config.ts` in the project root:
 
 ```ts
-import { defineConfig } from 'plumb';
+import { defineConfig } from 'plumb-fhir';
 
 export default defineConfig({
   igs: ['hl7.fhir.us.core@9.0.0'],
@@ -126,7 +126,7 @@ slice, a `CodeableConcept`'s binding, an invariant. `validateProfiled` runs
 Medplum's own validator against the profile, offline:
 
 ```ts
-import { validateProfiled } from 'plumb';
+import { validateProfiled } from 'plumb-fhir';
 
 test('the blood pressure conforms', async () => {
   const report = await validateProfiled(bp, USCoreBloodPressureProfileUrl);
