@@ -190,14 +190,21 @@ The detailed design, including the four emission decisions, is
 
 Named after the tools developers already know:
 
-- **`plumb generate`,** as in `prisma generate`, `drizzle-kit generate`,
-  GraphQL Codegen and openapi-typescript.
+- **`plumb generate`,** as in `prisma generate`, GraphQL Codegen and
+  openapi-typescript. (`drizzle-kit generate` writes SQL migrations, not
+  types.)
 - **`--check`,** as in openapi-typescript's `--check` ("check that the
   generated types are up-to-date") and GraphQL Codegen's `--check`.
 - **No `pull`.** In Drizzle Kit and Prisma (`prisma db pull`), *pull* means
   reading a live database into code, which is not what fetching packages is.
   `generate` fetches missing packages itself, as `sushi build` does, and the
   name stays free for its conventional meaning.
+- **Later commands follow the same rule:** `plumb validate --env` for the
+  conformance check (Postgres's `VALIDATE CONSTRAINT` checks stored rows, and
+  `check` is taken by `--check`), `plumb push --env` for project config (as
+  `prisma db push` and `drizzle-kit push`), and `plumb migrate new` and
+  `plumb migrate deploy` for data migrations (as `prisma migrate dev` and
+  `migrate deploy`).
 
 ### Config
 

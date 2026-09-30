@@ -126,7 +126,7 @@ risk, which is why `plumb pull` fetches only from the FHIR registry.
 - **A pre-commit bot that stamps profiles server-side.** Possible with Medplum's
   pre-commit subscriptions, but it adds latency to every write and hides the
   routing decision from the code. Plumb keeps routing in `create`, backed by a
-  lint rule and a `check` rule, and would only reconsider if `check` kept
+  lint rule and a `validate` rule, and would only reconsider if `validate` kept
   finding strays in practice.
 - **Version-pinned stamps (`url|version`).** Medplum matches bare URLs, so a
   versioned stamp validates nothing. Plumb stamps bare URLs and relies on the
