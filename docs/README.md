@@ -14,6 +14,12 @@
 - **Build order:** tests first (fixtures with their expected results, then the
   harness), then config, package fetching, the loader and the emitter. The work
   is tracked in the v0.1 milestone on GitHub.
+- **Fixtures, part 1:** US Core 9.0.0 and its 230 examples are in
+  [`../test/fixtures`](../test/fixtures/), with their expected results. Running
+  them through Medplum's validator showed it checks no terminology binding,
+  reference target or extension contents; design 01's list of cases where
+  "compiles" and "validates" may disagree now says so. Next: Plumb's synthetic
+  FSH test profiles and their fixtures.
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).

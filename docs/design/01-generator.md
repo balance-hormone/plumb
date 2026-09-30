@@ -87,9 +87,12 @@ Plumb adds.
 generated type works in every Medplum SDK call and React component with no
 casts. The generator never emits a parallel base R4 tree.
 
-**Anything the types cannot enforce is written in the doc comment,** with a
-note that `validateProfiled` checks it: required slices, required bindings on
-`CodeableConcept`, invariants and value sets that cannot be expanded offline.
+**Anything the types cannot enforce is written in the doc comment,** with who
+checks it. `validateProfiled` checks required slices and invariants. No
+offline check covers terminology: Medplum's validator checks no binding, so
+required bindings on a `CodeableConcept` and value sets that cannot be expanded
+offline are checked only by a server with the `validate-terminology` feature
+([research](../research/medplum-server-behaviour.md#what-it-checks-run-against-us-core-900)).
 
 ## Decisions
 
@@ -100,10 +103,9 @@ Patient requires `identifier`, and inside each identifier `system` and `value`,
 so `identifier: [{}]` must not compile:
 
 ```ts
-type USCorePatient = Omit<Patient, 'identifier' | 'name' | 'gender'> & {
+type USCorePatient = Omit<Patient, 'identifier' | 'name'> & {
   identifier: Require<Identifier, 'system' | 'value'>[];
   name: HumanName[];
-  gender: 'male' | 'female' | 'other' | 'unknown';
 };
 ```
 
@@ -156,14 +158,17 @@ Rejected:
 | Case | Generated type |
 |---|---|
 | Required binding, value set listable offline, on a `code` or `Coding` | A literal union of the codes |
-| Required binding on a `CodeableConcept` | The base type, plus exported code constants; checked by `validateProfiled` |
+| Required binding on a `CodeableConcept` | The base type, plus exported code constants; not checked offline (see below) |
 | Required binding whose value set cannot be listed offline (filters, VSAC) | `string`, with the value set URL in the doc comment |
 | More than about 100 codes (configurable) | `string`, with the value set URL in the doc comment |
 | Extensible binding on a `code` | `'a' \| 'b' \| (string & {})`: autocomplete without rejecting other codes |
 | Preferred or example | The base type |
 
 A `CodeableConcept`'s required binding means "at least one coding from the
-set", the same "contains" rule as a slice, so it is checked in tests.
+set", the same "contains" rule as a slice, which a type cannot say. Unlike a
+slice, Medplum's validator does not check it either: it checks no binding, and
+leaves terminology to the server's `validate-terminology` feature. So on a
+`code` or `Coding`, the literal union is the only offline check there is.
 
 Expansion follows `@medplum/generator`'s `getValueSetValues`
 (`packages/generator/src/valuesets.ts`), which is offline too: explicit
@@ -272,9 +277,23 @@ expected result comes from a source independent of the generator:
 - **Contract tables** per test profile: each fixture states whether it compiles
   (`@ts-expect-error` for the negative rows) and whether it validates. Written
   first, following the coverage matrix below.
-- **Compiles and validates must agree,** except in cases listed in advance: a
-  missing required slice, a `CodeableConcept` binding, an invariant, a value
-  set that cannot be expanded offline, and a `_field` primitive extension.
+- **Compiles and validates must agree,** except in cases listed in advance.
+  "Validates" means `validateResource` reports no `error` issue; warnings do
+  not count. The cases, from what Medplum's validator was found to check
+  ([research](../research/medplum-server-behaviour.md#what-it-checks-run-against-us-core-900)):
+  - *compiles, does not validate:* a required slice missing or repeated past
+    its `max`, and an invariant;
+  - *does not compile, validates:* a code outside a required binding on a
+    `code` or `Coding` (the validator checks no binding), a `Reference` to a
+    resource type the profile excludes (unchecked for IG target profiles, a
+    warning otherwise), an extension whose contents break the extension's own
+    profile (the validator checks extensions against the base type), and a
+    required primitive present only as a `_field` extension;
+  - *compiles and validates, though the profile forbids it:* a
+    `CodeableConcept` with no coding from its required value set, and a code
+    from a value set that cannot be expanded offline. Neither side can check
+    these offline.
+
   Types that reject what the validator accepts, or accept what it rejects
   outside that list, are bugs. The list changes only by a reviewed edit to
   this document.

@@ -228,6 +228,45 @@ offline; Medplum's own generator uses it that way. Base R4 definitions come from
 `@medplum/definitions` (`fhir/r4/profiles-types.json`,
 `fhir/r4/profiles-resources.json`) and must be indexed before a profile is.
 
+### What it checks, run against US Core 9.0.0
+
+Run on 2026-09-29 against US Core 9.0.0's published examples and copies of
+them with one rule broken each (`test/fixtures`), with the base definitions
+indexed and every US Core profile loaded with `loadDataType`, passing the
+example's profile as `options.profile`.
+
+- **All 230 published examples validate.** 216 declare a US Core profile; the
+  rest declare none or an SDC profile, and the five Bundles' entries each
+  validate against their own profile, except the two Provenance entries below.
+- **Enforced:** cardinality at every depth (`Patient.identifier[0].system`),
+  pattern values (`Observation.code`), slice cardinality (a missing, or a
+  second, `systolic` component), choice-type presence (`effective[x]`),
+  `error` invariants (`vs-3`), primitive formats and unknown properties. Slice
+  order is not checked, as FHIR intends for unordered slicing.
+- **Not enforced:**
+  - **No terminology binding, of any strength.** `Observation.status: 'bogus'`
+    and `Patient.gender: 'bogus'` validate. With `options.collect`, the
+    validator only collects the coded values under required bindings;
+    checking them is the server's job, and it does so only when the project
+    has the `validate-terminology` feature (`validateRepositoryResourceStrictly`
+    in `server/src/fhir/repository/validation.ts`).
+  - **Reference targets.** `Observation.subject: Group/1` validates against US
+    Core Blood Pressure, whose target is an IG profile; see Validation above.
+  - **The inside of an extension.** Children are validated against their base
+    type (`getDataType(value.type)`), not the element's type profile, so a
+    `us-core-race` extension missing its required `text`, or holding a
+    `valueString` where a `Coding` belongs, validates.
+- **A required primitive present only as `_field` validates.**
+  `Observation.status` (1..1) removed and replaced by `_status` with a
+  data-absent-reason extension passes, as FHIR allows.
+- **Warnings are not failures.** A mismatched base reference type and
+  conflicting choice properties come back as `warning` issues, which
+  `validateResource` returns instead of throwing.
+- **`parseStructureDefinition` throws on US Core Provenance:** "Invalid slice
+  start before discriminator: ProvenanceTransmitter (Provenance.entity.agent)".
+  Neither the validator nor anything built on the same parse can use that
+  profile.
+
 ## Other server features that touch Plumb's plans
 
 - **`$clone`, `$expunge` and `$reindex`** are unrelated admin operations: copy a
