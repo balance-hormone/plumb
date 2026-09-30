@@ -1,6 +1,6 @@
 {
   "name": "plumb-fhir",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Make Medplum's own types profile-aware: generate TypeScript types from FHIR profiles that narrow @medplum/fhirtypes.",
   "keywords": [
@@ -40,7 +40,8 @@
   "files": [
     "dist/cjs",
     "dist/esm",
-    "NOTICE"
+    "NOTICE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -51,7 +52,8 @@
     "knip": "knip",
     "check:agnostic": "node scripts/check-agnostic.mjs",
     "check": "npm run lint && npm run typecheck && npm run knip && npm run check:agnostic && npm test",
-    "fixtures:profiles": "sushi build test/fixtures/profiles --snapshot"
+    "fixtures:profiles": "sushi build test/fixtures/profiles --snapshot",
+    "prepublishOnly": "npm run check && npm run build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
