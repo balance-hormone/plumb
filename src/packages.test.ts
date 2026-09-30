@@ -69,7 +69,7 @@ function registry(packages: Record<string, FakePackage>) {
           const v = id.split('@')[1] as string;
           const pkg = packages[id] as FakePackage;
           const shasum = pkg.shasum ?? createHash('sha1').update(tgz(pkg.files)).digest('hex');
-          return [v, { dist: { shasum, tarball: `https://tarballs.test/${name}/${v}` } }];
+          return [v, { dist: { shasum, tarball: `https://tarballs.example.com/${name}/${v}` } }];
         }),
       );
       return Response.json({ name, versions });
@@ -174,7 +174,7 @@ describe('fetchPackages', () => {
     });
     expect(codes(result)).toEqual([]);
     expect(result.packages[0]?.fetched).toBe(false);
-    expect(reg.requests).toContain('https://tarballs.test/example.fhir.b/1.0.0');
+    expect(reg.requests).toContain('https://tarballs.example.com/example.fhir.b/1.0.0');
   });
 
   test('integrity-mismatch: a cached copy that differs from the registry is not locked', async () => {
