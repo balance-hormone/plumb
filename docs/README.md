@@ -34,7 +34,11 @@
 - **Config:** `defineConfig` and `loadConfig` load `plumb.config.ts` with
   Node's type stripping and report each named error. `profiles` takes
   canonical URLs or `name/*` for a whole IG, which the loader will expand
-  (#27). **Next:** IG package fetching and `plumb.lock` (#12).
+  (#27).
+- **Packages:** `fetchPackages` fetches each IG and the dependencies it
+  declares from the FHIR registry into `~/.fhir/packages`, checks each
+  download's SHA-1, and locks a SHA-256 of every package's files in
+  `plumb.lock`. **Next:** the loader (#13).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
