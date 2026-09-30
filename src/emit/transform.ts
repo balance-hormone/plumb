@@ -76,6 +76,8 @@ export interface ProfileModel {
   helpers: Helper[];
   /** The codes of each required binding on a CodeableConcept, which the type leaves open. */
   constants: { name: string; codes: Code[] }[];
+  /** How many slice types the profile has. */
+  slices: number;
 }
 
 interface TransformIssue {
@@ -190,6 +192,10 @@ class ProfileTransform {
     this.typeName = typeName;
     this.targetType = targetType;
     this.expand = expand;
+  }
+
+  get sliceCount(): number {
+    return this.sliceDecls.length;
   }
 
   decls(): TypeDecl[] {
@@ -712,6 +718,7 @@ export function transform(loaded: LoadProfilesResult): {
       decls,
       helpers: [...t.helpers],
       constants: [...t.constants],
+      slices: t.sliceCount,
     };
   });
   return { models, errors };
