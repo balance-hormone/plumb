@@ -30,7 +30,11 @@
   `validates` against `validateResource`, the gap rules, and `compiles`
   through one `tsc` run per suite. Compile rows for profiles in
   `expected-failures.json` run as expected failures until the generator emits
-  their types; the list only shrinks. **Next:** config (#11).
+  their types; the list only shrinks.
+- **Config:** `defineConfig` and `loadConfig` load `plumb.config.ts` with
+  Node's type stripping and report each named error. `profiles` takes
+  canonical URLs or `name/*` for a whole IG, which the loader will expand
+  (#27). **Next:** IG package fetching and `plumb.lock` (#12).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).

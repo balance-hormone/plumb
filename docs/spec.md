@@ -117,6 +117,7 @@ These decide the questions the rest of the spec does not answer.
 export default defineConfig({
   igs: ['hl7.fhir.us.core@9.0.0'],
   profiles: ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient'],
+  // or 'hl7.fhir.us.core/*' for every US Core profile
   local: './fsh-generated/resources', // optional: the project's own profiles, as JSON
   out: './src/fhir/generated',
 });
@@ -201,6 +202,12 @@ Named after the tools developers already know:
 - **Checked with plain code** when loaded: unknown keys, a missing `out`, a
   malformed IG name or version, and a profile URL no package provides are each
   a named error.
+- **`profiles` lists canonical URLs, or `name/*` for a whole IG:** every
+  resource profile in a package `igs` lists (`kind: resource`,
+  `derivation: constraint`). The version stays in `igs`, and a wildcard naming
+  a package `igs` does not list is a named error. It never reaches the
+  package's extensions, data-type profiles or logical models, which are pulled
+  in only as dependencies, nor into the packages it depends on.
 
 ### Inputs
 
@@ -238,11 +245,14 @@ reads:
 
 1. **Gather:** base R4 from `@medplum/definitions`, every package pinned in
    `plumb.lock`, and the `local` folder, indexed by canonical URL.
-2. **Select** the profiles the config lists.
+2. **Select** the profiles the config lists, expanding each `name/*` to its
+   package's resource profiles. A profile Medplum cannot parse is an error when
+   listed by URL, and skipped with a warning in the report when reached by a
+   wildcard, so one unparseable profile does not block the rest of an IG.
 3. **Close over their dependencies:** the parent chain (US Core Blood Pressure →
    US Core Vital Signs → Observation), the extensions they use, and the value
    sets behind their required bindings with the code systems those need.
-   Never a whole IG.
+   A dependency never pulls in a whole IG.
 4. **Check,** each failure a named error: a profile URL no package provides; a
    profile without a snapshot; a reference nothing provides; two sources
    defining the same URL; a definition that is not FHIR R4.
