@@ -140,12 +140,37 @@ describe('loadConfig', () => {
     expect(result.ok).toBe(true);
   });
 
+  test('accepts every profile in a listed IG, as name/*', () => {
+    const result = load({
+      'plumb.config.ts': `export default {
+        igs: ['hl7.fhir.us.core@9.0.0'],
+        profiles: ['hl7.fhir.us.core/*', 'http://example.org/fhir/StructureDefinition/p'],
+        out: './out',
+      };`,
+    });
+    expect(result.ok && result.config.profiles).toEqual([
+      'hl7.fhir.us.core/*',
+      'http://example.org/fhir/StructureDefinition/p',
+    ]);
+  });
+
+  test('unlisted-ig, for name/* naming an IG not in igs', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: ['hl7.fhir.us.core@9.0.0'], profiles: ['hl7.fhir.uv.ips/*'], out: './out' };`,
+    });
+    expect(codes(result)).toEqual(['unlisted-ig']);
+    expect(!result.ok && result.errors[0]?.path).toBe('profiles[0]');
+  });
+
   test.each([
     'us-core-patient',
     'http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient|9.0.0',
+    // The version lives in igs, and only the whole IG can be selected.
+    'hl7.fhir.us.core@9.0.0/*',
+    'hl7.fhir.us.core/us-core-*',
   ])('invalid-profile: %s', (profile) => {
     const result = load({
-      'plumb.config.ts': `export default { igs: [], profiles: [${JSON.stringify(profile)}], out: './out' };`,
+      'plumb.config.ts': `export default { igs: ['hl7.fhir.us.core@9.0.0'], profiles: [${JSON.stringify(profile)}], out: './out' };`,
     });
     expect(codes(result)).toEqual(['invalid-profile']);
   });

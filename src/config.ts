@@ -7,7 +7,10 @@ import { pathToFileURL } from 'node:url';
 export interface PlumbConfig {
   /** IG packages as `name@version`, with an exact version. */
   igs: string[];
-  /** Canonical URLs of the profiles to generate types for. */
+  /**
+   * Canonical URLs of the profiles to generate types for, or `name/*` for every
+   * resource profile in an IG listed in `igs`.
+   */
   profiles: string[];
   /** A folder of StructureDefinition JSON outside any package. */
   local?: string;
@@ -24,6 +27,7 @@ export type ConfigErrorCode =
   | 'missing-out'
   | 'invalid-type'
   | 'invalid-ig'
+  | 'unlisted-ig'
   | 'invalid-profile';
 
 export interface ConfigError {
@@ -45,7 +49,10 @@ export function defineConfig(config: PlumbConfig): PlumbConfig {
 const DEFAULT_CONFIG = 'plumb.config.ts';
 const KEYS = new Set(['igs', 'profiles', 'local', 'out']);
 // FHIR package names are lowercase dotted segments; versions are exact, never ranges.
-const IG = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+@\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+const NAME = '[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+';
+const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
+// The version lives in igs, so a wildcard names the package alone.
+const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 
 /**
  * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
@@ -129,10 +136,11 @@ function check(config: unknown): ConfigError[] {
     ...checkList(
       record,
       'profiles',
-      (url) => URL.canParse(url) && !url.includes('|'),
+      (p) => ALL_PROFILES.test(p) || (URL.canParse(p) && !p.includes('|')),
       'invalid-profile',
-      'an absolute canonical URL without a |version',
+      'an absolute canonical URL without a |version, or name/* for a whole IG',
     ),
+    ...checkWildcards(record),
   );
   if (record.local !== undefined && typeof record.local !== 'string') {
     errors.push({ code: 'invalid-type', path: 'local', message: '"local" must be a path.' });
@@ -159,4 +167,22 @@ function checkList(
   return (list as string[]).flatMap((item, i) =>
     valid(item) ? [] : [{ code, path: `${key}[${i}]`, message: `"${item}" is not ${expected}.` }],
   );
+}
+
+function checkWildcards(record: Record<string, unknown>): ConfigError[] {
+  const { igs, profiles } = record;
+  if (!Array.isArray(igs) || !Array.isArray(profiles)) return [];
+  const listed = new Set(igs.map((ig) => IG.exec(String(ig))?.[1]));
+  return profiles.flatMap((profile, i) => {
+    const name = ALL_PROFILES.exec(String(profile))?.[1];
+    return name && !listed.has(name)
+      ? [
+          {
+            code: 'unlisted-ig' as const,
+            path: `profiles[${i}]`,
+            message: `"${profile}" names ${name}, which igs does not list.`,
+          },
+        ]
+      : [];
+  });
 }

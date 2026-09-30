@@ -35,9 +35,10 @@ plumb.config.ts
 - **Local profiles** are StructureDefinition JSON. FSH authors run
   `sushi . --snapshot` (Medplum's documented workflow) and point Plumb at
   `fsh-generated/resources`. Running SUSHI from Plumb comes later.
-- **Only the profiles a project uses are compiled**, plus their dependency
+- **Only the profiles the config selects are compiled**, plus their dependency
   closure: parent profiles, referenced extensions, and value sets behind
-  required bindings. Never a whole IG.
+  required bindings. A project selects a whole IG only by asking for it
+  (`hl7.fhir.us.core/*`); a dependency never pulls one in.
 - **A snapshot is mandatory.** Registry packages and SUSHI both provide one. A
   local JSON profile without a snapshot is an error, not something Plumb
   repairs; snapshot generation is a hard problem (`fhir-snapshot-generator`
