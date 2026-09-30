@@ -130,13 +130,13 @@ plumb generate --check    in CI: write nothing to the project; fail on stale out
 ```
 
 ```ts
-import type { USCorePatient } from './fhir/generated';
+import { type USCorePatient, USCorePatientProfileUrl } from './fhir/generated';
 
 const p: USCorePatient = { resourceType: 'Patient', name: [{ family: 'Doe' }] };
 //    ^ compile error: 'identifier' and 'gender' are required
 
 // In tests: Medplum's own validator, offline
-expect(validateProfiled(p, 'us-core-patient').ok).toBe(true);
+expect((await validateProfiled(p, USCorePatientProfileUrl)).ok).toBe(true);
 ```
 
 **The pipeline:**
@@ -360,6 +360,14 @@ Done in 2.4s
 
 ### `validateProfiled`
 
+- `await validateProfiled(resource, profileUrl)`, exported from `plumb`. On
+  its first call it finds `plumb.config.ts` from the working directory (or
+  takes `configPath`), reads `plumb.lock` beside it, and loads every profile
+  the config selects from the package cache through the loader, once per
+  config; it does not re-hash packages, which `generate --check` does. A
+  missing config or lock, or a profile the config does not select, throws
+  with what to do. Profiles are named by canonical URL, so the generated
+  `…ProfileUrl` constants fit.
 - Indexes the base definitions and the selected profiles, then calls
   `@medplum/core`'s `validateResource`. That function throws on any
   error-severity issue and returns only warnings; `validateProfiled` returns
