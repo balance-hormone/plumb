@@ -207,7 +207,8 @@ src/fhir/generated/            ← `out` in plumb.config.ts
 ├── _plumb.ts                  shared helpers: Require<>, slice utilities
 ├── USCorePatient.ts           the type, its …ProfileUrl constant, its helpers
 ├── USCoreBloodPressure.ts
-└── …                          one file per profile
+├── USCoreRaceExtension.ts     an extension a profile slices in, shared by all of them
+└── …                          one file per profile, and per extension
 ```
 
 - **Committed to the project's repository** (Principle 2), as openapi-typescript
@@ -217,6 +218,10 @@ src/fhir/generated/            ← `out` in plumb.config.ts
   changes, and every clone and CI job needs a generate step first).
 - **One file per profile, plus an index,** so a profile change touches one file.
   Apps import from the index.
+- **One file per extension a profile slices in,** named from the extension and
+  generated once however many profiles use it. A profile's slice aliases it
+  (`USCorePatientRace = USCoreRaceExtension`), or narrows it where the profile
+  constrains the extension further, and imports it from its file.
 - **`.ts`, not `.d.ts`,** because the slice and code helpers are small runtime
   functions. The app's own build compiles them.
 - **The only import is types from `@medplum/fhirtypes`,** so apps take no

@@ -166,6 +166,15 @@ function childrenOf(elements: Record<string, InternalSchemaElement>, key: string
 
 const firstSentence = (text: string | undefined) => text?.split(/(?<=\.)\s/)[0]?.trim();
 
+/** What every profile's transform shares: lookups, options, and the extension types. */
+interface Context {
+  targetType: (url: string) => string | undefined;
+  expand: (url: string) => Code[] | undefined;
+  maxCodes: number;
+  /** The type of an extension profile, generated once in its own file. */
+  extension: (url: string) => string | undefined;
+}
+
 /** Turns one parsed profile into its type declarations. */
 class ProfileTransform {
   readonly notes: string[] = [];
@@ -180,22 +189,12 @@ class ProfileTransform {
 
   private readonly schema: InternalTypeSchema;
   private readonly typeName: string;
-  private readonly targetType: (url: string) => string | undefined;
-  private readonly expand: (url: string) => Code[] | undefined;
-  private readonly maxCodes: number;
+  private readonly ctx: Context;
 
-  constructor(
-    schema: InternalTypeSchema,
-    typeName: string,
-    targetType: (url: string) => string | undefined,
-    expand: (url: string) => Code[] | undefined,
-    maxCodes: number,
-  ) {
+  constructor(schema: InternalTypeSchema, typeName: string, ctx: Context) {
     this.schema = schema;
     this.typeName = typeName;
-    this.targetType = targetType;
-    this.expand = expand;
-    this.maxCodes = maxCodes;
+    this.ctx = ctx;
   }
 
   get sliceCount(): number {
@@ -405,12 +404,17 @@ class ProfileTransform {
   }
 
   /** A slice narrows its element; an extension slice takes its extension profile's type. */
+  /**
+   * A slice narrows its element. An extension slice builds on its extension's
+   * shared type, narrowing it only where the profile constrains it further.
+   */
   private sliceShape(slice: SliceDefinition, code: string, path: string): TypeExpr {
     const profile = code === 'Extension' ? slice.type?.[0]?.profile?.[0] : undefined;
     // A slice may name its extension with a version; Medplum keys profiles by URL alone.
     const schema = profile ? tryGetProfile(profile.split('|')[0] as string) : undefined;
-    const elements = schema?.elements ?? slice.elements;
-    return this.node(code, elements, getDataType(code).elements, path);
+    const shared = profile && schema ? this.ctx.extension(profile) : undefined;
+    if (shared && schema) return this.node(shared, slice.elements, schema.elements, path);
+    return this.node(code, slice.elements, getDataType(code).elements, path);
   }
 
   private addHelpers(
@@ -537,9 +541,11 @@ class ProfileTransform {
     const unchanged =
       base && bare(base.valueSet) === bare(binding.valueSet) && base.strength === binding.strength;
     if (!typed || unchanged) return undefined;
-    const codes = this.expand(binding.valueSet);
-    if (codes && codes.length <= this.maxCodes) return codes;
-    const why = codes ? `more than ${this.maxCodes} codes` : 'codes that cannot be listed offline';
+    const codes = this.ctx.expand(binding.valueSet);
+    if (codes && codes.length <= this.ctx.maxCodes) return codes;
+    const why = codes
+      ? `more than ${this.ctx.maxCodes} codes`
+      : 'codes that cannot be listed offline';
     this.notes.push(
       `${path} is bound to ${bare(binding.valueSet)}, which has ${why}; only a server checks it.`,
     );
@@ -549,7 +555,7 @@ class ProfileTransform {
   private reference(e: InternalSchemaElement, be: InternalSchemaElement | undefined) {
     const types = (el: InternalSchemaElement | undefined) =>
       [
-        ...new Set((el?.type ?? []).flatMap((t) => t.targetProfile ?? []).map(this.targetType)),
+        ...new Set((el?.type ?? []).flatMap((t) => t.targetProfile ?? []).map(this.ctx.targetType)),
       ].sort();
     const targets = types(e);
     const base = types(be);
@@ -700,6 +706,14 @@ function docFor(sd: StructureDefinition, notes: string[]): string[] {
   return doc;
 }
 
+/** The first of the names no type has yet, then the fallback numbered. */
+function unusedName(taken: Set<string>, name: string, fallback: string): string {
+  let chosen = taken.has(name) ? fallback : name;
+  for (let n = 2; taken.has(chosen); n++) chosen = `${fallback}${n}`;
+  taken.add(chosen);
+  return chosen;
+}
+
 /** Turns the loaded profiles into type models, naming each type. */
 export function transform(
   loaded: LoadProfilesResult,
@@ -737,30 +751,61 @@ export function transform(
   });
 
   const lookup = (url: string) => loaded.definitions.get(url.split('|')[0] as string)?.resource;
-  const expand = (url: string) => expandValueSet(url, lookup);
   const warnings: string[] = [];
-  const models = loaded.profiles.map((p, i): ProfileModel => {
-    const t = new ProfileTransform(
-      p.schema,
-      final[i] as string,
-      targetType,
-      expand,
-      options.maxCodes ?? MAX_CODES,
-    );
+  const build = (
+    schema: InternalTypeSchema,
+    typeName: string,
+    sd: StructureDefinition,
+    source: string,
+  ): ProfileModel => {
+    const t = new ProfileTransform(schema, typeName, ctx);
     const decls = t.decls();
     warnings.push(...t.warnings);
     return {
-      url: p.url,
-      version: p.sd.version,
-      source: p.source,
-      sd: p.sd,
-      typeName: final[i] as string,
-      doc: docFor(p.sd, t.notes),
+      url: sd.url,
+      version: sd.version,
+      source,
+      sd,
+      typeName,
+      doc: docFor(sd, t.notes),
       decls,
       helpers: [...t.helpers],
       constants: [...t.constants],
       slices: t.sliceCount,
     };
-  });
+  };
+
+  // Extension types share one namespace with profile types.
+  const taken = new Set(final);
+  const selected = new Map(loaded.profiles.map((p, i) => [p.url, final[i] as string]));
+  const extensions = new Map<string, ProfileModel>();
+  const ctx: Context = {
+    targetType,
+    expand: (url) => expandValueSet(url, lookup),
+    maxCodes: options.maxCodes ?? MAX_CODES,
+    extension: (url) => {
+      const bare = url.split('|')[0] as string;
+      const known = selected.get(bare) ?? extensions.get(bare)?.typeName;
+      if (known) return known;
+      const schema = tryGetProfile(bare);
+      const definition = loaded.definitions.get(bare);
+      if (!schema || definition?.resource.resourceType !== 'StructureDefinition') return undefined;
+      const sd = definition.resource;
+      const typeName = unusedName(
+        taken,
+        profileName(sd),
+        pascal(bare.slice(bare.lastIndexOf('/') + 1)),
+      );
+      // Registered before it is built, so an extension that reaches itself stops here.
+      const model = { typeName } as ProfileModel;
+      extensions.set(bare, model);
+      Object.assign(model, build(schema, typeName, sd, definition.source));
+      return typeName;
+    },
+  };
+  const profiles = loaded.profiles.map((p, i) =>
+    build(p.schema, final[i] as string, p.sd, p.source),
+  );
+  const models = [...profiles, ...extensions.values()];
   return { models, errors, warnings };
 }
