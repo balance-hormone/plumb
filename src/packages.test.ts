@@ -240,6 +240,17 @@ describe('fetchPackages', () => {
     expect(codes(result)).toEqual(['registry-error']);
   });
 
+  test('registry-error: the network fails', async () => {
+    const { cacheDir, lockPath } = setup();
+    const result = await fetchPackages({
+      igs: ['example.fhir.b@1.0.0'],
+      lockPath,
+      cacheDir,
+      fetch: offline,
+    });
+    expect(codes(result)).toEqual(['registry-error']);
+  });
+
   test('invalid-package: a tarball with a path outside the package', async () => {
     const { root, cacheDir, lockPath } = setup();
     const evil = { files: [...B.files, { path: 'package/../../escaped.json', data: '{}' }] };
@@ -319,6 +330,41 @@ describe('fetchPackages', () => {
       expect(result.packages.every((p) => p.fetched)).toBe(true);
       expect(readdirSync(ci.project)).toEqual(['plumb.lock']);
       expect(readFileSync(ci.lockPath, 'utf8')).toBe(readFileSync(first.lockPath, 'utf8'));
+    });
+
+    test('never rewrites the lock, even one formatted differently', async () => {
+      const { cacheDir, lockPath } = setup();
+      const reg = registry({ 'example.fhir.b@1.0.0': B });
+      await fetchPackages({ igs: ['example.fhir.b@1.0.0'], lockPath, cacheDir, fetch: reg.fetch });
+      const minified = JSON.stringify(JSON.parse(readFileSync(lockPath, 'utf8')));
+      writeFileSync(lockPath, minified);
+      const result = await fetchPackages({
+        igs: ['example.fhir.b@1.0.0'],
+        lockPath,
+        cacheDir,
+        check: true,
+        fetch: reg.fetch,
+      });
+      expect(codes(result)).toEqual([]);
+      expect(result.lockWritten).toBe(false);
+      expect(readFileSync(lockPath, 'utf8')).toBe(minified);
+    });
+
+    test('lock-disagrees: the lock lists a package the IGs no longer need', async () => {
+      const { cacheDir, lockPath } = setup();
+      const reg = registry({ 'example.fhir.b@1.0.0': B });
+      await fetchPackages({ igs: ['example.fhir.b@1.0.0'], lockPath, cacheDir, fetch: reg.fetch });
+      const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
+      lock.packages['example.fhir.stale@1.0.0'] = { integrity: 'sha256-AAAA' };
+      writeFileSync(lockPath, JSON.stringify(lock));
+      const result = await fetchPackages({
+        igs: ['example.fhir.b@1.0.0'],
+        lockPath,
+        cacheDir,
+        check: true,
+        fetch: reg.fetch,
+      });
+      expect(codes(result)).toEqual(['lock-disagrees']);
     });
 
     test('lock-missing', async () => {
