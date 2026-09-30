@@ -13,6 +13,7 @@ import {
 } from '@medplum/core';
 import type { StructureDefinition } from '@medplum/fhirtypes';
 import type { LoadProfilesResult } from '../loader.js';
+import { type Code, expandValueSet } from './valuesets.js';
 
 export type TypeExpr =
   | { kind: 'ref'; name: string; args?: TypeExpr[] }
@@ -31,7 +32,9 @@ export type TypeExpr =
   /** `Omit<base, omit> & { fields } & (oneOf[0][0] | oneOf[0][1]) & …` */
   | { kind: 'narrow'; base: TypeExpr; omit: string[]; fields: Field[]; oneOf?: Field[][][] }
   | { kind: 'require'; base: TypeExpr; keys: string[] }
-  | { kind: 'never' };
+  | { kind: 'never' }
+  /** `(string & {})`: any other string, with the listed literals still suggested. */
+  | { kind: 'otherString' };
 
 export interface Field {
   name: string;
@@ -71,6 +74,8 @@ export interface ProfileModel {
   /** The profile's type first, then the backbone elements it narrows and its slices. */
   decls: TypeDecl[];
   helpers: Helper[];
+  /** The codes of each required binding on a CodeableConcept, which the type leaves open. */
+  constants: { name: string; codes: Code[] }[];
 }
 
 interface TransformIssue {
@@ -80,12 +85,17 @@ interface TransformIssue {
 }
 
 const NUMBERS = new Set(['integer', 'decimal', 'positiveInt', 'unsignedInt']);
+// A value set with more codes than this is typed as its base type, not a union.
+const MAX_CODES = 100;
 const BASE_URL = 'http://hl7.org/fhir/StructureDefinition/';
 
 const isComplex = (code: string) => /^[A-Z]/.test(code);
 const ref = (name: string, args?: TypeExpr[]): TypeExpr =>
   args ? { kind: 'ref', name, args } : { kind: 'ref', name };
 const never: TypeExpr = { kind: 'never' };
+const literal = (value: string): TypeExpr => ({ kind: 'literal', value });
+const literals = (values: string[]): TypeExpr =>
+  values.length === 1 ? literal(values[0] as string) : { kind: 'union', of: values.map(literal) };
 
 function primitive(code: string): TypeExpr {
   if (code === 'boolean') return { kind: 'primitive', name: 'boolean' };
@@ -158,6 +168,7 @@ const firstSentence = (text: string | undefined) => text?.split(/(?<=\.)\s/)[0]?
 class ProfileTransform {
   readonly notes: string[] = [];
   readonly helpers: Helper[] = [];
+  readonly constants: { name: string; codes: Code[] }[] = [];
   private inner = new Map<string, string>();
   private readonly sliceDecls: TypeDecl[] = [];
   private readonly usedNames = new Set<string>();
@@ -167,15 +178,18 @@ class ProfileTransform {
   private readonly schema: InternalTypeSchema;
   private readonly typeName: string;
   private readonly targetType: (url: string) => string | undefined;
+  private readonly expand: (url: string) => Code[] | undefined;
 
   constructor(
     schema: InternalTypeSchema,
     typeName: string,
     targetType: (url: string) => string | undefined,
+    expand: (url: string) => Code[] | undefined,
   ) {
     this.schema = schema;
     this.typeName = typeName;
     this.targetType = targetType;
+    this.expand = expand;
   }
 
   decls(): TypeDecl[] {
@@ -196,6 +210,7 @@ class ProfileTransform {
     // The final pass records notes, slice types and helpers once.
     this.notes.length = 0;
     this.helpers.length = 0;
+    this.constants.length = 0;
     this.sliceDecls.length = 0;
     this.usedNames.clear();
     const root = getDataType(this.schema.type).elements;
@@ -423,6 +438,8 @@ class ProfileTransform {
       if (pattern) return pattern;
     }
     if (!code) return undefined;
+    const bound = this.binding(e, be, code, path);
+    if (bound) return bound;
     const innerName = this.inner.get(code);
     if (innerName) return ref(innerName);
     if (code === 'Reference') return this.reference(e, be);
@@ -430,6 +447,81 @@ class ProfileTransform {
       const narrowed = this.node(code, children, getDataType(code).elements, path);
       if (narrowed.kind !== 'ref') return narrowed;
     }
+    return undefined;
+  }
+
+  /**
+   * A binding the profile adds or tightens (decision 3): a literal union on a
+   * code or Coding where the value set can be listed offline, suggestions for
+   * an extensible code, and exported codes for a CodeableConcept, whose
+   * "at least one coding" rule a type cannot say.
+   */
+  private binding(
+    e: InternalSchemaElement,
+    be: InternalSchemaElement | undefined,
+    code: string,
+    path: string,
+  ): TypeExpr | undefined {
+    const codes = this.boundCodes(e, be, code, path);
+    if (!codes) return undefined;
+    const required = e.binding?.strength === 'required';
+    if (code === 'code') {
+      const values = [...new Set(codes.map((c) => c.code))];
+      if (required) return literals(values);
+      return { kind: 'union', of: [...values.map(literal), { kind: 'otherString' }] };
+    }
+    if (code === 'Coding' && required) {
+      const systems = [...new Set(codes.map((c) => c.system))];
+      const branches = systems.map((system): Field[] => [
+        { name: 'system', optional: false, type: literal(system) },
+        {
+          name: 'code',
+          optional: false,
+          type: literals(codes.filter((c) => c.system === system).map((c) => c.code)),
+        },
+      ]);
+      return {
+        kind: 'narrow',
+        base: ref('Coding'),
+        omit: ['system', 'code'],
+        fields: [],
+        oneOf: [branches],
+      };
+    }
+    if (code === 'CodeableConcept' && required) {
+      const name = `${this.typeName}${pascal(path.slice(path.indexOf('.') + 1))}Codes`;
+      if (!this.constants.some((c) => c.name === name)) this.constants.push({ name, codes });
+      const url = e.binding?.valueSet?.split('|')[0];
+      this.notes.push(`${path} must hold a coding from ${url} (${name}); only a server checks it.`);
+    }
+    return undefined;
+  }
+
+  /**
+   * The codes of a binding the profile adds or tightens, when it is typed at
+   * all and they can be listed; otherwise the doc comment says why not.
+   */
+  private boundCodes(
+    e: InternalSchemaElement,
+    be: InternalSchemaElement | undefined,
+    code: string,
+    path: string,
+  ): Code[] | undefined {
+    const binding = e.binding;
+    const bare = (url: string | undefined) => url?.split('|')[0];
+    if (!binding?.valueSet) return undefined;
+    const typed =
+      binding.strength === 'required' || (binding.strength === 'extensible' && code === 'code');
+    const base = be?.binding;
+    const unchanged =
+      base && bare(base.valueSet) === bare(binding.valueSet) && base.strength === binding.strength;
+    if (!typed || unchanged) return undefined;
+    const codes = this.expand(binding.valueSet);
+    if (codes && codes.length <= MAX_CODES) return codes;
+    const why = codes ? `more than ${MAX_CODES} codes` : 'codes that cannot be listed offline';
+    this.notes.push(
+      `${path} is bound to ${bare(binding.valueSet)}, which has ${why}; only a server checks it.`,
+    );
     return undefined;
   }
 
@@ -605,8 +697,10 @@ export function transform(loaded: LoadProfilesResult): {
     }
   });
 
+  const lookup = (url: string) => loaded.definitions.get(url.split('|')[0] as string)?.resource;
+  const expand = (url: string) => expandValueSet(url, lookup);
   const models = loaded.profiles.map((p, i): ProfileModel => {
-    const t = new ProfileTransform(p.schema, final[i] as string, targetType);
+    const t = new ProfileTransform(p.schema, final[i] as string, targetType, expand);
     const decls = t.decls();
     return {
       url: p.url,
@@ -617,6 +711,7 @@ export function transform(loaded: LoadProfilesResult): {
       doc: docFor(p.sd, t.notes),
       decls,
       helpers: [...t.helpers],
+      constants: [...t.constants],
     };
   });
   return { models, errors };

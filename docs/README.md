@@ -53,8 +53,12 @@
   profile), a union for closed slicing, a tuple for ordered slicing, and
   builders and readers (`USCoreBloodPressure.systolic(...)`,
   `getSystolic(bp)`) that fill in and match discriminator values. Open
-  slicing, which every extension slicing is, keeps a plain array. Only the two
-  binding rows remain expected failures. **Next:** bindings (#16).
+  slicing, which every extension slicing is, keeps a plain array.
+- **Bindings:** value sets are listed offline from the loaded packages. A
+  required binding on a `code` or `Coding` becomes a literal union, an
+  extensible one on a `code` suggests its codes, and a `CodeableConcept`'s
+  codes are exported as a constant. The harness has no expected failures
+  left. **Next:** `generate --check` (#17) and `validateProfiled` (#18).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).

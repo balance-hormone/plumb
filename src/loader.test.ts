@@ -3,7 +3,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { StructureDefinition } from '@medplum/fhirtypes';
+import type { ElementDefinitionBinding, StructureDefinition } from '@medplum/fhirtypes';
 import { describe, expect, test } from 'vitest';
 import { type LoadProfilesResult, loadProfiles } from './loader.js';
 
@@ -117,7 +117,7 @@ describe('loadProfiles', () => {
     expect(result.unresolved.map((u) => u.url)).toContain('http://snomed.info/sct');
   });
 
-  test('follows only required bindings, and value sets a value set includes', () => {
+  test('follows required bindings, extensible ones on codes, and value sets a value set includes', () => {
     const vs = 'http://example.org/fhir/plumb-test/ValueSet';
     const valueSet = (name: string, compose: object) => ({
       resourceType: 'ValueSet',
@@ -129,20 +129,22 @@ describe('loadProfiles', () => {
       valueSet('outer', { include: [{ valueSet: [`${vs}/inner`] }] }),
       valueSet('inner', { include: [{ system: 'http://hl7.org/fhir/administrative-gender' }] }),
       valueSet('loose', { include: [{ system: 'http://hl7.org/fhir/administrative-gender' }] }),
+      valueSet('coded', { include: [{ system: 'http://hl7.org/fhir/administrative-gender' }] }),
       variant('StructureDefinition-cardinality-patient.json', `${PLUMB}/bound`, (sd) => {
-        for (const e of sd.snapshot?.element ?? []) {
-          if (e.path === 'Patient.gender')
-            e.binding = { strength: 'required', valueSet: `${vs}/outer` };
-          if (e.path === 'Patient.maritalStatus') {
-            e.binding = { strength: 'extensible', valueSet: `${vs}/loose` };
-          }
-        }
+        const bindings: Record<string, ElementDefinitionBinding> = {
+          'Patient.gender': { strength: 'required', valueSet: `${vs}/outer` },
+          'Patient.maritalStatus': { strength: 'extensible', valueSet: `${vs}/loose` },
+          'Patient.language': { strength: 'extensible', valueSet: `${vs}/coded` },
+        };
+        for (const e of sd.snapshot?.element ?? []) e.binding = bindings[e.path] ?? e.binding;
       }),
     );
     const result = loadProfiles({ packages: [], igs: [], local, profiles: [`${PLUMB}/bound`] });
     expect(codes(result)).toEqual([]);
     expect(result.definitions.has(`${vs}/inner`)).toBe(true);
+    // Extensible on a CodeableConcept is not followed; on a code it is.
     expect(result.definitions.has(`${vs}/loose`)).toBe(false);
+    expect(result.definitions.has(`${vs}/coded`)).toBe(true);
   });
 
   test('profile-not-found', () => {

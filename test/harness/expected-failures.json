@@ -1,4 +1,1 @@
-[
-  "http://example.org/fhir/plumb-test/StructureDefinition/bindings-patient#gender other",
-  "http://example.org/fhir/plumb-test/StructureDefinition/bindings-patient#meta.tag outside its value set"
-]
+[]
