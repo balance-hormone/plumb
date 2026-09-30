@@ -66,7 +66,12 @@
 - **`validateProfiled`:** `await validateProfiled(resource, ProfileUrl)` runs
   Medplum's validator against a selected profile, offline, loading the
   project's config, lock and cached packages once; its verdict matches a
-  direct `validateResource` call on every fixture. **Next:** the CLI (#19).
+  direct `validateResource` call on every fixture.
+- **CLI:** `plumb generate [--check] [--config <path>] [--json] [--quiet]`
+  prints a line per step and a total, as the spec's Output section says, and
+  exits 0, 1 for problems found, or 2 for usage and config errors. A test
+  runs the built `dist/esm/cli.mjs`. **Next:** golden tests and the
+  compatibility job (#20), then the README (#21).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
