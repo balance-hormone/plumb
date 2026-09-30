@@ -20,6 +20,7 @@ const allowedHosts = [
   'fhir.org',
   'medplum.com',
   'apache.org',
+  'developercertificate.org',
   'github.com',
   'npmjs.com',
   'biomejs.dev',

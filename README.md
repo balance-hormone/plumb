@@ -26,7 +26,7 @@ project is *plumb* when its data is true to its profiles.
 narrows (5.1.0 or later):
 
 ```bash
-npm install --save-dev ./plumb-fhir-0.0.0.tgz   # from `npm pack` in this repository
+npm install --save-dev ./plumb-fhir-0.1.0.tgz   # from `npm pack` in this repository
 npm install @medplum/core @medplum/definitions @medplum/fhirtypes
 ```
 

@@ -85,6 +85,10 @@
   nightly workflow runs the README's own code and IPS 2.0.1 against the real
   FHIR registry, opening an issue when it fails (#42). The npm package is
   `plumb-fhir` (`plumb` was taken); its command stays `plumb`.
+- **Release prep:** version 0.1.0, a changelog, and a contributing guide with
+  the DCO sign-off and release steps. The package stays `private` until the
+  copyright holder signs off; publishing is then the steps in
+  [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
