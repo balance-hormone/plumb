@@ -147,6 +147,19 @@ stale, missing or extra file, or a lockfile that disagrees with the config),
 and 2 for a usage or config error, and names the cause of each difference.
 `--json` prints the full report, and `--quiet` prints only problems.
 
+A fresh runner fetches the IG packages first (about 390 MB for US Core 9.0.0
+and its dependencies), so cache the shared package cache, keyed on
+`plumb.lock`. The key changes only when a package does, and every run still
+checks each cached package against the lock's hashes. In GitHub Actions:
+
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: ~/.fhir/packages
+    key: fhir-packages-${{ hashFiles('plumb.lock') }}
+- run: npx plumb generate --check
+```
+
 ## Your own profiles in FSH
 
 Plumb reads StructureDefinition JSON with snapshots. For profiles written in
