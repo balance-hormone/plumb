@@ -30,6 +30,17 @@ To refresh it, download the tarball, check its hash, and copy the same files:
 curl -sSL https://packages.fhir.org/hl7.fhir.us.core/9.0.0 -o us-core.tgz
 ```
 
+## Trimmed dependency packages
+
+`hl7.fhir.uv.extensions.r4#5.3.0`, `hl7.fhir.uv.sdc#4.0.0`,
+`hl7.fhir.uv.xver-r5.r4#0.1.0` and `hl7.terminology.r4#7.1.0` hold only the
+28 definitions US Core 9.0.0's resource profiles reach through the loader, plus
+each package's `package.json`, copied unmodified from the registry (all
+CC0-1.0). The full packages are about 250 MB; these are about 1 MB. To refresh
+them, fetch US Core into a cache with `fetchPackages`, load every US Core
+resource profile with `loadProfiles`, and copy the files for each definition
+whose source is one of these packages.
+
 ## `us-core-examples.json`
 
 What each US Core example should do: compile against the type for its
