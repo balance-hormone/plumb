@@ -231,7 +231,7 @@ describe('printFiles', () => {
 
 describe('generated helpers', () => {
   test('build a slice entry with its discriminator filled in, and read it back', async () => {
-    const { mkdtempSync } = await import('node:fs');
+    const { mkdtempSync, readFileSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
     const { loadProfiles } = await import('../loader.js');
@@ -268,6 +268,13 @@ describe('generated helpers', () => {
     expect(matches([{ code: 'a' }, { code: 'b' }], { code: 'b' })).toBe(true);
     expect(matches([{ code: 'a' }], { code: 'b' })).toBe(false);
 
+    // A profile file imports the shared extension type it slices in.
+    expect(readFileSync(join(out, 'OptionalExtensionsPatient.ts'), 'utf8')).toContain(
+      "import type { FavoriteColor } from './FavoriteColor.js';",
+    );
+    expect(readFileSync(join(out, 'index.ts'), 'utf8')).toContain(
+      "export * from './FavoriteColor.js';",
+    );
     const patient = await import(join(out, 'OptionalExtensionsPatient.ts'));
     const color = patient.OptionalExtensionsPatient.favoriteColor({ valueCode: 'blue' });
     expect(color).toEqual({ valueCode: 'blue', url: `${plumb}/favorite-color` });

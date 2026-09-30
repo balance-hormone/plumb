@@ -190,7 +190,10 @@ function printHelper(h: Helper): string[] {
   ];
 }
 
-function printProfile(model: ProfileModel, hash: string): string {
+/** Which file declares each generated type, so a file can import another's. */
+type Owners = Map<string, string>;
+
+function printProfile(model: ProfileModel, hash: string, owners: Owners): string {
   const b = new FileBuilder('  ', false);
   const version = model.version ? `|${model.version}` : '';
   b.appendNoWrap(`${MARKER} from ${model.url}${version}. Do not edit.`);
@@ -199,9 +202,15 @@ function printProfile(model: ProfileModel, hash: string): string {
   for (const d of model.decls) names(d.type, used);
   for (const h of model.helpers) used.add(h.item);
   const local = new Set(model.decls.map((d) => d.name));
-  const fhir = [...used].filter((n) => !local.has(n) && n !== 'Require').sort();
+  const foreign = [...used].filter((n) => !local.has(n) && n !== 'Require');
+  const fhir = foreign.filter((n) => !owners.has(n)).sort();
   if (fhir.length > 0)
     b.appendNoWrap(`import type { ${fhir.join(', ')} } from '@medplum/fhirtypes';`);
+  const files = [...new Set(foreign.flatMap((n) => owners.get(n) ?? []))].sort();
+  for (const file of files) {
+    const names = foreign.filter((n) => owners.get(n) === file).sort();
+    b.appendNoWrap(`import type { ${names.join(', ')} } from './${file}.js';`);
+  }
   const plumb = [
     ...(model.helpers.length > 0 ? ['matches'] : []),
     ...(model.helpers.some((h) => h.kind === 'build') ? ['type OmitEach'] : []),
@@ -239,8 +248,13 @@ export function printFiles(
   models: ProfileModel[],
   hashOf: (model: ProfileModel) => string,
 ): Map<string, string> {
+  const owners: Owners = new Map(
+    models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
+  );
   const files = new Map<string, string>();
-  for (const model of models) files.set(`${model.typeName}.ts`, printProfile(model, hashOf(model)));
+  for (const model of models) {
+    files.set(`${model.typeName}.ts`, printProfile(model, hashOf(model), owners));
+  }
   const index = new FileBuilder('  ', false);
   index.appendNoWrap(`${MARKER}. Do not edit.`);
   index.appendNoWrap("export type { Require } from './_plumb.js';");

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { readdirSync } from 'node:fs';
+import { cpSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SliceDefinition, SlicingRules } from '@medplum/core';
 import { describe, expect, test } from 'vitest';
@@ -254,18 +255,86 @@ describe('transform', () => {
       });
     });
 
-    test('an extension slice is typed from its extension profile, recursing into complex ones', () => {
-      const m = model('optional-extensions-patient');
-      expect(field(decl(m, 'OptionalExtensionsPatientFavoriteColor'), 'url').type).toEqual({
+    test('an extension slice uses its extension type, declared once in its own model', () => {
+      const all = models('optional-extensions-patient');
+      const patient = all.find((x) => x.typeName === 'OptionalExtensionsPatient') as ProfileModel;
+      expect(decl(patient, 'OptionalExtensionsPatientFavoriteColor')).toEqual({
+        kind: 'ref',
+        name: 'FavoriteColor',
+      });
+      const color = all.find((x) => x.url === `${PLUMB}/favorite-color`) as ProfileModel;
+      expect(color.typeName).toBe('FavoriteColor');
+      expect(field(decl(color), 'url').type).toEqual({
         kind: 'literal',
         value: `${PLUMB}/favorite-color`,
       });
-      expect(field(decl(m, 'OptionalExtensionsPatientCareNote'), 'valueString').type).toEqual({
-        kind: 'never',
-      });
-      expect(field(decl(m, 'OptionalExtensionsPatientCareNoteInstruction'), 'url').type).toEqual({
+      // A complex extension's sub-extensions and their helpers live with it.
+      const note = all.find((x) => x.typeName === 'CareNote') as ProfileModel;
+      expect(field(decl(note), 'valueString').type).toEqual({ kind: 'never' });
+      expect(field(decl(note, 'CareNoteInstruction'), 'url').type).toEqual({
         kind: 'literal',
         value: 'instruction',
+      });
+      expect(note.helpers.map((h) => h.name)).toContain('instruction');
+    });
+
+    test('an extension whose name a profile already has gets another', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'plumb-clash-'));
+      cpSync(LOCAL, dir, { recursive: true });
+      const sd = JSON.parse(
+        readFileSync(join(LOCAL, 'StructureDefinition-cardinality-patient.json'), 'utf8'),
+      );
+      writeFileSync(
+        join(dir, 'clash.json'),
+        JSON.stringify({ ...sd, url: `${PLUMB}/clash`, id: 'clash', name: 'FavoriteColor' }),
+      );
+      const loaded = loadProfiles({
+        packages: [],
+        igs: [],
+        local: dir,
+        profiles: [`${PLUMB}/clash`, `${PLUMB}/optional-extensions-patient`],
+      });
+      const names = transform(loaded).models.map((x) => x.typeName);
+      expect(names[0]).toBe('FavoriteColor');
+      expect(new Set(names).size).toBe(names.length);
+    });
+
+    test('an extension used by several profiles is declared once', () => {
+      const all = models('extensions-patient', 'optional-extensions-patient');
+      expect(all.filter((x) => x.url === `${PLUMB}/favorite-color`)).toHaveLength(1);
+      for (const name of [
+        'ExtensionsPatientFavoriteColor',
+        'OptionalExtensionsPatientFavoriteColor',
+      ]) {
+        const owner = all.find((x) => x.decls.some((d) => d.name === name)) as ProfileModel;
+        expect(decl(owner, name)).toEqual({ kind: 'ref', name: 'FavoriteColor' });
+      }
+    });
+
+    test('an extension slice naming a versioned profile is typed from it, with a bare url', () => {
+      const { models: all } = fromPackageResult(
+        'hl7.fhir.uv.ips@2.0.1',
+        'http://hl7.org/fhir/uv/ips/StructureDefinition/Patient-uv-ips',
+      );
+      const url = 'http://hl7.org/fhir/StructureDefinition/individual-genderIdentity';
+      const extension = all.find((x) => x.url === url) as ProfileModel;
+      expect(field(decl(extension), 'url').type).toEqual({ kind: 'literal', value: url });
+      const patient = all[0] as ProfileModel;
+      expect(patient.helpers.find((h) => h.name === 'genderIdentity')?.values).toEqual({ url });
+    });
+
+    test('a $this pattern discriminator gives the entry the whole pattern', () => {
+      const m = fromPackage(
+        'hl7.fhir.us.core@9.0.0',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
+      );
+      expect(m.helpers.find((h) => h.name === 'usCore')?.values).toEqual({
+        coding: [
+          {
+            system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+            code: 'laboratory',
+          },
+        ],
       });
     });
 

@@ -78,7 +78,10 @@
 - **README:** a quickstart from install to a passing `--check`, the FSH
   workflow, supported versions, and the known limits. It was followed by hand
   against the real registry (US Core Patient and Blood Pressure), and a CI
-  test walks it against a packed tarball. **v0.1 is complete.** What is left
+  test walks it against a packed tarball. **v0.1 is complete.**
+- **After v0.1:** CI caches the FHIR package cache instead of fetching lazily
+  (#39); `bindings.maxCodes` configures the value-set size limit (#40); each
+  extension a profile slices in is generated once, in its own file (#41). What is left
   before a first release is choosing the npm name (`plumb` is taken).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
