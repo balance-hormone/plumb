@@ -101,6 +101,8 @@
   decisions.
 - [`design/`](design/): one design note per feature, written before it is built.
   - [01: profile compiler and type generator](design/01-generator.md)
+  - [02: conformance check](design/02-conformance-check.md) (proposed):
+    `plumb validate` inside the project as a bot, and a gated `plumb push`
 - [`future/`](future/): parked ideas, each with its design sketch and research.
   - [Conformance check](future/conformance-check.md): how many stored records a
     profile would fail, the load gate, the baseline, adopting late.
