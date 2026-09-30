@@ -86,8 +86,9 @@
       "name": "favorite color as a string",
       "rule": "favorite-color value[x] only code",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": true,
+      "typeGap": "slice",
       "validatorGap": "extension-contents",
       "resource": {
         "resourceType": "Patient",
@@ -103,8 +104,9 @@
       "name": "favorite color outside its value set",
       "rule": "favorite-color valueCode required from plumb-test-colors",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": true,
+      "typeGap": "slice",
       "validatorGap": "binding",
       "resource": {
         "resourceType": "Patient",
@@ -120,8 +122,9 @@
       "name": "contact window start as a string",
       "rule": "contact-window start value[x] only time",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": true,
+      "typeGap": "slice",
       "validatorGap": "extension-contents",
       "resource": {
         "resourceType": "Patient",
@@ -167,8 +170,9 @@
       "name": "care note with a value as well",
       "rule": "care-note value[x] 0..0, and ext-1: a value or extensions, not both",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": false,
+      "typeGap": "slice",
       "resource": {
         "resourceType": "Patient",
         "extension": [

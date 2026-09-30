@@ -306,8 +306,9 @@
       "name": "integer extension holding a string",
       "rule": "primitive-integer narrows value[x] to integer",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": true,
+      "typeGap": "slice",
       "validatorGap": "extension-contents",
       "resource": {
         "resourceType": "Basic",
@@ -326,8 +327,9 @@
       "name": "extension without a value",
       "rule": "value[x] 1..1, and ext-1: an extension has a value or extensions",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
       "validates": false,
+      "typeGap": "slice",
       "resource": {
         "resourceType": "Basic",
         "code": {

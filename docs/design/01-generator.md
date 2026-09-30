@@ -149,6 +149,12 @@ slice accessors and check presence at runtime. Plumb follows them:
   part of the FHIR rule, as openapi-typescript does for `prefixItems`.
 - **Closed slicing (`rules: closed`) makes the element type a union of the
   slice shapes,** so an entry that matches no slice fails to compile.
+- **Open slicing keeps the plain array, extensions included.** Extension
+  slicing is always open, and TypeScript cannot say "any extension, except
+  that this URL's must hold a code": an `Extension` fallback matches every URL,
+  and a closed union would reject every extension a profile does not declare.
+  So a known extension with the wrong shape compiles unless it is built with
+  its helper, and the `slice` type gap covers it.
 
 Rejected:
 

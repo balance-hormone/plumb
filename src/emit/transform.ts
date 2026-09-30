@@ -3,7 +3,14 @@
 
 // Transform: every FHIR rule lives here. A pure function from parsed profiles
 // to a small tree of TypeScript types; printing is print.ts's job.
-import { getDataType, type InternalSchemaElement, type InternalTypeSchema } from '@medplum/core';
+import {
+  getDataType,
+  type InternalSchemaElement,
+  type InternalTypeSchema,
+  type SliceDefinition,
+  type SlicingRules,
+  tryGetProfile,
+} from '@medplum/core';
 import type { StructureDefinition } from '@medplum/fhirtypes';
 import type { LoadProfilesResult } from '../loader.js';
 
@@ -15,6 +22,9 @@ export type TypeExpr =
   | { kind: 'literal'; value: string | number | boolean }
   | { kind: 'array'; of: TypeExpr }
   | { kind: 'tuple'; of: TypeExpr[] }
+  /** Inside a tuple: an optional position, or the rest. */
+  | { kind: 'optional'; of: TypeExpr }
+  | { kind: 'rest'; of: TypeExpr }
   | { kind: 'union'; of: TypeExpr[] }
   /** An exact object: only these fields. */
   | { kind: 'object'; fields: Field[] }
@@ -35,6 +45,20 @@ interface TypeDecl {
   type: TypeExpr;
 }
 
+/** A slice's builder, which fills in its discriminator values, or its reader. */
+export interface Helper {
+  kind: 'build' | 'get';
+  name: string;
+  /** The slice's type. */
+  shape: string;
+  /** The sliced element, and the base type of its entries. */
+  element: string;
+  item: string;
+  slice: string;
+  /** The discriminator values an entry of this slice holds. */
+  values: Record<string, unknown>;
+}
+
 export interface ProfileModel {
   url: string;
   version?: string;
@@ -44,8 +68,9 @@ export interface ProfileModel {
   typeName: string;
   /** The profile's doc comment: its description, and the rules the type cannot check. */
   doc: string[];
-  /** The profile's type first, then the backbone elements it narrows. */
+  /** The profile's type first, then the backbone elements it narrows and its slices. */
   decls: TypeDecl[];
+  helpers: Helper[];
 }
 
 interface TransformIssue {
@@ -132,7 +157,12 @@ const firstSentence = (text: string | undefined) => text?.split(/(?<=\.)\s/)[0]?
 /** Turns one parsed profile into its type declarations. */
 class ProfileTransform {
   readonly notes: string[] = [];
+  readonly helpers: Helper[] = [];
   private inner = new Map<string, string>();
+  private readonly sliceDecls: TypeDecl[] = [];
+  private readonly usedNames = new Set<string>();
+  /** The slices enclosing the current one, so a sub-extension's type is named after its extension. */
+  private readonly prefix: string[] = [];
 
   private readonly schema: InternalTypeSchema;
   private readonly typeName: string;
@@ -163,7 +193,11 @@ class ProfileTransform {
         }
       }
     }
+    // The final pass records notes, slice types and helpers once.
     this.notes.length = 0;
+    this.helpers.length = 0;
+    this.sliceDecls.length = 0;
+    this.usedNames.clear();
     const root = getDataType(this.schema.type).elements;
     const decls = [
       {
@@ -179,7 +213,7 @@ class ProfileTransform {
           type: this.node(t.name, t.elements, getDataType(t.name).elements, t.path),
         });
     }
-    return decls;
+    return [...decls, ...this.sliceDecls];
   }
 
   private innerName(name: string): string {
@@ -245,6 +279,14 @@ class ProfileTransform {
       return;
     }
     const changed = this.elementType(e, be, children, path);
+    const sliced = e.slicing?.slices.length
+      ? this.slices(key, e, path, changed ?? this.baseItem(e))
+      : undefined;
+    if (sliced) {
+      into.omit.push(key);
+      into.fields.push({ name: key, optional: e.min === 0, type: sliced });
+      return;
+    }
     if (changed) {
       const isArray = be?.isArray ?? e.isArray ?? false;
       into.omit.push(key);
@@ -257,6 +299,100 @@ class ProfileTransform {
     } else if (e.min > 0 && (be?.min ?? 0) === 0) {
       into.required.push(key);
     }
+  }
+
+  /** An element's entry type when the profile leaves it alone. */
+  private baseItem(e: InternalSchemaElement): TypeExpr {
+    const code = e.type[0]?.code ?? 'Element';
+    const innerName = this.inner.get(code);
+    if (innerName) return ref(innerName);
+    return isComplex(code) ? ref(code) : primitive(code);
+  }
+
+  /**
+   * Declares a type per slice, with helpers where the discriminator values are
+   * known, and returns the element's type when the slicing changes it: a union
+   * of the slice types when closed, a tuple when ordered.
+   */
+  private slices(key: string, e: InternalSchemaElement, path: string, item: TypeExpr) {
+    const slicing = e.slicing as SlicingRules;
+    const code = e.type[0]?.code ?? 'Element';
+    const shapes: { slice: SliceDefinition; type: TypeExpr }[] = [];
+    for (const slice of slicing.slices) {
+      const name = this.uniqueName(`${this.typeName}${this.prefix.join('')}`, key, slice.name);
+      this.prefix.push(pascal(slice.name));
+      this.sliceDecls.push({ name, type: this.sliceShape(slice, code, `${path}:${slice.name}`) });
+      this.prefix.pop();
+      shapes.push({ slice, type: ref(name) });
+      const max = slice.max === Number.POSITIVE_INFINITY ? '*' : slice.max;
+      this.notes.push(`${path}:${slice.name}: ${slice.min}..${max}.`);
+      this.addHelpers(slicing, slice, key, code, name);
+    }
+    if (slicing.ordered) return this.tuple(shapes, slicing, item);
+    if (slicing.rule !== 'closed') return undefined;
+    const types = shapes.map((s) => s.type);
+    return {
+      kind: 'array',
+      of: types.length === 1 ? (types[0] as TypeExpr) : { kind: 'union', of: types },
+    } satisfies TypeExpr;
+  }
+
+  private uniqueName(stem: string, key: string, slice: string): string {
+    let name = `${stem}${pascal(slice)}`;
+    if (this.usedNames.has(name)) name = `${stem}${pascal(key)}${pascal(slice)}`;
+    this.usedNames.add(name);
+    return name;
+  }
+
+  /** Ordered slicing: each slice in its place, then any other entries when the slicing is open. */
+  private tuple(
+    shapes: { slice: SliceDefinition; type: TypeExpr }[],
+    slicing: SlicingRules,
+    item: TypeExpr,
+  ): TypeExpr {
+    const of: TypeExpr[] = [];
+    let optional = false;
+    for (const [i, { slice, type }] of shapes.entries()) {
+      if (slice.max > 1) {
+        // A repeating slice can only be the tuple's rest, so only the last may repeat.
+        if (i !== shapes.length - 1 || slicing.rule !== 'closed') {
+          return { kind: 'array', of: { kind: 'union', of: [...shapes.map((s) => s.type), item] } };
+        }
+        of.push({ kind: 'rest', of: type });
+        return { kind: 'tuple', of };
+      }
+      optional ||= slice.min === 0;
+      of.push(optional ? { kind: 'optional', of: type } : type);
+    }
+    if (slicing.rule !== 'closed') of.push({ kind: 'rest', of: item });
+    return { kind: 'tuple', of };
+  }
+
+  /** A slice narrows its element; an extension slice takes its extension profile's type. */
+  private sliceShape(slice: SliceDefinition, code: string, path: string): TypeExpr {
+    const profile = code === 'Extension' ? slice.type?.[0]?.profile?.[0] : undefined;
+    const schema = profile ? tryGetProfile(profile) : undefined;
+    const elements = schema?.elements ?? slice.elements;
+    return this.node(code, elements, getDataType(code).elements, path);
+  }
+
+  private addHelpers(
+    slicing: SlicingRules,
+    slice: SliceDefinition,
+    element: string,
+    item: string,
+    shape: string,
+  ): void {
+    const values = discriminatorValues(slicing, slice);
+    if (!values) return;
+    const stem = `${this.prefix.join('')}${pascal(slice.name)}`;
+    const taken = this.helpers.some((h) => h.name === `get${stem}`);
+    const name = taken ? `${pascal(element)}${stem}` : stem;
+    const common = { shape, element, item, slice: slice.name, values };
+    // A leading run of capitals lowercases as a run: VSCat gives vsCat, MRN gives mrn.
+    const build = name.replace(/^[A-Z]+(?=[A-Z][a-z0-9]|$)|^[A-Z]/, (m) => m.toLowerCase());
+    this.helpers.push({ kind: 'build', name: build, ...common });
+    this.helpers.push({ kind: 'get', name: `get${name}`, ...common });
   }
 
   /** A field that only becomes required keeps its base type. */
@@ -370,6 +506,47 @@ class ProfileTransform {
   }
 }
 
+/**
+ * The values an entry of a slice holds at each discriminator path, or
+ * undefined when a discriminator is not by value or pattern, or has none.
+ */
+export function discriminatorValues(slicing: SlicingRules, slice: SliceDefinition) {
+  const values: Record<string, unknown> = {};
+  for (const d of slicing.discriminator) {
+    if (d.type !== 'value' && d.type !== 'pattern') return undefined;
+    const element = slice.elements[d.path];
+    // An extension slice names its extension by profile rather than a fixed url.
+    const value =
+      element?.fixed?.value ??
+      element?.pattern?.value ??
+      (d.path === 'url' ? slice.type?.[0]?.profile?.[0] : undefined);
+    if (value === undefined) return undefined;
+    setPath(values, d.path, value, slice);
+  }
+  return values;
+}
+
+/** Sets `value` at a dotted path, where a path through a repeating element holds one entry of it. */
+function setPath(
+  values: Record<string, unknown>,
+  path: string,
+  value: unknown,
+  slice: SliceDefinition,
+) {
+  const parts = path.split('.');
+  let target = values;
+  parts.forEach((part, i) => {
+    const repeats = slice.elements[parts.slice(0, i + 1).join('.')]?.isArray;
+    if (i === parts.length - 1) {
+      target[part] = repeats && !Array.isArray(value) ? [value] : value;
+      return;
+    }
+    target[part] ??= repeats ? [{}] : {};
+    const next = target[part];
+    target = (Array.isArray(next) ? next[0] : next) as Record<string, unknown>;
+  });
+}
+
 function invariants(sd: StructureDefinition): string[] {
   const seen = new Set<string>();
   const lines: string[] = [];
@@ -439,6 +616,7 @@ export function transform(loaded: LoadProfilesResult): {
       typeName: final[i] as string,
       doc: docFor(p.sd, t.notes),
       decls,
+      helpers: [...t.helpers],
     };
   });
   return { models, errors };

@@ -19,3 +19,16 @@ test('reports each case’s diagnostics, honouring @ts-expect-error', () => {
   expect(invalidExpected).toEqual([]);
   expect(validExpected).toEqual([expect.stringContaining('error TS2578')]);
 });
+
+test('keeps a multi-line diagnostic with its case', () => {
+  // Assigning one type to another is explained over several lines.
+  const [diagnostics] = compileCases('compile-self-test-nested', [
+    {
+      type: { module: '@medplum/fhirtypes', typeName: 'HumanName' },
+      source: { module: '@medplum/fhirtypes', typeName: 'ContactPoint' },
+      compiles: true,
+    },
+  ]);
+  expect(diagnostics).toHaveLength(1);
+  expect(diagnostics?.[0]).toContain('\n');
+});
