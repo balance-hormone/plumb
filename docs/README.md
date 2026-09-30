@@ -2,15 +2,13 @@
 
 ## Where things stand
 
-- Plumb is scoped to one deliverable: **profile-aware types for Medplum**. The
-  spec is drafted and nothing is implemented; the one package is an empty shell
-  that builds, lints and passes CI.
-- **Next: v0.1**, the profile type generator: `plumb generate`,
-  `plumb generate --check` and `validateProfiled`, offline once IG packages
-  are cached. Its design is
-  accepted in [`design/01-generator.md`](design/01-generator.md): full-depth
-  narrowing, plain arrays with typed slice helpers, literal unions for
-  bindings listable offline, and committed output one file per profile.
+- Plumb is scoped to one deliverable: **profile-aware types for Medplum**.
+  v0.1 is implemented: `plumb generate`, `plumb generate --check` and
+  `validateProfiled`.
+- **v0.1's design** is in [`design/01-generator.md`](design/01-generator.md):
+  full-depth narrowing, plain arrays with typed slice helpers, literal unions
+  for bindings listable offline, and committed output one file per profile.
+  The bullets below record how each piece landed, in build order.
 - **Build order:** tests first (fixtures with their expected results, then the
   harness), then config, package fetching, the loader and the emitter. The work
   is tracked in the v0.1 milestone on GitHub.
@@ -76,7 +74,12 @@
   5.0 and the project's, with `NodeNext` and `bundler`, and runs the tests on
   `@medplum/*` 5.1.0. IPS showed Medplum's parser flattens slices inside
   slices (IPS Composition), so such slicing now gets no slice types and a
-  warning. **Next:** the README (#21).
+  warning.
+- **README:** a quickstart from install to a passing `--check`, the FSH
+  workflow, supported versions, and the known limits. It was followed by hand
+  against the real registry (US Core Patient and Blood Pressure), and a CI
+  test walks it against a packed tarball. **v0.1 is complete.** What is left
+  before a first release is choosing the npm name (`plumb` is taken).
 - Later releases of the same tool: SUSHI integration, routing and `create`,
   typed reads, Zod schemas, agent summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
