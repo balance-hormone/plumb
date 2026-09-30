@@ -1,7 +1,15 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
@@ -25,14 +33,14 @@ test.skipIf(!run)(
     mkdirSync(join(app, 'src'), { recursive: true });
     execFileSync('npm', ['pack', '--silent', '--pack-destination', packDir], { cwd: ROOT });
     const tarball = join(packDir, readdirSync(packDir)[0] as string);
+    // What is installed here, read from the package itself: `npm ls` fails when the
+    // compatibility job installs @medplum/* outside the dev dependency range.
     const version = (name: string) =>
       (
-        JSON.parse(
-          execFileSync('npm', ['ls', name, '--json'], { cwd: ROOT, encoding: 'utf8' }),
-        ) as {
-          dependencies: Record<string, { version: string }>;
+        JSON.parse(readFileSync(join(ROOT, 'node_modules', name, 'package.json'), 'utf8')) as {
+          version: string;
         }
-      ).dependencies[name]?.version;
+      ).version;
     const npm = (...args: string[]) =>
       execFileSync('npm', [...args, '--no-audit', '--no-fund', '--prefer-offline'], { cwd: app });
 
