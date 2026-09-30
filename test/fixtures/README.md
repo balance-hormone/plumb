@@ -106,3 +106,14 @@ GOLDEN_UPDATE=1 npx vitest run test/golden
 CI type-checks them under TypeScript 5.0 and the project's TypeScript, with
 `NodeNext` and `bundler` resolution (`test/golden/tsconfig.*.json`).
 
+## Tests against the real registry (`../e2e/registry.test.ts`)
+
+Everything above is offline. This test runs the README's own code blocks and
+IPS 2.0.1 against `packages.fhir.org`, each with an empty package cache, so it
+downloads several hundred megabytes. It runs nightly in the `Registry`
+workflow, or locally after a build:
+
+```bash
+PLUMB_REGISTRY=1 npx vitest run test/e2e/registry.test.ts
+```
+
