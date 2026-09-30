@@ -104,7 +104,7 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     loaded.warnings.map((w) => w.message),
   );
 
-  const { models, errors, warnings } = transform(loaded);
+  const { models, errors, warnings } = transform(loaded, { maxCodes: config.bindings?.maxCodes });
   if (errors.length > 0) return fail('emit', errors);
   const integrity = new Map(fetched.packages.map((p) => [`${p.name}@${p.version}`, p.integrity]));
   const files = printFiles(models, (m) => integrity.get(m.source) ?? hashOf(m));

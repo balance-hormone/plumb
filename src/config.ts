@@ -16,6 +16,10 @@ export interface PlumbConfig {
   local?: string;
   /** The folder Plumb generates into and owns. */
   out: string;
+  bindings?: {
+    /** A value set with more codes is typed as its base type, not a union. 100 by default. */
+    maxCodes?: number;
+  };
 }
 
 export type ConfigErrorCode =
@@ -28,7 +32,8 @@ export type ConfigErrorCode =
   | 'invalid-type'
   | 'invalid-ig'
   | 'unlisted-ig'
-  | 'invalid-profile';
+  | 'invalid-profile'
+  | 'invalid-max-codes';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -47,7 +52,7 @@ export function defineConfig(config: PlumbConfig): PlumbConfig {
 }
 
 const DEFAULT_CONFIG = 'plumb.config.ts';
-const KEYS = new Set(['igs', 'profiles', 'local', 'out']);
+const KEYS = new Set(['igs', 'profiles', 'local', 'out', 'bindings']);
 // FHIR package names are lowercase dotted segments; versions are exact, never ranges.
 const NAME = '[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+';
 const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
@@ -142,6 +147,7 @@ function check(config: unknown): ConfigError[] {
     ),
     ...checkWildcards(record),
   );
+  errors.push(...checkBindings(record.bindings));
   if (record.local !== undefined && typeof record.local !== 'string') {
     errors.push({ code: 'invalid-type', path: 'local', message: '"local" must be a path.' });
   }
@@ -185,4 +191,27 @@ function checkWildcards(record: Record<string, unknown>): ConfigError[] {
         ]
       : [];
   });
+}
+
+function checkBindings(bindings: unknown): ConfigError[] {
+  if (bindings === undefined) return [];
+  if (typeof bindings !== 'object' || bindings === null || Array.isArray(bindings)) {
+    return [{ code: 'invalid-type', path: 'bindings', message: '"bindings" must be an object.' }];
+  }
+  const errors: ConfigError[] = Object.keys(bindings)
+    .filter((key) => key !== 'maxCodes')
+    .map((key) => ({
+      code: 'unknown-key' as const,
+      path: `bindings.${key}`,
+      message: `Unknown config key "bindings.${key}".`,
+    }));
+  const { maxCodes } = bindings as { maxCodes?: unknown };
+  if (maxCodes !== undefined && !(Number.isInteger(maxCodes) && (maxCodes as number) >= 1)) {
+    errors.push({
+      code: 'invalid-max-codes',
+      path: 'bindings.maxCodes',
+      message: '"bindings.maxCodes" must be a whole number of at least 1.',
+    });
+  }
+  return errors;
 }

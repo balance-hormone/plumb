@@ -392,6 +392,17 @@ describe('transform', () => {
       expect(observation.doc.join('\n')).toContain('plumb-test-large-vs');
     });
 
+    test('the size limit can be lowered or raised', () => {
+      const loaded = (name: string) =>
+        loadProfiles({ packages: [], igs: [], local: LOCAL, profiles: [`${PLUMB}/${name}`] });
+      const [patient] = transform(loaded('bindings-patient'), { maxCodes: 1 }).models;
+      // Two codes is over a limit of 1: gender keeps Medplum's own type.
+      expect(JSON.stringify(decl(patient as ProfileModel))).not.toContain('"female"');
+      expect(JSON.stringify(decl(model('bindings-patient')))).toContain('"female"');
+      const [observation] = transform(loaded('bindings-observation'), { maxCodes: 200 }).models;
+      expect(JSON.stringify(decl(observation as ProfileModel))).toContain('c101');
+    });
+
     test('an extensible binding on a code suggests its codes without rejecting others', () => {
       const component = decl(model('bindings-observation'), 'BindingsObservationComponent');
       if (component.kind !== 'narrow') throw new Error('component is not narrowed');

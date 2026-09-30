@@ -52,6 +52,8 @@ export default defineConfig({
 - `profiles` are canonical URLs, or `name/*` for every resource profile in an
   IG `igs` lists.
 - `local` (optional) is a folder of your own StructureDefinition JSON.
+- `bindings.maxCodes` (optional, 100 by default): a required binding whose
+  value set has more codes keeps its base type instead of a literal union.
 - `out` is the folder Plumb generates into. Plumb owns it: it removes files for
   profiles you no longer list, and refuses to touch a folder holding files it
   did not write.
@@ -205,9 +207,9 @@ the rest. Each generated type's doc comment lists the rules it cannot check.
   `{ reference: 'Group/1' }`, so that `createReference()` results stay
   assignable without a cast. Medplum's validator only warns on the wrong type.
 - **Value sets that cannot be listed offline** (rules, VSAC and other
-  terminology servers, SNOMED CT) or that have more than 100 codes keep the
-  field's base type; the doc comment names the value set. Only a server with
-  `validate-terminology` checks them.
+  terminology servers, SNOMED CT) or that have more than `bindings.maxCodes`
+  codes (100 by default) keep the field's base type; the doc comment names the
+  value set. Only a server with `validate-terminology` checks them.
 - **`_field` primitive extensions** (`_birthDate` with a data-absent-reason)
   are not typed: `@medplum/fhirtypes` has no `_field` properties.
 - **What Medplum's parser cannot read, Plumb cannot either.** Profiles with a
