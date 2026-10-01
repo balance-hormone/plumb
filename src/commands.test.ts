@@ -10,6 +10,7 @@ import { formatStep, run } from './commands.js';
 const SYNTHETIC = join(import.meta.dirname, '../test/fixtures/profiles/fsh-generated/resources');
 const PLUMB = 'http://example.org/fhir/plumb-test/StructureDefinition';
 const BUILT = join(import.meta.dirname, '../dist/esm/cli.mjs');
+const CHECKER = join(import.meta.dirname, '../dist/checker.cjs');
 
 function project(): string {
   const root = mkdtempSync(join(tmpdir(), 'plumb-cli-'));
@@ -20,6 +21,13 @@ function project(): string {
       profiles: ['${PLUMB}/cardinality-patient', '${PLUMB}/sliced-observation'],
       local: ${JSON.stringify(SYNTHETIC)},
       out: './src/fhir/generated',
+      environments: {
+        prod: {
+          baseUrl: 'http://127.0.0.1:9/',
+          clientId: { env: 'PROD_CLIENT_ID' },
+          clientSecret: { env: 'PROD_CLIENT_SECRET' },
+        },
+      },
     };`,
   );
   return root;
@@ -154,6 +162,36 @@ describe('plumb', () => {
     );
     expect((await cli(['generate'])).stderr).not.toContain('\u001b[');
   });
+
+  test('push needs --env, a known environment and its credentials, or exits 2', async () => {
+    const missing = await cli(['push']);
+    expect(missing.code).toBe(2);
+    expect(missing.stderr).toContain('plumb: push needs --env <name>');
+    const unknown = await cli(['push', '--env', 'staging']);
+    expect(unknown.code).toBe(2);
+    expect(unknown.stderr).toContain('✖ config    No environment "staging": the config has prod.');
+    const unset = await cli(['push', '--env', 'prod']);
+    expect(unset.code).toBe(2);
+    expect(unset.stderr).toContain('PROD_CLIENT_ID is not set');
+  });
+
+  // Installing the checker is a server claim, tested in test/server; push reads the built bot.
+  test.skipIf(!existsSync(CHECKER) && !process.env.CI)(
+    'push loads the profiles, then exits 2 when it cannot connect',
+    async () => {
+      const { cwd } = await cli(['generate']);
+      const env = { PROD_CLIENT_ID: 'id', PROD_CLIENT_SECRET: 'secret' };
+      const { code, stderr } = await cli(['push', '--env', 'prod'], cwd, env);
+      expect(code).toBe(2);
+      const lines = stderr.trimEnd().split('\n');
+      expect(lines[0]).toBe('plumb push --env prod');
+      expect(lines[1]).toMatch(/^✔ load {6}2 profiles of Observation, Patient {3}\d+(ms|\.\ds)$/);
+      expect(lines[2]).toMatch(
+        /^✖ connect {3}Could not log in to http:\/\/127\.0\.0\.1:9\/ \(prod\)/,
+      );
+      expect(lines.at(-1)).toMatch(/^Failed in/);
+    },
+  );
 
   // CI builds before it tests; locally this runs once dist/ exists.
   test.skipIf(!existsSync(BUILT) && !process.env.CI)('the built CLI generates and checks', () => {

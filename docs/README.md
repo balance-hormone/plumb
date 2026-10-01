@@ -108,6 +108,14 @@
   Medplum's vmcontext runtime runs it, and a real-server test runs it through
   `Bot/$execute` as an async job. Medplum's sandbox lacks the `WebSocket`
   global `@medplum/core` reads on load, so the bundle carries a stand-in.
+  `plumb push --env <env>` does push's first step (#54): it loads the
+  selected profiles, connects, and installs or updates the checker, a Bot
+  found again by a Plumb identifier, created through the admin endpoint so
+  its membership gets an AccessPolicy that reads the checked types and
+  StructureDefinition and writes nothing. The deployed filename carries the
+  version and a hash of the bundle, so an unchanged checker is not
+  redeployed. Real-server tests show a second push changes nothing and,
+  acting as the bot's membership, that it can read but not write.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

@@ -50,6 +50,8 @@ services:
       MEDPLUM_SUPPORT_EMAIL: support@example.com
       # The checker bot's runtime here; hosted Medplum runs bots on Lambda.
       MEDPLUM_VM_CONTEXT_BOTS_ENABLED: 'true'
+      # Bots created without a runtime, as push creates the checker, get this one.
+      MEDPLUM_DEFAULT_BOT_RUNTIME_VERSION: vmcontext
       # Seeded on first boot. Tests use it only to create their own project.
       MEDPLUM_DEFAULT_SUPER_ADMIN_CLIENT_ID: 00000000-0000-4000-8000-000000000001
       MEDPLUM_DEFAULT_SUPER_ADMIN_CLIENT_SECRET: plumb-test-super-admin

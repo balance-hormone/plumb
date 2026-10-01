@@ -150,7 +150,12 @@ Refusing to load: fix or migrate them first, or see `plumb validate --env prod`.
 
 1. **Install or update the checker bot** (a Bot with a Plumb identifier,
    deployed with `$deploy`). This is not a tightening change, so it is not
-   gated. It needs a membership that can write Bot and AccessPolicy.
+   gated. It needs an admin membership that can write Bot and AccessPolicy.
+   `push` creates the checker's AccessPolicy too (read on the checked types
+   and StructureDefinition, nothing else), and updates it when the selected
+   profiles' types change. The deployed filename,
+   `plumb-checker-<version>-<hash>.cjs`, is recorded on the Bot by
+   `$deploy`, so the bundle is redeployed only when it changes.
 2. **Plan:** the StructureDefinitions of the selected profiles and their
    dependency closure, from the loader, compared with what the project holds.
    Unchanged profiles are skipped; a profile edited without a version bump is
@@ -224,8 +229,6 @@ the real-server tests the spec deferred:
   self-hosted servers have different limits; the page size may need to adapt
   to the Bot `timeout`. The tests run `vmcontext` only, as Docker cannot run
   Lambda; `awslambda` is untested until it runs against hosted Medplum.
-- **How the checker gets its own AccessPolicy:** created by `push` in step 1,
-  or documented for an admin to create once.
 - **Reason grouping:** Medplum's issue messages include array indexes
   (`component[2]`), which must be normalized to group well.
 - **Large projects:** whether to run pages in parallel, and how the server's
