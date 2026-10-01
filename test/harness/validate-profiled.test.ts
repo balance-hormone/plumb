@@ -1,42 +1,10 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { validateProfiled } from '../../src/validate.js';
-import { contractTables, usCoreCases, validates } from './fixtures.js';
+import { contractTables, harnessProject, usCoreCases, validates } from './fixtures.js';
 
-// A project whose cache is the fixture packages, selecting every profile under test.
-const FIXTURES = join(import.meta.dirname, '../fixtures');
-const cacheDir = join(FIXTURES, 'packages');
-const root = mkdtempSync(join(tmpdir(), 'plumb-harness-validate-'));
-const profiles = [
-  ...new Set([
-    ...contractTables.map((t) => t.profile),
-    ...usCoreCases.flatMap((c) => (c.profile && !c.unparseable ? [c.profile] : [])),
-  ]),
-];
-writeFileSync(
-  join(root, 'plumb.config.ts'),
-  `export default ${JSON.stringify({
-    igs: ['hl7.fhir.us.core@9.0.0'],
-    profiles,
-    local: join(FIXTURES, 'profiles/fsh-generated/resources'),
-    out: './generated',
-  })};`,
-);
-writeFileSync(
-  join(root, 'plumb.lock'),
-  JSON.stringify({
-    lockfileVersion: 1,
-    igs: ['hl7.fhir.us.core@9.0.0'],
-    packages: Object.fromEntries(
-      readdirSync(cacheDir).map((folder) => [folder.replace('#', '@'), { integrity: 'fixture' }]),
-    ),
-  }),
-);
-const options = { cwd: root, cacheDir };
+const options = harnessProject();
 
 // validateProfiled promises Medplum's validator's verdict, so it must match a direct call.
 describe.each(contractTables)('$file', (table) => {

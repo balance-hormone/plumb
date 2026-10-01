@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   indexStructureDefinitionBundle,
@@ -169,4 +170,39 @@ export function validates(resource: Resource, profileUrl?: string): boolean {
     if (!(err instanceof OperationOutcomeError)) throw err;
     return !err.outcome.issue?.some((issue) => issue.severity === 'error');
   }
+}
+
+/**
+ * A project whose cache is the fixture packages, selecting every profile under
+ * test: the options validateProfiled takes.
+ */
+export function harnessProject(): { cwd: string; cacheDir: string } {
+  const cacheDir = join(FIXTURES, 'packages');
+  const cwd = mkdtempSync(join(tmpdir(), 'plumb-harness-'));
+  const profiles = [
+    ...new Set([
+      ...contractTables.map((t) => t.profile),
+      ...usCoreCases.flatMap((c) => (c.profile && !c.unparseable ? [c.profile] : [])),
+    ]),
+  ];
+  writeFileSync(
+    join(cwd, 'plumb.config.ts'),
+    `export default ${JSON.stringify({
+      igs: ['hl7.fhir.us.core@9.0.0'],
+      profiles,
+      local: SYNTHETIC,
+      out: './generated',
+    })};`,
+  );
+  writeFileSync(
+    join(cwd, 'plumb.lock'),
+    JSON.stringify({
+      lockfileVersion: 1,
+      igs: ['hl7.fhir.us.core@9.0.0'],
+      packages: Object.fromEntries(
+        readdirSync(cacheDir).map((folder) => [folder.replace('#', '@'), { integrity: 'fixture' }]),
+      ),
+    }),
+  );
+  return { cwd, cacheDir };
 }

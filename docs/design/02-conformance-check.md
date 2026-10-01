@@ -57,9 +57,19 @@ AsyncJob → plumb polls, then starts the next page until the cursor ends
   answers "what would fail if we loaded this?", the question to ask before
   tightening, and `push` can ask it about the versions it is about to load.
 - **It validates with `@medplum/core`**, the validator the server and
-  `validateProfiled` use, at the version bundled into the bot. `push` rebuilds
-  the bot with the project's installed `@medplum/core`; the docs advise keeping
-  it in step with the server, as they already do for `validateProfiled`.
+  `validateProfiled` use, at the version bundled into the bot: the one Plumb
+  was built with, so Plumb takes no runtime dependency on a bundler. The bot
+  reports that version, and `validate` warns when it differs from the
+  project's; the docs advise keeping both in step with the server, as they
+  already do for `validateProfiled`. The bot never `require`s the server's own
+  `@medplum/core`, whose profile index serves real writes.
+- **The definitions travel gzipped.** The validator needs base R4 for every
+  type it meets (about 2 MB for one resource type) and the profiles' closure,
+  but the server caps a JSON body at 1 MB by default. Gzipped and base64'd,
+  the data types, the checked type and its profiles come to about 300 KB a
+  page. A contained resource or Bundle entry can be of any type, so the bot
+  reads the base definitions it still lacks from the server, which holds base
+  R4.
 - **Chunked and resumable.** A bot run has a time limit (the Bot `timeout`;
   Lambda's ceiling is 15 minutes), so each run checks one page and returns a
   cursor. The CLI drives the pages and can resume from the last cursor after an
@@ -68,7 +78,8 @@ AsyncJob → plumb polls, then starts the next page until the cursor ends
   development and production; so does Plumb. There is no local mode that pulls
   resources onto the machine running the command.
 - **Reading is the bot's only power.** Its ProjectMembership gets an
-  AccessPolicy that reads the checked types and writes nothing.
+  AccessPolicy that reads the checked types and StructureDefinition, and
+  writes nothing.
 - **`validate` never installs the bot.** If the checker is missing or older
   than the CLI, `validate` stops with exit 2 and says to run `plumb push`, so
   `validate` stays read-only.
@@ -211,7 +222,8 @@ the real-server tests the spec deferred:
 
 - **Bot runtime:** `awslambda` on hosted Medplum and `vmcontext` on many
   self-hosted servers have different limits; the page size may need to adapt
-  to the Bot `timeout`.
+  to the Bot `timeout`. The tests run `vmcontext` only, as Docker cannot run
+  Lambda; `awslambda` is untested until it runs against hosted Medplum.
 - **How the checker gets its own AccessPolicy:** created by `push` in step 1,
   or documented for an admin to create once.
 - **Reason grouping:** Medplum's issue messages include array indexes
