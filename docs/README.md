@@ -98,7 +98,9 @@
 - **v0.2 so far:** the server tests in [`../test/server`](../test/server/)
   start Medplum, Postgres and Redis in Docker and give each run a strict
   project with an admin CI client and synthetic data. CI runs them on Node 22
-  and 24, and on Medplum 5.1.0 (#51).
+  and 24, and on Medplum 5.1.0 (#51). `environments` in the config name a
+  project and the variables holding its client credentials, and `connect`
+  logs in and reports strict mode (#52); `--env` arrives with `validate`.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import type { LoadConfigResult } from './config.js';
+import { type LoadConfigResult, type PlumbConfig, resolveEnvironment } from './config.js';
 
 const CONFIG_MODULE = join(import.meta.dirname, 'config.ts');
 
@@ -205,5 +205,115 @@ describe('loadConfig', () => {
       'plumb.config.ts': `export default { igs: ['hl7.fhir.us.core@9.0.0'], profiles: [${JSON.stringify(profile)}], out: './out' };`,
     });
     expect(codes(result)).toEqual(['invalid-profile']);
+  });
+
+  test('accepts environments, naming the variables that hold the credentials', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', environments: {
+        prod: { baseUrl: 'https://api.example.com/', clientId: { env: 'ID' }, clientSecret: { env: 'SECRET' } },
+      } };`,
+    });
+    expect(result.ok && result.config.environments).toEqual({
+      prod: {
+        baseUrl: 'https://api.example.com/',
+        clientId: { env: 'ID' },
+        clientSecret: { env: 'SECRET' },
+      },
+    });
+  });
+
+  test.each(["'api.example.com'", "'ftp://api.example.com/'", "''", 'undefined'])(
+    'invalid-base-url: %s',
+    (baseUrl) => {
+      const result = load({
+        'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', environments: {
+          prod: { baseUrl: ${baseUrl}, clientId: { env: 'ID' }, clientSecret: { env: 'SECRET' } },
+        } };`,
+      });
+      expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([
+        ['invalid-base-url', 'environments.prod.baseUrl'],
+      ]);
+    },
+  );
+
+  test('invalid-type, for a secret written into the config', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', environments: {
+        prod: { baseUrl: 'https://api.example.com/', clientId: 'abc', clientSecret: { env: '' } },
+      } };`,
+    });
+    expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([
+      ['invalid-type', 'environments.prod.clientId'],
+      ['invalid-type', 'environments.prod.clientSecret'],
+    ]);
+    expect(!result.ok && result.errors[0]?.message).toMatch(/\{ env: 'VAR' \}/);
+  });
+
+  test('unknown-key inside an environment, and environments that are not objects', () => {
+    const unknown = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', environments: {
+        prod: { baseUrl: 'https://api.example.com/', clientId: { env: 'ID' }, clientSecret: { env: 'SECRET' }, project: 'x' },
+      } };`,
+    });
+    expect(!unknown.ok && unknown.errors.map((e) => [e.code, e.path])).toEqual([
+      ['unknown-key', 'environments.prod.project'],
+    ]);
+    const wrong = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', environments: { prod: 'https://api.example.com/' } };`,
+    });
+    expect(!wrong.ok && wrong.errors.map((e) => [e.code, e.path])).toEqual([
+      ['invalid-type', 'environments.prod'],
+    ]);
+  });
+});
+
+describe('resolveEnvironment', () => {
+  const config: PlumbConfig = {
+    igs: [],
+    profiles: [],
+    out: '/out',
+    environments: {
+      prod: {
+        baseUrl: 'https://api.example.com/',
+        clientId: { env: 'PROD_ID' },
+        clientSecret: { env: 'PROD_SECRET' },
+      },
+      staging: {
+        baseUrl: 'https://staging.example.com/',
+        clientId: { env: 'STAGING_ID' },
+        clientSecret: { env: 'STAGING_SECRET' },
+      },
+    },
+  };
+
+  test('reads the credentials from the variables the config names', () => {
+    expect(resolveEnvironment(config, 'prod', { PROD_ID: 'id', PROD_SECRET: 'secret' })).toEqual({
+      ok: true,
+      environment: {
+        name: 'prod',
+        baseUrl: 'https://api.example.com/',
+        clientId: 'id',
+        clientSecret: 'secret',
+      },
+    });
+  });
+
+  test('unknown-environment, naming the ones the config has', () => {
+    const result = resolveEnvironment(config, 'dev', {});
+    expect(!result.ok && result.errors.map((e) => e.code)).toEqual(['unknown-environment']);
+    expect(!result.ok && result.errors[0]?.message).toMatch(/prod, staging/);
+    const inherited = resolveEnvironment(config, 'toString', {});
+    expect(!inherited.ok && inherited.errors[0]?.code).toBe('unknown-environment');
+    const none = resolveEnvironment({ ...config, environments: undefined }, 'prod', {});
+    expect(!none.ok && none.errors[0]?.message).toMatch(/no environments/);
+  });
+
+  test('missing-variable, for each unset or empty one', () => {
+    const result = resolveEnvironment(config, 'prod', { PROD_ID: '' });
+    expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([
+      ['missing-variable', 'environments.prod.clientId'],
+      ['missing-variable', 'environments.prod.clientSecret'],
+    ]);
+    expect(!result.ok && result.errors[1]?.message).toMatch(/PROD_SECRET/);
   });
 });
