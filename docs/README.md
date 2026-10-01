@@ -101,6 +101,13 @@
   and 24, and on Medplum 5.1.0 (#51). `environments` in the config name a
   project and the variables holding its client credentials, and `connect`
   logs in and reports strict mode (#52); `--env` arrives with `validate`.
+  The checker bot (#53) validates one page of stored resources inside the
+  project, bundled into `dist/checker.cjs` with Plumb's `@medplum/core`, and
+  takes the definitions gzipped, as input. Its verdicts match
+  `validateProfiled` on every contract fixture and US Core example, run as
+  Medplum's vmcontext runtime runs it, and a real-server test runs it through
+  `Bot/$execute` as an async job. Medplum's sandbox lacks the `WebSocket`
+  global `@medplum/core` reads on load, so the bundle carries a stand-in.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

@@ -46,7 +46,7 @@ export default async function setup(project: TestProject) {
   if (!running) return () => void docker(...COMPOSE, 'down', '--volumes');
 }
 
-/** A strict project with a CI client that is its admin, and synthetic data. */
+/** A strict project with bots, a CI client that is its admin, and synthetic data. */
 async function newProject(): Promise<TestServer> {
   const admin = new MedplumClient({ baseUrl: BASE_URL });
   await admin.startClientLogin(...SUPER_ADMIN);
@@ -54,6 +54,7 @@ async function newProject(): Promise<TestServer> {
     resourceType: 'Project',
     name: `plumb-test-${crypto.randomUUID()}`,
     strictMode: true,
+    features: ['bots'],
   });
   const client = await admin.post(`admin/projects/${project.id}/client`, { name: 'Plumb CI' });
   const membership = await admin.searchOne('ProjectMembership', {

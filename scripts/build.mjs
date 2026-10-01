@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package build: the library as ESM (.mjs) and CJS (.cjs) with tsc
-// declarations, and the CLI as ESM. Output is not minified, so stack traces
-// stay readable.
+// declarations, the CLI as ESM, and the checker bot as one CJS file. Output is
+// not minified, so stack traces stay readable.
 import { execFileSync } from 'node:child_process';
 import { cpSync, rmSync, writeFileSync } from 'node:fs';
 import { build } from 'esbuild';
+import { CHECKER_BUILD } from '../src/checker/bundle.ts';
 
 rmSync('dist', { recursive: true, force: true });
 
@@ -28,6 +29,8 @@ await Promise.all([
     outfile: 'dist/esm/cli.mjs',
     banner: { js: '#!/usr/bin/env node' },
   }),
+  // The checker bot's code, which push deploys; read as text, never imported.
+  build({ ...CHECKER_BUILD, outfile: 'dist/checker.cjs' }),
 ]);
 
 execFileSync('tsc', ['-p', 'tsconfig.build.json'], { stdio: 'inherit' });
