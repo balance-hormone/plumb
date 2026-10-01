@@ -48,8 +48,8 @@ and its validator. See [Medplum server behaviour](medplum-server-behaviour.md).
 
 - **Package split:** `drizzle-orm` (runtime), `drizzle-kit` (CLI, migrations),
   `drizzle-zod` (schemas). Plumb starts as the kit alone: one dev-only package
-  whose generated code carries its own helpers. A runtime package arrives only
-  with routing and `create`, and a Zod package only with Zod schemas.
+  whose generated code carries its own helpers, routing and `createProfiled`
+  included. A Zod package arrives only with Zod schemas.
 - **Generated code in the repo:** Drizzle Kit writes reviewable files; Plumb
   commits its generated types the same way.
 - **Migrations** *(parked)*: numbered files and a journal in the repo, an applied-state
@@ -125,9 +125,9 @@ risk, which is why `plumb pull` fetches only from the FHIR registry.
   profile by hand.
 - **A pre-commit bot that stamps profiles server-side.** Possible with Medplum's
   pre-commit subscriptions, but it adds latency to every write and hides the
-  routing decision from the code. Plumb keeps routing in `create`, backed by a
-  lint rule and a `validate` rule, and would only reconsider if `validate` kept
-  finding strays in practice.
+  routing decision from the code. Plumb keeps routing in `createProfiled`,
+  backed by `validate`'s count of unstamped resources, and would only
+  reconsider if `validate` kept finding strays in practice.
 - **Version-pinned stamps (`url|version`).** Medplum matches bare URLs, so a
   versioned stamp validates nothing. Plumb stamps bare URLs and relies on the
   load gate instead.
