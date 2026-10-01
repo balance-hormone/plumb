@@ -80,22 +80,22 @@ describe.skipIf(!server)('push installs the checker bot', () => {
 
   test("the bot's membership can read the checked types but write nothing", async () => {
     const { medplum, membership } = await installed();
-    const asBot: MedplumRequestOptions = {
+    // A fresh object each call: the client writes the request body into the options.
+    const asBot = (): MedplumRequestOptions => ({
       headers: { 'X-Medplum-On-Behalf-Of': `ProjectMembership/${membership.id}` },
-    };
-    await expect(medplum.searchResources('Patient', {}, asBot)).resolves.toBeDefined();
+    });
+    await expect(medplum.searchResources('Patient', {}, asBot())).resolves.toBeDefined();
     const patient = { resourceType: 'Patient' as const, name: [{ family: 'Synthetic' }] };
-    await expect(medplum.createResource(patient, asBot)).rejects.toThrow(/Forbidden/);
-    await expect(medplum.searchResources('Observation', {}, asBot)).rejects.toThrow(/Forbidden/);
+    await expect(medplum.createResource(patient, asBot())).rejects.toThrow(/Forbidden/);
+    await expect(medplum.searchResources('Observation', {}, asBot())).rejects.toThrow(/Forbidden/);
   });
 
   test('the installed bot checks a page under its policy', async () => {
     const { medplum, bot } = await installed();
     // The contained Organization's definition comes from the server, through the policy.
+    // Unstamped, so checker.test's counts in this shared project stay its own.
     await medplum.createResource({
       resourceType: 'Patient',
-      meta: { profile: [PATIENT] },
-      birthDate: '1970-01-01',
       name: [{ family: 'Synthetic' }],
       contained: [{ resourceType: 'Organization', id: 'o1', name: 'Synthetic Clinic' }],
       managingOrganization: { reference: '#o1' },
@@ -110,7 +110,7 @@ describe.skipIf(!server)('push installs the checker bot', () => {
     expect(job.status).toBe('completed');
     const output = job.output as Parameters;
     const body = output.parameter?.find((p) => p.name === 'responseBody')?.valueString ?? '{}';
-    expect((JSON.parse(body) as PageResult).profiles[PATIENT]?.checked).toBeGreaterThan(0);
+    expect((JSON.parse(body) as PageResult).read).toBeGreaterThan(0);
   });
 
   test('a new bundle or version is redeployed, and a changed profile set updates the policy', async () => {
