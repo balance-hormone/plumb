@@ -47,7 +47,8 @@ async function run(input: CheckerInput, pages: Resource[][]) {
     search: async (resourceType: string, params: Record<string, string>): Promise<Bundle> => {
       searches.push(params);
       const i = Number(params._cursor ?? 0);
-      const next = i + 1 < pages.length ? `http://x/fhir/R4/${resourceType}?_cursor=${i + 1}` : '';
+      const next =
+        i + 1 < pages.length ? `http://example.org/fhir/R4/${resourceType}?_cursor=${i + 1}` : '';
       return {
         resourceType: 'Bundle',
         type: 'searchset',
