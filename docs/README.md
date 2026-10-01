@@ -89,11 +89,15 @@
   the DCO sign-off and release steps. The package stays `private` until the
   copyright holder signs off; publishing is then the steps in
   [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
-- Later releases of the same tool: SUSHI integration, routing and `create`,
-  typed reads, Zod schemas, agent summaries.
+- **Roadmap:** v0.2 is the conformance check
+  ([design 02](design/02-conformance-check.md)), v0.3 routing and
+  `createProfiled` ([design 03](design/03-routing-and-create.md)). Next, not
+  yet scoped: typed reads, then [project config as code](future/project-config-as-code.md),
+  which extends v0.2's `push`. Later: SUSHI integration, Zod schemas, agent
+  summaries.
 - Other tools are parked as idea notes in [`future/`](future/).
-- Work is tracked in GitHub Issues on this repository, under the v0.1
-  milestone.
+- Work is tracked in GitHub Issues on this repository, one milestone per
+  release.
 
 ## Contents
 
@@ -103,6 +107,8 @@
   - [01: profile compiler and type generator](design/01-generator.md)
   - [02: conformance check](design/02-conformance-check.md) (proposed):
     `plumb validate` inside the project as a bot, and a gated `plumb push`
+  - [03: routing and `createProfiled`](design/03-routing-and-create.md)
+    (proposed): the profile a resource's content selects, stamped on write
 - [`future/`](future/): parked ideas, each with its design sketch and research.
   - [Conformance check](future/conformance-check.md): how many stored records a
     profile would fail, the load gate, the baseline, adopting late.

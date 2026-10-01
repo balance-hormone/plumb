@@ -179,7 +179,7 @@ The detailed design, including the four emission decisions, is
 **Later releases of the same tool**
 
 9. As an engineer writing FSH, I want `plumb generate` to run SUSHI for me, so that one command covers FSH too.
-10. As an engineer, I want resources routed to the profile their content selects, and `create` to stamp it, so that a heart rate, a lab result and a smoking status are each held to their real profile.
+10. As an engineer, I want resources routed to the profile their content selects, and `createProfiled` to stamp it, so that a heart rate, a lab result and a smoking status are each held to their real profile.
 11. As an engineer, I want read and search helpers that return the profile type and assert the profile stamp, so that a component receives a conforming resource, not base R4.
 12. As an engineer, I want a Zod schema generated from a profile, with `pick`, `partial` and override helpers, so that a form enforces the same required fields the server does.
 13. As an agent, I want a generated summary per profile (required fields, bindings, slices, invariants), so that I can write a conforming resource on the first try.
@@ -412,9 +412,10 @@ These reuse the same parsed profiles and are specified when they are picked up.
 - **Routing and `create`.** Generated routing rows wherever a profile pins a
   fixed or pattern value on its key (a LOINC code, a category), config rows
   where it keys on value-set membership, the most specific profile winning.
-  `create` stamps the default plus the routed profile, because a stamp
-  suppresses Medplum's `defaultProfile`. This is Plumb's first runtime code,
-  and so its first runtime package.
+  `createProfiled` stamps the default plus the routed profile, because a stamp
+  suppresses Medplum's `defaultProfile`. It is generated into `out` with the
+  types, so apps still take no runtime dependency on Plumb. See
+  [design 03](design/03-routing-and-create.md).
 - **Typed reads.** A read or search helper per profile that returns the profile
   type, asserts the stamp, and refuses `_elements`, `_summary` and `_history`.
   A stamp proves a record passed its profile only if it was written while the
