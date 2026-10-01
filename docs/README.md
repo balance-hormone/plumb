@@ -95,6 +95,10 @@
   yet scoped: typed reads, then [project config as code](future/project-config-as-code.md),
   which extends v0.2's `push`. Later: SUSHI integration, Zod schemas, agent
   summaries.
+- **v0.2 so far:** the server tests in [`../test/server`](../test/server/)
+  start Medplum, Postgres and Redis in Docker and give each run a strict
+  project with an admin CI client and synthetic data. CI runs them on Node 22
+  and 24, and on Medplum 5.1.0 (#51).
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
