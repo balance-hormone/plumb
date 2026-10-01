@@ -20,6 +20,26 @@ export interface PlumbConfig {
     /** A value set with more codes is typed as its base type, not a union. 100 by default. */
     maxCodes?: number;
   };
+  /** The Medplum projects `validate` and `push` act on, by name. */
+  environments?: Record<string, Environment>;
+}
+
+/**
+ * A Medplum project, reached with client credentials. The config is committed,
+ * so it names the environment variables that hold them, never the values.
+ */
+export interface Environment {
+  baseUrl: string;
+  clientId: { env: string };
+  clientSecret: { env: string };
+}
+
+/** An environment with its credentials read from the environment variables. */
+export interface ResolvedEnvironment {
+  name: string;
+  baseUrl: string;
+  clientId: string;
+  clientSecret: string;
 }
 
 export type ConfigErrorCode =
@@ -33,7 +53,10 @@ export type ConfigErrorCode =
   | 'invalid-ig'
   | 'unlisted-ig'
   | 'invalid-profile'
-  | 'invalid-max-codes';
+  | 'invalid-max-codes'
+  | 'invalid-base-url'
+  | 'unknown-environment'
+  | 'missing-variable';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -52,7 +75,8 @@ export function defineConfig(config: PlumbConfig): PlumbConfig {
 }
 
 const DEFAULT_CONFIG = 'plumb.config.ts';
-const KEYS = new Set(['igs', 'profiles', 'local', 'out', 'bindings']);
+const KEYS = new Set(['igs', 'profiles', 'local', 'out', 'bindings', 'environments']);
+const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret'] as const;
 // FHIR package names are lowercase dotted segments; versions are exact, never ranges.
 const NAME = '[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+';
 const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
@@ -147,7 +171,7 @@ function check(config: unknown): ConfigError[] {
     ),
     ...checkWildcards(record),
   );
-  errors.push(...checkBindings(record.bindings));
+  errors.push(...checkBindings(record.bindings), ...checkEnvironments(record.environments));
   if (record.local !== undefined && typeof record.local !== 'string') {
     errors.push({ code: 'invalid-type', path: 'local', message: '"local" must be a path.' });
   }
@@ -214,4 +238,93 @@ function checkBindings(bindings: unknown): ConfigError[] {
     });
   }
   return errors;
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function checkEnvironments(environments: unknown): ConfigError[] {
+  if (environments === undefined) return [];
+  if (!isObject(environments)) {
+    return [
+      { code: 'invalid-type', path: 'environments', message: '"environments" must be an object.' },
+    ];
+  }
+  return Object.entries(environments).flatMap(([name, environment]): ConfigError[] => {
+    const at = `environments.${name}`;
+    if (!isObject(environment)) {
+      return [{ code: 'invalid-type', path: at, message: `"${at}" must be an object.` }];
+    }
+    const errors: ConfigError[] = Object.keys(environment)
+      .filter((key) => !(ENVIRONMENT_KEYS as readonly string[]).includes(key))
+      .map((key) => ({
+        code: 'unknown-key',
+        path: `${at}.${key}`,
+        message: `Unknown config key "${at}.${key}".`,
+      }));
+    const { baseUrl } = environment;
+    if (typeof baseUrl !== 'string' || !/^https?:$/.test(URL.parse(baseUrl)?.protocol ?? '')) {
+      errors.push({
+        code: 'invalid-base-url',
+        path: `${at}.baseUrl`,
+        message: `"${at}.baseUrl" must be the server's http or https URL.`,
+      });
+    }
+    for (const key of ['clientId', 'clientSecret'] as const) {
+      const value = environment[key];
+      if (!isObject(value) || typeof value.env !== 'string' || value.env === '') {
+        errors.push({
+          code: 'invalid-type',
+          path: `${at}.${key}`,
+          message: `"${at}.${key}" must be { env: 'VAR' }, the name of the environment variable that holds it: the config is committed, so it never holds the value.`,
+        });
+      }
+    }
+    return errors;
+  });
+}
+
+/** Picks an environment by name and reads its credentials from `env`. */
+export function resolveEnvironment(
+  config: PlumbConfig,
+  name: string,
+  env: Record<string, string | undefined>,
+): { ok: true; environment: ResolvedEnvironment } | { ok: false; errors: ConfigError[] } {
+  const environments = config.environments ?? {};
+  // Own keys only, so a name such as "toString" is unknown rather than inherited.
+  const environment = Object.hasOwn(environments, name) ? environments[name] : undefined;
+  if (!environment) {
+    const known = Object.keys(environments);
+    return {
+      ok: false,
+      errors: [
+        {
+          code: 'unknown-environment',
+          path: 'environments',
+          message: known.length
+            ? `No environment "${name}": the config has ${known.join(', ')}.`
+            : `No environment "${name}": the config has no environments.`,
+        },
+      ],
+    };
+  }
+  const keys = ['clientId', 'clientSecret'] as const;
+  const errors = keys
+    .filter((key) => !env[environment[key].env])
+    .map((key) => ({
+      code: 'missing-variable' as const,
+      path: `environments.${name}.${key}`,
+      message: `${environment[key].env} is not set: it holds ${key} for the "${name}" environment.`,
+    }));
+  if (errors.length > 0) return { ok: false, errors };
+  // Both are set: the filter above found neither missing.
+  return {
+    ok: true,
+    environment: {
+      name,
+      baseUrl: environment.baseUrl,
+      clientId: env[environment.clientId.env] as string,
+      clientSecret: env[environment.clientSecret.env] as string,
+    },
+  };
 }

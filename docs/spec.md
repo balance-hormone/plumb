@@ -221,6 +221,13 @@ Named after the tools developers already know:
 - **`bindings.maxCodes`** (optional, 100 by default): a required binding whose
   value set has more codes keeps its base type rather than becoming a literal
   union. It must be a whole number of at least 1.
+- **`environments`** (optional) names the Medplum projects `validate` and
+  `push` act on: per environment, a `baseUrl` and the client credentials as
+  `{ env: 'VAR' }`, the names of the environment variables that hold them, so
+  the committed file holds no secret. A malformed URL or a credential written
+  in as a value is a named error when the config loads; an unknown
+  environment or an unset variable is one when a command picks the
+  environment.
 - **`profiles` lists canonical URLs, or `name/*` for a whole IG:** every
   resource profile in a package `igs` lists (`kind: resource`,
   `derivation: constraint`). The version stays in `igs`, and a wildcard naming
