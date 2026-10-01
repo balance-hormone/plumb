@@ -43,7 +43,11 @@ only you can add it: tools, bots and coding agents must not add one for you.
   ```
 
   The end-to-end quickstart test runs in CI, or locally with `PLUMB_E2E=1`; the
-  real-registry test runs nightly, or locally with `PLUMB_REGISTRY=1`.
+  real-registry test runs nightly, or locally with `PLUMB_REGISTRY=1`. The
+  server tests in `test/server` start Medplum in Docker and run in CI, or
+  locally with `PLUMB_SERVER=1`; `PLUMB_MEDPLUM_SERVER` picks the server
+  release. A server already started with
+  `docker compose -f test/server/compose.yml up -d` is reused and left running.
 
 [`AGENTS.md`](AGENTS.md) holds the rest of the project's rules, for people and
 coding agents alike.
