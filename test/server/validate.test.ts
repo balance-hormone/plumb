@@ -48,8 +48,9 @@ const named = (meta?: Patient['meta']): Patient => ({
   name: [{ family: 'Synthetic' }],
 });
 
-// Counts are exact, so this file has a project of its own.
-describe.skipIf(!server)('plumb validate', () => {
+// Counts are exact, so this file has a project of its own. Each run waits on
+// several async jobs, polled once a second.
+describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
   let project: TestServer;
   let medplum: MedplumClient;
   let options: ValidateEnvOptions;
@@ -101,7 +102,7 @@ describe.skipIf(!server)('plumb validate', () => {
       checker: { code, version: '0.2.0' },
       reportPath: join(dir, '.plumb', 'validate-test.json'),
     };
-  });
+  }, 60_000);
 
   test('stops until push installs this plumb checker', async () => {
     const missing = await validateEnvironment(options);
