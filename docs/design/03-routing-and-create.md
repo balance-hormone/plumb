@@ -119,7 +119,9 @@ export default defineConfig({
   strings) that select the profile. The resource matches when the element
   holds any of them.
 - **`false` takes a profile out of routing,** for profiles that differ by
-  intent, not content.
+  intent, not content. Its type keeps its routing rows, so a type whose
+  profiles are all `false` makes `route` refuse rather than return
+  `undefined`.
 - A row for a profile that is not selected is a config error, as today.
 
 ### Most specific wins

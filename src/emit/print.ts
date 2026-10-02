@@ -4,7 +4,7 @@
 // Print: every formatting rule lives here. A pure function from the type
 // model to text, with no FHIR knowledge.
 import { FileBuilder, wordWrap } from '@medplum/core';
-import type { Route } from './routes.js';
+import type { Route, Routing } from './routes.js';
 import type { Field, Helper, ProfileModel, TypeExpr } from './transform.js';
 
 /** The first line of every file Plumb writes, so it can tell its files from others. */
@@ -244,44 +244,143 @@ function printProfile(model: ProfileModel, hash: string, owners: Owners): string
   return b.toString();
 }
 
-/** The routing rows, by resource type then profile URL, so a profile change moves only its own lines. */
-function printRoutes(routes: Record<string, Route[]>): string {
-  const lines = [
-    `${MARKER}. Do not edit.`,
+const ROUTE = `interface Row {
+  readonly profile: ProfileUrl;
+  readonly parents: readonly string[];
+  readonly keys: readonly (readonly [string, readonly unknown[]])[];
+}
+
+/** Thrown when no selected profile, or several unrelated ones, match a resource. */
+export class RoutingError extends Error {
+  /** The profiles that matched, or every routed profile on the type when none did. */
+  readonly candidates: readonly ProfileUrl[];
+  constructor(message: string, candidates: readonly ProfileUrl[]) {
+    super(message);
+    this.name = 'RoutingError';
+    this.candidates = candidates;
+  }
+}
+
+/**
+ * The selected profile a resource's content selects: every row whose keys all
+ * match, less any that is a parent of another match. \`undefined\` when no
+ * selected profile constrains the resource's type. Throws a RoutingError when
+ * none, or several unrelated ones, match: it never guesses.
+ */
+export function route(resource: Resource): ProfileUrl | undefined {
+  const table: Partial<Record<string, readonly Row[]>> = routes;
+  const rows = table[resource.resourceType];
+  if (!rows) return undefined;
+  const fields = resource as unknown as Record<string, unknown>;
+  const matched = rows.filter((row) =>
+    row.keys.every(([element, patterns]) => patterns.some((p) => matches(fields[element], p))),
+  );
+  const best = matched.filter((row) => !matched.some((other) => other.parents.includes(row.profile)));
+  if (best.length === 1) return best[0]?.profile;
+  const type = resource.resourceType;
+  const shown = best.length === 0 ? rows : best;
+  const width = Math.max(0, ...shown.map((row) => short(row.profile).length));
+  throw new RoutingError(
+    [
+      best.length === 0
+        ? \`no profile matches this \${type}.\`
+        : \`\${best.length} unrelated profiles match this \${type}.\`,
+      ...shown.map((row) => \`  \${short(row.profile).padEnd(width)}   \${needs(row, type)}\`),
+      'Pass { profile } to choose one, or { profile: false } to write it unprofiled.',
+    ].join('\\n'),
+    shown.map((row) => row.profile),
+  );
+}
+
+const short = (url: string) => url.slice(url.lastIndexOf('/') + 1);
+
+function needs(row: Row, type: string): string {
+  if (row.keys.length === 0) return \`matches any \${type}\`;
+  return \`needs \${row.keys.map(([element, patterns]) => \`\${element} \${patterns.map(describe).join(' or ')}\`).join(', ')}\`;
+}
+
+/** A pattern as a reader would say it: a coding as system|code, an object by its fields. */
+function describe(pattern: unknown): string {
+  if (typeof pattern !== 'object' || pattern === null) return String(pattern);
+  const { system, code, coding } = pattern as { system?: unknown; code?: unknown; coding?: unknown };
+  if (Array.isArray(coding)) return coding.map(describe).join(' and ');
+  if (typeof code === 'string' && Object.keys(pattern).every((k) => ['system', 'code', 'display'].includes(k))) {
+    return typeof system === 'string' ? \`\${system}|\${code}\` : code;
+  }
+  return Object.entries(pattern)
+    .map(([key, value]) => \`\${key} \${describe(value)}\`)
+    .join(', ');
+}
+`;
+
+/**
+ * The routing rows, by resource type then profile URL so a profile change
+ * moves only its own lines, with the selected profiles' types and `route`.
+ */
+function printRoutes(routing: RoutingTable, typeNames: Map<string, string>): string {
+  const selected = routing.profiles
+    .flatMap((url) => {
+      const name = typeNames.get(url);
+      return name ? [[url, name] as const] : [];
+    })
+    .sort(([a], [b]) => a.localeCompare(b));
+  const lines = [`${MARKER}. Do not edit.`, "import type { Resource } from '@medplum/fhirtypes';"];
+  lines.push("import { matches } from './_plumb.js';");
+  for (const name of [...new Set(selected.map(([, n]) => n))].sort()) {
+    lines.push(`import type { ${name} } from './${name}.js';`);
+  }
+  lines.push('', "/** Each selected profile's type, by canonical URL. */");
+  if (selected.length === 0) lines.push('export type ProfileTypes = {};');
+  else {
+    lines.push('export type ProfileTypes = {');
+    for (const [url, name] of selected) lines.push(`  ${quote(url)}: ${name};`);
+    lines.push('};');
+  }
+  lines.push(
+    '',
+    '/** The canonical URL of a selected profile. */',
+    'export type ProfileUrl = keyof ProfileTypes;',
+    '',
     '/**',
     ' * The content that selects each profile: a row matches a resource when, for',
     ' * every key, the element holds one of its patterns (`matches` in _plumb.ts).',
     ' */',
     'export const routes = {',
-  ];
-  for (const type of Object.keys(routes).sort()) {
-    lines.push(`  ${type}: [`);
-    const rows = [...(routes[type] ?? [])].sort((a, b) => a.profile.localeCompare(b.profile));
-    for (const row of rows) {
-      lines.push(
-        '    {',
-        `      profile: ${quote(row.profile)},`,
-        `      parents: ${printValue(row.parents)},`,
-      );
-      if (row.keys.length === 0) lines.push('      keys: [],');
-      else {
-        lines.push('      keys: [');
-        for (const key of row.keys) lines.push(`        ${printValue(key)},`);
-        lines.push('      ],');
-      }
-      lines.push('    },');
-    }
-    lines.push('  ],');
-  }
-  lines.push('} as const;', '');
+    ...Object.keys(routing.routes)
+      .sort()
+      .flatMap((type) => printRows(type, routing.routes[type] ?? [])),
+    '} as const;',
+    '',
+    ROUTE,
+  );
   return lines.join('\n');
 }
+
+function printRows(type: string, routes: Route[]): string[] {
+  if (routes.length === 0) return [`  ${type}: [],`];
+  const rows = [...routes].sort((a, b) => a.profile.localeCompare(b.profile));
+  return [
+    `  ${type}: [`,
+    ...rows.flatMap((row) => [
+      '    {',
+      `      profile: ${quote(row.profile)},`,
+      `      parents: ${printValue(row.parents)},`,
+      ...(row.keys.length === 0
+        ? ['      keys: [],']
+        : ['      keys: [', ...row.keys.map((key) => `        ${printValue(key)},`), '      ],']),
+      '    },',
+    ]),
+    '  ],',
+  ];
+}
+
+type RoutingTable = Pick<Routing, 'routes' | 'profiles'>;
 
 /** Every file Plumb writes to `out`: one per profile, the index, the shared helpers and the routes. */
 export function printFiles(
   models: ProfileModel[],
   hashOf: (model: ProfileModel) => string,
-  routes: Record<string, Route[]> = {},
+  routing: RoutingTable = { routes: {}, profiles: [] },
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -293,11 +392,14 @@ export function printFiles(
   const index = new FileBuilder('  ', false);
   index.appendNoWrap(`${MARKER}. Do not edit.`);
   index.appendNoWrap("export type { Require } from './_plumb.js';");
+  index.appendNoWrap(
+    "export { type ProfileTypes, type ProfileUrl, RoutingError, route } from './_routes.js';",
+  );
   for (const name of models.map((m) => m.typeName).sort()) {
     index.appendNoWrap(`export * from './${name}.js';`);
   }
   files.set('index.ts', index.toString());
   files.set('_plumb.ts', HELPERS);
-  files.set('_routes.ts', printRoutes(routes));
+  files.set('_routes.ts', printRoutes(routing, new Map(models.map((m) => [m.url, m.typeName]))));
   return files;
 }
