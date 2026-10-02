@@ -132,10 +132,11 @@ async function planStep(
   result: PushResult,
   step: { finish: (name: PushStepName, summary: string, w: string[], failed: boolean) => void },
 ) {
+  // Base R4 is the server's own, so only what packages and local files add is planned.
   const planned = closure(
     loaded.profiles.map((p) => p.url),
     loaded,
-  );
+  ).filter((sd) => loaded.definitions.get(sd.url)?.source !== 'base');
   const held = new Map<string, StructureDefinition[]>();
   for (const sd of planned) {
     const found = await medplum.searchResources('StructureDefinition', {

@@ -36,7 +36,10 @@ describe.skipIf(!server)('push loads profiles through the gate', { timeout: 60_0
   let options: PushOptions;
   let failing: Patient;
 
-  const held = (url: string) => medplum.searchResources('StructureDefinition', { url });
+  // A plain array: searchResources' result also carries its bundle.
+  const held = async (url: string) => [
+    ...(await medplum.searchResources('StructureDefinition', { url })),
+  ];
 
   beforeAll(async () => {
     project = await newProject();
