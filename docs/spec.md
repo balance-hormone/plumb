@@ -374,7 +374,7 @@ profile not yet generated, and an extra one the profile no longer selected.
 ### Output
 
 `generate` reports each step as it finishes (`packages`, `load`, `emit`,
-then `write` or `check`), with its counts, warnings and time, and returns
+`routes`, then `write` or `check`), with its counts, warnings and time, and returns
 them in its report; the CLI prints them, as Prisma, Vite and SUSHI do:
 
 ```text
@@ -383,6 +383,8 @@ plumb generate
 ✔ load      54 profiles, 1 skipped   2.1s
     us-core-provenance: Medplum cannot parse it
 ✔ emit      54 types, 118 slices, 6 code lists   180ms
+✔ routes    54 rows for 19 types, 2 ambiguous   12ms
+    us-core-smokingstatus and us-core-observation-occupation can both match an Observation; add a routes row to tell them apart.
 ✔ write     3 written, 1 removed, 51 unchanged → src/fhir/generated   9ms
 Done in 2.4s
 ```
