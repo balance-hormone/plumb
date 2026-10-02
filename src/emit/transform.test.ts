@@ -488,6 +488,52 @@ describe('transform', () => {
     });
   });
 
+  describe('required paths', () => {
+    test('each path the type requires beyond the base, at every depth', () => {
+      expect(model('nesting-patient').required).toEqual([
+        ['identifier'],
+        ['identifier.system'],
+        ['identifier.value'],
+        ['contact.name'],
+        ['contact.name.family'],
+        ['contact.telecom.system'],
+        ['contact.telecom.value'],
+      ]);
+      // A field the base already requires adds no row, even when the profile fixes it.
+      expect(model('fixed-pattern-observation').required).toEqual([]);
+    });
+
+    test('a required choice is one row of alternatives', () => {
+      expect(model('required-choice-observation').required).toEqual([
+        ['valueQuantity', 'valueString'],
+      ]);
+      expect(bloodPressure().required).toEqual([
+        ['category'],
+        ['subject'],
+        ['component'],
+        ['effectiveDateTime', 'effectivePeriod'],
+      ]);
+    });
+
+    test('closed slicing requires what every slice does; ordered slicing, each position', () => {
+      expect(model('sliced-patient').required).toEqual([
+        ['identifier'],
+        ['identifier.system'],
+        ['name'],
+        ['name.0.use'],
+        ['name.0.family'],
+        ['name.1.use'],
+      ]);
+    });
+
+    test('a backbone element that recurses requires its paths at every depth', () => {
+      expect(model('recursive-questionnaire').required.slice(0, 2)).toEqual([
+        ['item'],
+        ['item.item*.text'],
+      ]);
+    });
+  });
+
   test('lists invariants the type cannot check in the doc comment', () => {
     expect(model('nesting-patient').doc.join('\n')).toContain('plumb-name-part');
   });

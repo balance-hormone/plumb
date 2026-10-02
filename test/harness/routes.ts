@@ -38,6 +38,8 @@ export interface GeneratedRoutes {
   RoutingError: new (...args: never[]) => Error & { candidates: readonly string[] };
   /** A routed profile's selected parents, from the generated table. */
   parentsOf: (profile: string) => readonly string[];
+  /** The generated presence check: the rows of the profile's `required` the resource lacks. */
+  missing: (resource: Resource, profile: string) => string[];
   warnings: string[];
 }
 
@@ -77,6 +79,12 @@ export async function generatedRoutes(
   const written = writeFiles(out, files);
   if (!written.ok) throw new Error(`write: ${JSON.stringify(written.errors)}`);
   const generated = (await import(join(out, '_routes.ts'))) as GeneratedModule;
+  const { required } = (await import(join(out, '_reads.ts'))) as {
+    required: Record<string, readonly (readonly string[])[]>;
+  };
+  const plumb = (await import(join(out, '_plumb.ts'))) as {
+    missing: (resource: object, rows: readonly (readonly string[])[]) => string[];
+  };
   const rows = Object.values(generated.routes).flat();
   const parentsOf = (profile: string) => rows.find((row) => row.profile === profile)?.parents ?? [];
   const { route, RoutingError, createProfiled, updateProfiled } = generated;
@@ -87,6 +95,7 @@ export async function generatedRoutes(
     updateProfiled,
     typecheck: (source) => typecheck(files, source),
     parentsOf,
+    missing: (resource, profile) => plumb.missing(resource, required[profile] ?? []),
     warnings: routing.warnings,
   };
 }

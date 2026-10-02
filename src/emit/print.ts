@@ -35,6 +35,41 @@ export function matches(value: unknown, pattern: unknown): boolean {
   }
   return value === pattern;
 }
+
+/**
+ * The rows of a \`required\` table (_reads.ts) a resource does not meet. A row
+ * lists alternatives, any one of which meets it. A nested path applies to every
+ * entry present, a number to one entry, and \`key*\` to \`key\` at any depth.
+ */
+export function missing(resource: object, rows: readonly (readonly string[])[]): string[] {
+  return rows.filter((row) => !meets(resource, row)).map((row) => row.join(' | '));
+}
+
+/** Whether every entry at the row's parent path holds one of its alternatives. */
+function meets(resource: object, row: readonly string[]): boolean {
+  let nodes: unknown[] = [resource];
+  for (const key of (row[0] ?? '').split('.').slice(0, -1)) {
+    nodes = key.endsWith('*') ? deep(nodes, key.slice(0, -1)) : nodes.flatMap((n) => step(n, key));
+  }
+  const keys = row.map((path) => path.slice(path.lastIndexOf('.') + 1));
+  return nodes.flat().every((node) => keys.some((key) => step(node, key).length > 0));
+}
+
+/** The values present at \`key\`: in each entry of an array, or one entry by its index. */
+function step(node: unknown, key: string): unknown[] {
+  if (Array.isArray(node)) {
+    return /^\\d+$/.test(key) ? node.slice(Number(key), Number(key) + 1) : node.flatMap((n) => step(n, key));
+  }
+  const value = node !== null && typeof node === 'object' ? (node as Record<string, unknown>)[key] : undefined;
+  return value === undefined || value === null ? [] : [value];
+}
+
+/** The nodes, and what \`key\` reaches from them at every depth. */
+function deep(nodes: unknown[], key: string): unknown[] {
+  const all: unknown[] = [];
+  for (let level = nodes; level.length > 0; level = level.flatMap((n) => step(n, key))) all.push(...level);
+  return all;
+}
 `;
 
 const quote = (text: string) => `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
@@ -459,13 +494,43 @@ function printRows(type: string, routes: Route[]): string[] {
 
 type RoutingTable = Pick<Routing, 'routes' | 'profiles' | 'stamps' | 'managed'>;
 
+/** The paths each selected profile's type requires, by profile URL. */
+function printReads(models: ProfileModel[], profiles: string[]): string {
+  const lines = [`${MARKER}. Do not edit.`, "import type { ProfileUrl } from './_routes.js';", ''];
+  lines.push(
+    '/**',
+    " * The paths each selected profile's type requires beyond @medplum/fhirtypes.",
+    ' * A row lists alternatives, any one of which meets it (`missing` in _plumb.ts).',
+    ' */',
+  );
+  const rows = models
+    .filter((m) => profiles.includes(m.url))
+    .sort((a, b) => a.url.localeCompare(b.url));
+  if (rows.length === 0)
+    lines.push('export const required: Record<ProfileUrl, readonly (readonly string[])[]> = {};');
+  else {
+    lines.push('export const required: Record<ProfileUrl, readonly (readonly string[])[]> = {');
+    for (const m of rows) {
+      if (m.required.length === 0) lines.push(`  ${quote(m.url)}: [],`);
+      else
+        lines.push(
+          `  ${quote(m.url)}: [`,
+          ...m.required.map((row) => `    ${printValue(row)},`),
+          '  ],',
+        );
+    }
+    lines.push('};');
+  }
+  return lines.join('\n');
+}
+
 function printStamps(stamps: Record<string, string[]>): string {
   const urls = Object.keys(stamps).sort();
   if (urls.length === 0) return '{}';
   return `{\n${urls.map((url) => `  ${quote(url)}: ${printValue(stamps[url])},`).join('\n')}\n}`;
 }
 
-/** Every file Plumb writes to `out`: one per profile, the index, the shared helpers and the routes. */
+/** Every file Plumb writes to `out`: one per profile, the index, the shared helpers, the routes and the reads. */
 export function printFiles(
   models: ProfileModel[],
   hashOf: (model: ProfileModel) => string,
@@ -490,5 +555,6 @@ export function printFiles(
   files.set('index.ts', index.toString());
   files.set('_plumb.ts', HELPERS);
   files.set('_routes.ts', printRoutes(routing, new Map(models.map((m) => [m.url, m.typeName]))));
+  files.set('_reads.ts', printReads(models, routing.profiles));
   return files;
 }

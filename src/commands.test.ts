@@ -98,7 +98,7 @@ describe('plumb', () => {
       expect.stringMatching(/^✔ emit {6}2 types, 3 slices, 0 code lists {3}\d+ms$/),
       expect.stringMatching(/^✔ routes {4}2 rows for 2 types {3}\d+ms$/),
       expect.stringMatching(
-        /^✔ write {5}5 written, 0 removed, 0 unchanged → src\/fhir\/generated {3}\d+ms$/,
+        /^✔ write {5}6 written, 0 removed, 0 unchanged → src\/fhir\/generated {3}\d+ms$/,
       ),
     ]);
     expect(lines.at(-1)).toMatch(/^Done in \d+(ms|\.\ds)$/);
