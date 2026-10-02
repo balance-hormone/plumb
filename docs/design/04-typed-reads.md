@@ -163,11 +163,16 @@ export const required = {
 - **It checks presence, not values.** Fixed and pattern values, bindings and
   slices stay the validator's job. A missing element is what loose writes,
   hidden fields and subsets produce; a wrong code under a stamp is not.
-- **It follows the type, not the validator.** A required primitive present only
-  as `_status` validates but does not compile (design 01 lists the case), and
-  it fails the presence check too, because the type says `status` is there.
+- **It follows the type, not the validator.** A primitive the profile requires,
+  present only as `_birthDate`, validates but does not compile (design 01 lists
+  the case), and it fails the presence check too, because the type says
+  `birthDate` is there.
+- **Slicing and recursion follow the type too.** Closed slicing requires what
+  every slice requires; ordered slicing requires each position's paths at that
+  index (`name.0.family`); a backbone element that refers to itself repeats its
+  paths at every depth (`item.item*.text`).
 
-The walker is a dozen lines in `_plumb.ts`, next to `matches`.
+The walker is a few short functions in `_plumb.ts`, next to `matches`.
 
 ## Search
 

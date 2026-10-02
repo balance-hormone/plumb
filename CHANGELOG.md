@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+Typed reads: reads that return the profile type once its content is checked.
+
+- **`_reads.ts`**, generated into `out`, lists the paths each selected
+  profile's type requires beyond `@medplum/fhirtypes`, for the presence check
+  typed reads run.
+
 ## 0.3.0 (unreleased)
 
 Routing: each write held to the profile its content selects.

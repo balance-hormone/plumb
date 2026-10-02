@@ -167,6 +167,11 @@
   The README shows routing, `createProfiled`, `routes` rows and
   `defaultProfile` (#62), and the e2e quickstart calls the generated `route`
   and `createProfiled` from the packed tarball. **v0.3 is complete.**
+- **v0.4:** `generate` writes `_reads.ts` (#70): per selected profile, the
+  paths its type requires beyond `@medplum/fhirtypes`, read from the type
+  itself, and `missing` in `_plumb.ts` checks a resource against them. On
+  every contract fixture it agrees with `compiles`: each one that compiles
+  passes, and each that tsc reports missing a profile-required element fails.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

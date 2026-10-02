@@ -9,6 +9,7 @@ import {
   type InternalTypeSchema,
   type SliceDefinition,
   type SlicingRules,
+  tryGetDataType,
   tryGetProfile,
 } from '@medplum/core';
 import type { StructureDefinition } from '@medplum/fhirtypes';
@@ -78,6 +79,11 @@ export interface ProfileModel {
   constants: { name: string; codes: Code[] }[];
   /** How many slice types the profile has. */
   slices: number;
+  /**
+   * The paths the type requires beyond `@medplum/fhirtypes`, for the presence
+   * check on reads (design 04). A row lists alternatives, any one of which meets it.
+   */
+  required: string[][];
 }
 
 interface TransformIssue {
@@ -679,6 +685,102 @@ function setPath(
   });
 }
 
+type Row = string[];
+// Marks a backbone element's reference to itself, until the reference is resolved.
+const LOOP = '#';
+const same = (a: Row, b: Row) => a.join('|') === b.join('|');
+const unique = (rows: Row[]) => rows.filter((row, i) => rows.findIndex((r) => same(r, row)) === i);
+const prefixed = (key: string, rows: Row[]) =>
+  rows.map((row) => row.map((path) => `${key}.${path}`));
+/** The rows every one of the sets holds. */
+const common = (sets: Row[][]) =>
+  (sets[0] ?? []).filter((row) => sets.every((set) => set.some((r) => same(r, row))));
+
+/**
+ * The paths a type requires that `@medplum/fhirtypes` does not, read from the
+ * type itself so the table and the type cannot drift. A nested path applies to
+ * every entry present, a number to one tuple position, and `key*` to `key` at
+ * any depth, for a backbone element that recurses.
+ */
+function requiredRows(t: TypeExpr, decls: Map<string, TypeExpr>, stack: string[]): Row[] {
+  const rows = (of: TypeExpr) => requiredRows(of, decls, stack);
+  switch (t.kind) {
+    case 'ref': {
+      const decl = decls.get(t.name);
+      if (!decl) return [];
+      if (stack.includes(t.name)) return [[`${LOOP}${t.name}`]];
+      return resolveLoop(t.name, requiredRows(decl, decls, [...stack, t.name]));
+    }
+    case 'array':
+    case 'optional':
+    case 'rest':
+      return rows(t.of);
+    case 'union':
+      return common(t.of.map(rows));
+    case 'tuple': {
+      const items = t.of.map((item) =>
+        rows(item.kind === 'optional' || item.kind === 'rest' ? item.of : item),
+      );
+      const shared = common(items);
+      const positions = t.of.flatMap((item, i) =>
+        item.kind === 'rest'
+          ? []
+          : prefixed(
+              String(i),
+              (items[i] ?? []).filter((row) => !shared.some((r) => same(r, row))),
+            ),
+      );
+      return unique([...shared, ...positions]);
+    }
+    case 'require':
+      return t.keys.map((key) => [key]);
+    case 'object':
+      return unique(t.fields.flatMap((f) => fieldRows(f, false, decls, stack)));
+    case 'narrow': {
+      const base = t.base.kind === 'ref' ? tryGetDataType(t.base.name)?.elements : undefined;
+      const found = t.fields.flatMap((f) =>
+        fieldRows(f, (base?.[f.name]?.min ?? 0) > 0, decls, stack),
+      );
+      for (const branches of t.oneOf ?? []) found.push(...oneOfRows(branches, decls, stack));
+      return unique(found);
+    }
+    default:
+      return [];
+  }
+}
+
+/** A field's own row, unless the base already requires it, then the rows below it. */
+function fieldRows(f: Field, inBase: boolean, decls: Map<string, TypeExpr>, stack: string[]) {
+  if (f.type.kind === 'never') return [];
+  const below = prefixed(f.name, requiredRows(f.type, decls, stack));
+  return f.optional || inBase ? below : [[f.name], ...below];
+}
+
+/** Exactly one of: a key every branch requires is required, and the others are alternatives. */
+function oneOfRows(branches: Field[][], decls: Map<string, TypeExpr>, stack: string[]): Row[] {
+  const keys = branches.map((b) =>
+    b.filter((f) => !f.optional && f.type.kind !== 'never').map((f) => f.name),
+  );
+  const everywhere = (keys[0] ?? []).filter((k) => keys.every((ks) => ks.includes(k)));
+  const either = [...new Set(keys.flat())].filter((k) => !everywhere.includes(k));
+  const below = branches.flat().flatMap((f) => fieldRows(f, true, decls, stack));
+  return [...everywhere.map((k) => [k]), ...(either.length > 0 ? [either] : []), ...below];
+}
+
+/**
+ * A backbone element that refers to itself, as a contentReference does, repeats
+ * its rows at every depth: `item` becomes `item*`. A loop through several
+ * elements is checked to its first repeat.
+ */
+function resolveLoop(name: string, rows: Row[]): Row[] {
+  const marker = `.${LOOP}${name}`;
+  const loops = rows.filter((row) => row.length === 1 && row[0]?.endsWith(marker));
+  const rest = rows.filter((row) => !loops.includes(row));
+  const keys = [...new Set(loops.map((row) => (row[0] as string).slice(0, -marker.length)))];
+  const key = keys.length === 1 && !keys[0]?.includes('.') ? keys[0] : undefined;
+  return key ? rest.map((row) => row.map((path) => `${key}*.${path}`)) : rest;
+}
+
 function invariants(sd: StructureDefinition): string[] {
   const seen = new Set<string>();
   const lines: string[] = [];
@@ -772,6 +874,9 @@ export function transform(
       helpers: [...t.helpers],
       constants: [...t.constants],
       slices: t.sliceCount,
+      required: requiredRows(ref(typeName), new Map(decls.map((d) => [d.name, d.type])), []).filter(
+        (row) => !row.some((path) => path.includes(LOOP)),
+      ),
     };
   };
 

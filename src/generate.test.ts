@@ -148,6 +148,7 @@ describe('generate', () => {
       expect(problems(result).sort()).toEqual([
         ['extra', 'NestingPatient.ts'],
         ['missing', 'SlicedObservation.ts'],
+        ['stale', '_reads.ts'],
         ['stale', '_routes.ts'],
         ['stale', 'index.ts'],
       ]);
