@@ -178,6 +178,12 @@
   US Core 9.0.0 example, stamped as Plumb writes it, is the profile it
   declares and each of that profile's parents. A choice's `Reference` now
   keeps the base's targets (IPS Composition's `relatesTo.target[x]`).
+  `readProfiled` and `searchProfiled` (#72) read through any client with
+  `readResource`, `readReference` and `searchResources`; the search adds
+  `_profile` and refuses subsets and includes before any request.
+  Real-server tests show a loose project's stamped record missing a field, a
+  field an AccessPolicy hides, `defaultProfile`'s stamp, `_profile` with one
+  URL and several, and a failing search's `passed`.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

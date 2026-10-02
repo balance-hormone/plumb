@@ -87,8 +87,10 @@ Read from each project's docs and source, October 2026.
 ## Where it lives: generated into `out`
 
 The functions are generated next to `createProfiled`, as design 03 generates
-routing, so apps still take no runtime dependency on Plumb. `MedplumClient`
-stays a type-only import.
+routing, so apps still take no runtime dependency on Plumb. As the writes'
+`ProfiledClient` does, a `ProfiledReader` interface names the three client
+methods the reads call, so the generated code needs no `@medplum/core`
+declarations; a `MedplumClient` is one.
 
 The generated index exports five functions:
 
@@ -267,19 +269,19 @@ function isProfiled<U extends ProfileUrl>(resource: Resource, profile: U): resou
 function asProfiled<U extends ProfileUrl>(resource: Resource, profile: U): ProfileTypes[U];
 function pickProfiled<U extends ProfileUrl>(resources: readonly Resource[], profile: U): ProfileTypes[U][];
 function readProfiled<U extends ProfileUrl>(
-  medplum: MedplumClient,
+  medplum: ProfiledReader,
   profile: U,
-  idOrReference: string | Reference<ProfileTypes[U]>,
+  idOrReference: string | Reference<Resource & ProfileTypes[U]>,
 ): Promise<WithId<ProfileTypes[U]>>;
 function searchProfiled<U extends ProfileUrl>(
-  medplum: MedplumClient,
+  medplum: ProfiledReader,
   profile: U,
-  query?: QueryTypes,
+  query?: ProfiledQuery,
 ): Promise<WithId<ProfileTypes[U]>[]>;
 ```
 
-`WithId` and `QueryTypes` are type-only imports from `@medplum/core`, as
-`MedplumClient` already is.
+`WithId` and `ProfiledQuery` are declared in the generated code, matching
+`@medplum/core`'s `WithId` and the query forms `searchResources` takes.
 
 ```ts
 class ProfileReadError<U extends ProfileUrl = ProfileUrl> extends Error {

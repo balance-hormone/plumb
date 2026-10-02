@@ -12,6 +12,11 @@ Typed reads: reads that return the profile type once its content is checked.
   to the profile type; a failure throws a **`ProfileReadError`** naming the
   records and paths, with the records that passed in a non-enumerable
   `passed`.
+- **`readProfiled` and `searchProfiled`** read from Medplum and return the
+  profile type once checked. The search filters on `_profile` (the profile and
+  any selected child), refuses `_elements`, `_fields`, `_summary`, `_include`
+  and `_revinclude` before any request, and fails as a whole when one result
+  does, with the rest in `passed`.
 - A choice narrowed to `Reference` keeps the base element's targets instead of
   widening them to any resource.
 
