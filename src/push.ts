@@ -8,16 +8,27 @@ import type {
   Bot,
   ProjectMembership,
 } from '@medplum/fhirtypes';
-import type { PlumbConfig, ResolvedEnvironment } from './config.js';
-import { connect } from './connect.js';
-import { loadProfiles } from './loader.js';
-import { fetchPackages } from './packages.js';
+import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 
 /** How `push` finds its checker bot again, whatever it is named. */
 export const CHECKER_IDENTIFIER = {
   system: 'https://github.com/balance-hormone/plumb',
   value: 'checker',
 };
+
+export const findChecker = (medplum: MedplumClient) =>
+  medplum.searchOne('Bot', {
+    identifier: `${CHECKER_IDENTIFIER.system}|${CHECKER_IDENTIFIER.value}`,
+  });
+
+/** `$deploy` records the filename on the Bot, so it names the version and bundle deployed. */
+export function checkerFilename(code: string, version: string): string {
+  const hash = createHash('sha256').update(code).digest('hex').slice(0, 16);
+  return `plumb-checker-${version}-${hash}.cjs`;
+}
+
+export const deployedVersion = (bot: Bot) =>
+  bot.executableCode?.title?.match(/^plumb-checker-(.+)-[0-9a-f]{16}\.cjs$/)?.[1];
 
 // The checker reads the types it checks, and the base definitions of contained resources.
 const READ: AccessPolicyResource['interaction'] = ['read', 'vread', 'search', 'history'];
@@ -48,9 +59,7 @@ async function installChecker(
   medplum: MedplumClient,
   options: CheckerOptions,
 ): Promise<CheckerInstall> {
-  // $deploy records the filename on the Bot, so it names what is deployed.
-  const hash = createHash('sha256').update(options.code).digest('hex').slice(0, 16);
-  const filename = `plumb-checker-${options.version}-${hash}.cjs`;
+  const filename = checkerFilename(options.code, options.version);
   const policy: AccessPolicy = {
     resourceType: 'AccessPolicy',
     name: 'plumb-checker (read-only)',
@@ -59,8 +68,7 @@ async function installChecker(
       .map((resourceType) => ({ resourceType, interaction: READ })),
   };
 
-  const identifier = `${CHECKER_IDENTIFIER.system}|${CHECKER_IDENTIFIER.value}`;
-  const found = await medplum.searchOne('Bot', { identifier });
+  const found = await findChecker(medplum);
   let bot: Bot;
   let changed = false;
   if (found) {
@@ -87,7 +95,7 @@ async function installChecker(
     });
     changed = true;
   }
-  const previous = deployed?.match(/^plumb-checker-(.+)-[0-9a-f]{16}\.cjs$/)?.[1];
+  const previous = deployedVersion(bot);
   return {
     status: deployed === undefined ? 'installed' : changed ? 'updated' : 'unchanged',
     version: options.version,
@@ -120,97 +128,34 @@ async function updatePolicy(medplum: MedplumClient, bot: Bot, policy: AccessPoli
 
 type PushStepName = 'load' | 'connect' | 'checker';
 
-interface PushStep {
-  name: PushStepName;
-  ms: number;
-  /** What the step did, for the CLI's line. */
-  summary: string;
-  warnings: string[];
-}
-
-export interface PushResult {
-  ok: boolean;
-  steps: PushStep[];
-  totalMs: number;
-  strictMode?: boolean;
+export interface PushResult extends EnvResult<PushStepName> {
   checker?: CheckerInstall;
-  errors: { code: string; message: string; step: PushStepName }[];
 }
 
-export interface PushOptions {
-  /** A loaded config, with `local` resolved to an absolute path. */
-  config: PlumbConfig;
-  environment: ResolvedEnvironment;
-  lockPath: string;
+export interface PushOptions extends EnvOptions<PushStepName> {
   checker: Pick<CheckerOptions, 'code' | 'version'>;
-  cacheDir?: string;
-  fetch?: typeof globalThis.fetch;
-  onStep?: (step: PushStep) => void;
 }
-
-const ms = (since: number) => Math.round(performance.now() - since);
 
 /**
  * Loads the selected profiles, connects to the environment and installs or
  * updates the checker bot: step 1 of design 02's push.
  */
 export async function push(options: PushOptions): Promise<PushResult> {
-  const { config } = options;
-  const start = performance.now();
   const result: PushResult = { ok: false, steps: [], totalMs: 0, errors: [] };
-  let since = performance.now();
-  const finish = (name: PushStepName, summary: string, warnings: string[] = []) => {
-    const step = { name, ms: ms(since), summary, warnings };
-    result.steps.push(step);
-    options.onStep?.(step);
-    since = performance.now();
-  };
-  const fail = (step: PushStepName, errors: { code: string; message: string }[]) => {
-    result.errors.push(...errors.map((e) => ({ code: e.code, message: e.message, step })));
-    result.totalMs = ms(start);
-    return result;
-  };
-
-  // As generate --check: packages are verified against plumb.lock, which push never writes.
-  const fetched = await fetchPackages({
-    igs: config.igs,
-    lockPath: options.lockPath,
-    cacheDir: options.cacheDir,
-    check: true,
-    fetch: options.fetch,
-  });
-  if (!fetched.ok) return fail('load', fetched.errors);
-  const loaded = loadProfiles({
-    packages: fetched.packages,
-    igs: config.igs,
-    local: config.local,
-    profiles: config.profiles,
-  });
-  if (!loaded.ok) return fail('load', loaded.errors);
-  const resourceTypes = [...new Set(loaded.profiles.map((p) => p.sd.type))].sort();
-  finish(
-    'load',
-    `${loaded.profiles.length} profiles of ${resourceTypes.join(', ')}`,
-    loaded.warnings.map((w) => w.message),
-  );
-
-  const connected = await connect(options.environment);
-  if (!connected.ok) return fail('connect', [connected.error]);
-  result.strictMode = connected.strictMode;
-  finish(
-    'connect',
-    `${options.environment.baseUrl} (strict mode ${connected.strictMode ? 'on' : 'off'})`,
-  );
+  const step = steps(result, options.onStep);
+  const ready = await loadAndConnect(options, result, step);
+  if (!ready) return result;
 
   try {
-    result.checker = await installChecker(connected.medplum, { ...options.checker, resourceTypes });
+    result.checker = await installChecker(ready.medplum, {
+      ...options.checker,
+      resourceTypes: ready.resourceTypes,
+    });
   } catch (err) {
-    return fail('checker', [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
+    return step.fail('checker', [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
   }
   const { status, version, previous } = result.checker;
-  finish('checker', `plumb-checker ${previous ? `${previous} → ` : ''}${version} ${status}`);
-
+  step.finish('checker', `plumb-checker ${previous ? `${previous} → ` : ''}${version} ${status}`);
   result.ok = true;
-  result.totalMs = ms(start);
-  return result;
+  return step.done();
 }

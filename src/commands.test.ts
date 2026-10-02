@@ -5,7 +5,8 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { formatStep, run } from './commands.js';
+import { formatStep, formatValidation, run } from './commands.js';
+import type { TypeReport, ValidateEnvResult } from './conformance.js';
 
 const SYNTHETIC = join(import.meta.dirname, '../test/fixtures/profiles/fsh-generated/resources');
 const PLUMB = 'http://example.org/fhir/plumb-test/StructureDefinition';
@@ -163,28 +164,33 @@ describe('plumb', () => {
     expect((await cli(['generate'])).stderr).not.toContain('\u001b[');
   });
 
-  test('push needs --env, a known environment and its credentials, or exits 2', async () => {
-    const missing = await cli(['push']);
-    expect(missing.code).toBe(2);
-    expect(missing.stderr).toContain('plumb: push needs --env <name>');
-    const unknown = await cli(['push', '--env', 'staging']);
-    expect(unknown.code).toBe(2);
-    expect(unknown.stderr).toContain('✖ config    No environment "staging": the config has prod.');
-    const unset = await cli(['push', '--env', 'prod']);
-    expect(unset.code).toBe(2);
-    expect(unset.stderr).toContain('PROD_CLIENT_ID is not set');
-  });
+  test.each(['push', 'validate'])(
+    '%s needs --env, a known environment and its credentials, or exits 2',
+    async (command) => {
+      const missing = await cli([command]);
+      expect(missing.code).toBe(2);
+      expect(missing.stderr).toContain(`plumb: ${command} needs --env <name>`);
+      const unknown = await cli([command, '--env', 'staging']);
+      expect(unknown.code).toBe(2);
+      expect(unknown.stderr).toContain(
+        '✖ config    No environment "staging": the config has prod.',
+      );
+      const unset = await cli([command, '--env', 'prod']);
+      expect(unset.code).toBe(2);
+      expect(unset.stderr).toContain('PROD_CLIENT_ID is not set');
+    },
+  );
 
   // Installing the checker is a server claim, tested in test/server; push reads the built bot.
-  test.skipIf(!existsSync(CHECKER) && !process.env.CI)(
-    'push loads the profiles, then exits 2 when it cannot connect',
-    async () => {
+  test.skipIf(!existsSync(CHECKER) && !process.env.CI).each(['push', 'validate'])(
+    '%s loads the profiles, then exits 2 when it cannot connect',
+    async (command) => {
       const { cwd } = await cli(['generate']);
       const env = { PROD_CLIENT_ID: 'id', PROD_CLIENT_SECRET: 'secret' };
-      const { code, stderr } = await cli(['push', '--env', 'prod'], cwd, env);
+      const { code, stderr } = await cli([command, '--env', 'prod'], cwd, env);
       expect(code).toBe(2);
       const lines = stderr.trimEnd().split('\n');
-      expect(lines[0]).toBe('plumb push --env prod');
+      expect(lines[0]).toBe(`plumb ${command} --env prod`);
       expect(lines[1]).toMatch(/^✔ load {6}2 profiles of Observation, Patient {3}\d+(ms|\.\ds)$/);
       expect(lines[2]).toMatch(
         /^✖ connect {3}Could not log in to http:\/\/127\.0\.0\.1:9\/ \(prod\)/,
@@ -222,5 +228,65 @@ describe('formatStep', () => {
     expect(
       formatStep({ name: 'packages', ms: 41, counts: { cached: 7, fetched: 0 }, warnings: [] }, ''),
     ).toBe('packages  7 cached, 0 fetched   41ms');
+  });
+});
+
+describe('formatValidation', () => {
+  const type = (t: Partial<TypeReport>): TypeReport => ({
+    exists: 0,
+    read: 0,
+    unstamped: 0,
+    silent: { unknown: 0, versioned: 0, empty: 0 },
+    otherProfiles: {},
+    ...t,
+  });
+  const profile = (resourceType: string, checked: number, failing: number) => ({
+    resourceType,
+    checked,
+    failing,
+    reasons: [],
+  });
+
+  test('tells the kinds of empty apart, then lists what was not validated', () => {
+    const result: ValidateEnvResult = {
+      ok: false,
+      steps: [],
+      totalMs: 0,
+      errors: [],
+      shadowed: [],
+      resumed: 0,
+      types: {
+        Encounter: type({ exists: 2, read: 2 }),
+        Observation: type({ exists: 3, read: 3, unstamped: 3 }),
+        Patient: type({
+          exists: 9,
+          read: 9,
+          unstamped: 1,
+          silent: { unknown: 1, versioned: 2, empty: 0 },
+          otherProfiles: { [`${PLUMB}/other`]: 1 },
+        }),
+        Questionnaire: type({ exists: 4 }),
+        Basic: type({}),
+      },
+      profiles: {
+        [`${PLUMB}/encounter`]: profile('Encounter', 2, 0),
+        [`${PLUMB}/observation`]: profile('Observation', 0, 0),
+        [`${PLUMB}/patient`]: {
+          ...profile('Patient', 5, 1),
+          reasons: [{ path: 'Patient.birthDate', message: 'Missing required property', count: 1 }],
+        },
+      },
+    };
+    expect(formatValidation(result)).toEqual([
+      '    Encounter: 2 of 2 read, all 2 passed',
+      '      encounter   2 checked, 0 failures',
+      '    Observation: 3 of 3 read, none carries a selected profile; 3 unstamped',
+      '      observation   0 checked, 0 failures',
+      '    Patient: 9 of 9 read, 1 of 5 fail; 1 unstamped; silent stamps: 1 unknown profile URL, 2 url|version; 1 stamped with profiles not selected',
+      '      patient   5 checked, 1 failure',
+      '        Patient.birthDate: Missing required property   (1)',
+      "    Questionnaire: 0 of 4 readable: check plumb-checker's AccessPolicy",
+      '    Basic: none stored',
+    ]);
   });
 });
