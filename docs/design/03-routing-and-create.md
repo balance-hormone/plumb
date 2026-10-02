@@ -61,8 +61,11 @@ The generated index exports three functions:
 - **`updateProfiled(medplum, resource, options?)`** routes again from the new
   content, restamps, and calls `medplum.updateResource`.
 
-The names match `validateProfiled`. `MedplumClient` is a type-only import from
-`@medplum/core`, which apps already have.
+The names match `validateProfiled`. They take a `ProfiledClient`, the two
+methods of `MedplumClient` they call, declared in the generated code: a
+`MedplumClient` is one, and the generated files need no `@medplum/core`
+declarations (which need Node's types) to compile. A refusal rejects the
+promise before anything is written.
 
 ## The routing rows
 

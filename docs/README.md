@@ -155,6 +155,15 @@
   profiles, and every one of US Core 9.0.0's 224 profiled examples routes to
   the profile it claims or a more specific one, given the `routes` config a
   US Core project writes (in `test/harness/routes.test.ts`).
+  `createProfiled` and `updateProfiled` (#61) route, stamp the type's
+  `defaultProfile` (less any the routed profile derives from) plus the
+  routed profile, and write through any client with `createResource` and
+  `updateResource`, so the generated code needs no `@medplum/core`
+  declarations; a `MedplumClient` fits. An update replaces only the URLs
+  Plumb manages. Real-server tests show the server enforcing the defaults
+  and the routed profile, a refused resource never written, foreign URLs
+  kept on update, and `{ profile: false }` falling back to the project's own
+  default.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

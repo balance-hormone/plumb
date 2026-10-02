@@ -142,3 +142,88 @@ function describe(pattern: unknown): string {
     .map(([key, value]) => `${key} ${describe(value)}`)
     .join(', ');
 }
+
+/**
+ * The part of a `MedplumClient` the writes use, so the generated code needs no
+ * `@medplum/core` declarations of its own: a MedplumClient is one.
+ */
+export interface ProfiledClient {
+  createResource<T extends Resource>(resource: T): Promise<T>;
+  updateResource<T extends Resource>(resource: T): Promise<T>;
+}
+
+/** What a write to each selected profile stamps: the type's defaults it does not derive from, then the profile. */
+const stamps: Record<ProfileUrl, readonly string[]> = {
+  'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure': ['https://example.org/fhir/StructureDefinition/org-observation', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure'],
+  'http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns': ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns'],
+  'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab': ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs', 'https://example.org/fhir/StructureDefinition/org-observation', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab'],
+  'http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient': ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient'],
+  'http://hl7.org/fhir/uv/ips/StructureDefinition/Composition-uv-ips': ['http://hl7.org/fhir/uv/ips/StructureDefinition/Composition-uv-ips'],
+  'http://hl7.org/fhir/uv/ips/StructureDefinition/Patient-uv-ips': ['http://hl7.org/fhir/uv/ips/StructureDefinition/Patient-uv-ips'],
+};
+
+/** Every URL Plumb stamps. A write replaces these in `meta.profile`, and keeps any other. */
+const managed: ReadonlySet<string> = new Set<string>(['http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs', 'http://hl7.org/fhir/uv/ips/StructureDefinition/Composition-uv-ips', 'http://hl7.org/fhir/uv/ips/StructureDefinition/Patient-uv-ips', 'https://example.org/fhir/StructureDefinition/org-observation']);
+
+/**
+ * A copy of the resource stamped for the profile: the URLs Plumb does not
+ * manage, then the profile's stamps. With no profile, only the other URLs
+ * stay, and an empty `meta.profile` is left out: it would skip the server's
+ * `defaultProfile`.
+ */
+function stamped<T extends Resource>(resource: T, profile: ProfileUrl | false | undefined): T {
+  const { profile: current = [], ...meta } = resource.meta ?? {};
+  const kept = current.filter((url) => !managed.has(url.split('|')[0] ?? url));
+  const profiles = [...kept, ...(profile ? stamps[profile] : [])];
+  const { meta: _, ...rest } = resource;
+  if (profiles.length > 0) return { ...rest, meta: { ...meta, profile: profiles } } as T;
+  return (Object.keys(meta).length > 0 ? { ...rest, meta } : rest) as T;
+}
+
+/**
+ * Creates the resource held to the profile its content selects, stamped with
+ * that profile and the project's defaults. `{ profile }` chooses one instead,
+ * and `{ profile: false }` writes it with no Plumb stamp, so the server's own
+ * default applies. Rejects with a RoutingError, before anything is written,
+ * when the content selects no single profile. The resource passed is not changed.
+ */
+export function createProfiled<U extends ProfileUrl>(
+  medplum: ProfiledClient,
+  resource: ProfileTypes[U],
+  options: { profile: U },
+): Promise<ProfileTypes[U]>;
+export function createProfiled<T extends Resource>(
+  medplum: ProfiledClient,
+  resource: T,
+  options?: { profile: false },
+): Promise<T>;
+export async function createProfiled(
+  medplum: ProfiledClient,
+  resource: Resource,
+  options: { profile?: ProfileUrl | false } = {},
+): Promise<Resource> {
+  return medplum.createResource(stamped(resource, options.profile ?? route(resource)));
+}
+
+/**
+ * Updates the resource held to the profile its new content selects: the
+ * stamps Plumb manages are replaced, and any other URL in `meta.profile` is
+ * kept. Options and errors as createProfiled.
+ */
+export function updateProfiled<U extends ProfileUrl>(
+  medplum: ProfiledClient,
+  resource: ProfileTypes[U],
+  options: { profile: U },
+): Promise<ProfileTypes[U]>;
+export function updateProfiled<T extends Resource>(
+  medplum: ProfiledClient,
+  resource: T,
+  options?: { profile: false },
+): Promise<T>;
+export async function updateProfiled(
+  medplum: ProfiledClient,
+  resource: Resource,
+  options: { profile?: ProfileUrl | false } = {},
+): Promise<Resource> {
+  return medplum.updateResource(stamped(resource, options.profile ?? route(resource)));
+}

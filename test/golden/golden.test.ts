@@ -37,7 +37,18 @@ test('generated output matches the committed goldens', () => {
   const { models, errors } = transform(loaded);
   expect(errors).toEqual([]);
   // The fixtures are trimmed packages, so their hashes are not the registry's.
-  const files = printFiles(models, () => 'fixture', routingRows(loaded));
+  const files = printFiles(
+    models,
+    () => 'fixture',
+    routingRows(loaded, {
+      defaultProfile: {
+        Observation: [
+          `${US_CORE}/us-core-vital-signs`,
+          'https://example.org/fhir/StructureDefinition/org-observation',
+        ],
+      },
+    }),
+  );
   if (process.env.GOLDEN_UPDATE) expect(writeFiles(OUT, files).errors).toEqual([]);
   const { stale, errors: folder } = compareFiles(OUT, files);
   expect(folder).toEqual([]);

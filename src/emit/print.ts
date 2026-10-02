@@ -313,6 +313,85 @@ function describe(pattern: unknown): string {
 }
 `;
 
+const WRITE = `/**
+ * The part of a \`MedplumClient\` the writes use, so the generated code needs no
+ * \`@medplum/core\` declarations of its own: a MedplumClient is one.
+ */
+export interface ProfiledClient {
+  createResource<T extends Resource>(resource: T): Promise<T>;
+  updateResource<T extends Resource>(resource: T): Promise<T>;
+}
+
+/** What a write to each selected profile stamps: the type's defaults it does not derive from, then the profile. */
+const stamps: Record<ProfileUrl, readonly string[]> = STAMPS;
+
+/** Every URL Plumb stamps. A write replaces these in \`meta.profile\`, and keeps any other. */
+const managed: ReadonlySet<string> = new Set<string>(MANAGED);
+
+/**
+ * A copy of the resource stamped for the profile: the URLs Plumb does not
+ * manage, then the profile's stamps. With no profile, only the other URLs
+ * stay, and an empty \`meta.profile\` is left out: it would skip the server's
+ * \`defaultProfile\`.
+ */
+function stamped<T extends Resource>(resource: T, profile: ProfileUrl | false | undefined): T {
+  const { profile: current = [], ...meta } = resource.meta ?? {};
+  const kept = current.filter((url) => !managed.has(url.split('|')[0] ?? url));
+  const profiles = [...kept, ...(profile ? stamps[profile] : [])];
+  const { meta: _, ...rest } = resource;
+  if (profiles.length > 0) return { ...rest, meta: { ...meta, profile: profiles } } as T;
+  return (Object.keys(meta).length > 0 ? { ...rest, meta } : rest) as T;
+}
+
+/**
+ * Creates the resource held to the profile its content selects, stamped with
+ * that profile and the project's defaults. \`{ profile }\` chooses one instead,
+ * and \`{ profile: false }\` writes it with no Plumb stamp, so the server's own
+ * default applies. Rejects with a RoutingError, before anything is written,
+ * when the content selects no single profile. The resource passed is not changed.
+ */
+export function createProfiled<U extends ProfileUrl>(
+  medplum: ProfiledClient,
+  resource: ProfileTypes[U],
+  options: { profile: U },
+): Promise<ProfileTypes[U]>;
+export function createProfiled<T extends Resource>(
+  medplum: ProfiledClient,
+  resource: T,
+  options?: { profile: false },
+): Promise<T>;
+export async function createProfiled(
+  medplum: ProfiledClient,
+  resource: Resource,
+  options: { profile?: ProfileUrl | false } = {},
+): Promise<Resource> {
+  return medplum.createResource(stamped(resource, options.profile ?? route(resource)));
+}
+
+/**
+ * Updates the resource held to the profile its new content selects: the
+ * stamps Plumb manages are replaced, and any other URL in \`meta.profile\` is
+ * kept. Options and errors as createProfiled.
+ */
+export function updateProfiled<U extends ProfileUrl>(
+  medplum: ProfiledClient,
+  resource: ProfileTypes[U],
+  options: { profile: U },
+): Promise<ProfileTypes[U]>;
+export function updateProfiled<T extends Resource>(
+  medplum: ProfiledClient,
+  resource: T,
+  options?: { profile: false },
+): Promise<T>;
+export async function updateProfiled(
+  medplum: ProfiledClient,
+  resource: Resource,
+  options: { profile?: ProfileUrl | false } = {},
+): Promise<Resource> {
+  return medplum.updateResource(stamped(resource, options.profile ?? route(resource)));
+}
+`;
+
 /**
  * The routing rows, by resource type then profile URL so a profile change
  * moves only its own lines, with the selected profiles' types and `route`.
@@ -352,6 +431,10 @@ function printRoutes(routing: RoutingTable, typeNames: Map<string, string>): str
     '} as const;',
     '',
     ROUTE,
+    WRITE.replace('STAMPS', printStamps(routing.stamps)).replace(
+      'MANAGED',
+      printValue([...routing.managed].sort()),
+    ),
   );
   return lines.join('\n');
 }
@@ -374,13 +457,19 @@ function printRows(type: string, routes: Route[]): string[] {
   ];
 }
 
-type RoutingTable = Pick<Routing, 'routes' | 'profiles'>;
+type RoutingTable = Pick<Routing, 'routes' | 'profiles' | 'stamps' | 'managed'>;
+
+function printStamps(stamps: Record<string, string[]>): string {
+  const urls = Object.keys(stamps).sort();
+  if (urls.length === 0) return '{}';
+  return `{\n${urls.map((url) => `  ${quote(url)}: ${printValue(stamps[url])},`).join('\n')}\n}`;
+}
 
 /** Every file Plumb writes to `out`: one per profile, the index, the shared helpers and the routes. */
 export function printFiles(
   models: ProfileModel[],
   hashOf: (model: ProfileModel) => string,
-  routing: RoutingTable = { routes: {}, profiles: [] },
+  routing: RoutingTable = { routes: {}, profiles: [], stamps: {}, managed: [] },
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -393,7 +482,7 @@ export function printFiles(
   index.appendNoWrap(`${MARKER}. Do not edit.`);
   index.appendNoWrap("export type { Require } from './_plumb.js';");
   index.appendNoWrap(
-    "export { type ProfileTypes, type ProfileUrl, RoutingError, route } from './_routes.js';",
+    "export { createProfiled, type ProfiledClient, type ProfileTypes, type ProfileUrl, RoutingError, route, updateProfiled } from './_routes.js';",
   );
   for (const name of models.map((m) => m.typeName).sort()) {
     index.appendNoWrap(`export * from './${name}.js';`);
