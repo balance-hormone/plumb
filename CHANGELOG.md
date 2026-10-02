@@ -7,6 +7,13 @@ Typed reads: reads that return the profile type once its content is checked.
 - **`_reads.ts`**, generated into `out`, lists the paths each selected
   profile's type requires beyond `@medplum/fhirtypes`, for the presence check
   typed reads run.
+- **`isProfiled`, `asProfiled` and `pickProfiled`**, generated into `out`,
+  check a resource's stamp and what its type requires, offline, and narrow it
+  to the profile type; a failure throws a **`ProfileReadError`** naming the
+  records and paths, with the records that passed in a non-enumerable
+  `passed`.
+- A choice narrowed to `Reference` keeps the base element's targets instead of
+  widening them to any resource.
 
 ## 0.3.0 (unreleased)
 

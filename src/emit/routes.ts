@@ -34,6 +34,8 @@ export interface Routing {
   stamps: Record<string, string[]>;
   /** Every URL Plumb stamps, which an update replaces; other URLs in `meta.profile` are kept. */
   managed: string[];
+  /** The stamps a read accepts as each selected profile: its URL, then each selected profile deriving from it. */
+  accepts: Record<string, string[]>;
   /** The pairs of profiles one resource could match. */
   warnings: string[];
 }
@@ -44,6 +46,9 @@ export function routingRows(
   config: Pick<PlumbConfig, 'routes' | 'defaultProfile'> = {},
 ): Routing {
   const selected = new Set(loaded.profiles.map((p) => p.url));
+  const parentsOf = new Map(
+    loaded.profiles.map(({ url, sd }) => [url, parents(sd.baseDefinition, loaded, selected)]),
+  );
   const routes: Record<string, Route[]> = {};
   for (const { url, sd, schema } of loaded.profiles) {
     const row = config.routes?.[url];
@@ -52,7 +57,7 @@ export function routingRows(
     if (row === false) continue;
     const keys = generatedKeys(schema.elements);
     if (row) keys.push(...configKeys(row, schema.elements));
-    const route = { profile: url, parents: parents(sd.baseDefinition, loaded, selected), keys };
+    const route = { profile: url, parents: parentsOf.get(url) ?? [], keys };
     routes[sd.type]?.push(route);
   }
   const warnings = Object.entries(routes).flatMap(([type, rows]) => ambiguous(type, rows));
@@ -65,7 +70,13 @@ export function routingRows(
     }),
   );
   const managed = [...new Set([...selected, ...Object.values(defaults).flat()])];
-  return { routes, profiles: [...selected], stamps, managed, warnings };
+  const accepts = Object.fromEntries(
+    [...selected].map((url) => [
+      url,
+      [url, ...[...selected].filter((child) => parentsOf.get(child)?.includes(url))],
+    ]),
+  );
+  return { routes, profiles: [...selected], stamps, managed, accepts, warnings };
 }
 
 /** Each fixed or pattern value on a required first-level element, and each required slice's discriminator values. */

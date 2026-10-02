@@ -54,7 +54,7 @@ export type CompositionUvIpsRelatesTo = Omit<CompositionRelatesTo, 'targetIdenti
       targetReference?: never;
     }
   | {
-      targetReference: Reference;
+      targetReference: NonNullable<CompositionRelatesTo['targetReference']>;
       targetIdentifier?: never;
     }
 );
