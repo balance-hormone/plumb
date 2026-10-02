@@ -172,6 +172,12 @@
   itself, and `missing` in `_plumb.ts` checks a resource against them. On
   every contract fixture it agrees with `compiles`: each one that compiles
   passes, and each that tsc reports missing a profile-required element fails.
+  `isProfiled`, `asProfiled`, `pickProfiled` and `ProfileReadError` (#71) are
+  generated beside it: a stamp matches its bare URL or a selected child's, a
+  `url|version` stamp does not, and `passed` stays out of serialization. Every
+  US Core 9.0.0 example, stamped as Plumb writes it, is the profile it
+  declares and each of that profile's parents. A choice's `Reference` now
+  keeps the base's targets (IPS Composition's `relatesTo.target[x]`).
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

@@ -492,36 +492,165 @@ function printRows(type: string, routes: Route[]): string[] {
   ];
 }
 
-type RoutingTable = Pick<Routing, 'routes' | 'profiles' | 'stamps' | 'managed'>;
+type RoutingTable = Pick<Routing, 'routes' | 'profiles' | 'stamps' | 'managed' | 'accepts'>;
 
-/** The paths each selected profile's type requires, by profile URL. */
-function printReads(models: ProfileModel[], profiles: string[]): string {
-  const lines = [`${MARKER}. Do not edit.`, "import type { ProfileUrl } from './_routes.js';", ''];
-  lines.push(
+const READS = `/** A record that failed a read, and the paths it lacks. */
+export interface ProfileReadFailure {
+  readonly reference: string;
+  readonly missing: readonly string[];
+}
+
+/**
+ * Thrown when a resource read as a profile is not stamped with it, lacks what
+ * its type requires, or was asked for in a way that cannot hold the type. The
+ * message names records and paths, never their values.
+ */
+export class ProfileReadError<U extends ProfileUrl = ProfileUrl> extends Error {
+  readonly profile: U;
+  readonly reason: 'unstamped' | 'missing' | 'refused';
+  readonly failed: readonly ProfileReadFailure[];
+  /**
+   * The records that passed, typed once \`ProfileReadError.is\` narrows the error.
+   * Not enumerable: loggers and error trackers copy an error's enumerable
+   * properties into their reports, and these hold clinical data.
+   */
+  declare readonly passed: readonly ProfileTypes[U][];
+
+  constructor(
+    profile: U,
+    reason: 'unstamped' | 'missing' | 'refused',
+    failed: readonly ProfileReadFailure[],
+    passed: readonly ProfileTypes[U][] = [],
+    message = describe(profile, reason, failed),
+  ) {
+    super(message);
+    this.name = 'ProfileReadError';
+    this.profile = profile;
+    this.reason = reason;
+    this.failed = failed;
+    Object.defineProperty(this, 'passed', { value: passed, enumerable: false });
+  }
+
+  /** Whether \`err\` is a ProfileReadError for the profile, which types its \`passed\`. */
+  static is<U extends ProfileUrl>(err: unknown, profile: U): err is ProfileReadError<U> {
+    return err instanceof ProfileReadError && err.profile === profile;
+  }
+}
+
+const short = (url: string) => url.slice(url.lastIndexOf('/') + 1);
+
+function describe(profile: ProfileUrl, reason: string, failed: readonly ProfileReadFailure[]): string {
+  const name = short(profile);
+  const [first] = failed;
+  if (reason === 'unstamped' && first) {
+    return [
+      \`\${first.reference} is not a \${name}.\`,
+      \`  unstamped  meta.profile holds neither \${name} nor a selected profile deriving from it.\`,
+    ].join('\\n');
+  }
+  const width = Math.max(0, ...failed.map((f) => f.reference.length));
+  return [
+    failed.length === 1 && first ? \`\${first.reference} is not a \${name}.\` : \`\${failed.length} records are not a \${name}.\`,
+    ...(failed.length === 1
+      ? (first?.missing ?? []).map((path) => \`  missing  \${path}\`)
+      : failed.map((f) => \`  \${f.reference.padEnd(width)}   missing  \${f.missing.join(', ')}\`)),
+    'Stamped records lack required data when written while the project was loose,',
+    'when an AccessPolicy hides the field, or when the profile tightened since.',
+    'See \`plumb validate --env <env>\`.',
+  ].join('\\n');
+}
+
+/** Whether \`meta.profile\` holds the profile's bare URL, or a selected profile deriving from it. */
+function stampedAs(resource: Resource, profile: ProfileUrl): boolean {
+  return resource.meta?.profile?.some((url) => accepts[profile]?.includes(url)) ?? false;
+}
+
+const referenceOf = (resource: Resource) =>
+  resource.id ? \`\${resource.resourceType}/\${resource.id}\` : \`\${resource.resourceType} with no id\`;
+
+/** The rows of the profile's \`required\` the resource lacks, as paths from its type. */
+const lacks = (resource: Resource, profile: ProfileUrl) =>
+  missing(resource, required[profile]).map((path) => \`\${resource.resourceType}.\${path}\`);
+
+/**
+ * Whether the resource is the profile's: stamped with it or a selected profile
+ * deriving from it, and holding every path its type requires. Pure and offline;
+ * asProfiled, pickProfiled and the reads all run this check.
+ */
+export function isProfiled<U extends ProfileUrl>(resource: Resource, profile: U): resource is Resource & ProfileTypes[U] {
+  return stampedAs(resource, profile) && missing(resource, required[profile]).length === 0;
+}
+
+/** The resource as the profile's type, or a ProfileReadError saying why it is not. */
+export function asProfiled<U extends ProfileUrl>(resource: Resource, profile: U): ProfileTypes[U] {
+  if (isProfiled(resource, profile)) return resource;
+  const reference = referenceOf(resource);
+  if (!stampedAs(resource, profile)) throw new ProfileReadError(profile, 'unstamped', [{ reference, missing: [] }]);
+  throw new ProfileReadError(profile, 'missing', [{ reference, missing: lacks(resource, profile) }]);
+}
+
+/**
+ * The resources stamped with the profile, or a selected profile deriving from
+ * it, each checked and typed; the others are left out. Throws a
+ * ProfileReadError when a stamped one lacks what its type requires, with the
+ * ones that passed in \`passed\`.
+ */
+export function pickProfiled<U extends ProfileUrl>(resources: readonly Resource[], profile: U): ProfileTypes[U][] {
+  const passed: ProfileTypes[U][] = [];
+  const failed: ProfileReadFailure[] = [];
+  for (const resource of resources) {
+    if (isProfiled(resource, profile)) passed.push(resource);
+    else if (stampedAs(resource, profile)) failed.push({ reference: referenceOf(resource), missing: lacks(resource, profile) });
+  }
+  if (failed.length > 0) throw new ProfileReadError(profile, 'missing', failed, passed);
+  return passed;
+}
+`;
+
+/** A table by profile URL, sorted, one entry per line. */
+function printTable(name: string, type: string, rows: [string, unknown[]][]): string[] {
+  if (rows.length === 0) return [`const ${name}: ${type} = {};`];
+  const entries = [...rows].sort(([a], [b]) => a.localeCompare(b));
+  return [
+    `const ${name}: ${type} = {`,
+    ...entries.flatMap(([url, values]) =>
+      values.length === 0
+        ? [`  ${quote(url)}: [],`]
+        : [`  ${quote(url)}: [`, ...values.map((v) => `    ${printValue(v)},`), '  ],'],
+    ),
+    '};',
+  ];
+}
+
+/** What a typed read checks for each selected profile, and the checks themselves. */
+function printReads(models: ProfileModel[], routing: RoutingTable): string {
+  const selected = models.filter((m) => routing.profiles.includes(m.url));
+  return [
+    `${MARKER}. Do not edit.`,
+    "import type { Resource } from '@medplum/fhirtypes';",
+    "import { missing } from './_plumb.js';",
+    "import type { ProfileTypes, ProfileUrl } from './_routes.js';",
+    '',
     '/**',
     " * The paths each selected profile's type requires beyond @medplum/fhirtypes.",
     ' * A row lists alternatives, any one of which meets it (`missing` in _plumb.ts).',
     ' */',
-  );
-  const rows = models
-    .filter((m) => profiles.includes(m.url))
-    .sort((a, b) => a.url.localeCompare(b.url));
-  if (rows.length === 0)
-    lines.push('export const required: Record<ProfileUrl, readonly (readonly string[])[]> = {};');
-  else {
-    lines.push('export const required: Record<ProfileUrl, readonly (readonly string[])[]> = {');
-    for (const m of rows) {
-      if (m.required.length === 0) lines.push(`  ${quote(m.url)}: [],`);
-      else
-        lines.push(
-          `  ${quote(m.url)}: [`,
-          ...m.required.map((row) => `    ${printValue(row)},`),
-          '  ],',
-        );
-    }
-    lines.push('};');
-  }
-  return lines.join('\n');
+    ...printTable(
+      'required',
+      'Record<ProfileUrl, readonly (readonly string[])[]>',
+      selected.map((m) => [m.url, m.required]),
+    ).map((line, i) => (i === 0 ? `export ${line}` : line)),
+    '',
+    '/** The stamps a read accepts as each profile: its own URL, and each selected profile deriving from it. */',
+    ...printTable(
+      'accepts',
+      // Keyed by string, so the lookup still compiles when no profile is selected.
+      'Partial<Record<string, readonly string[]>>',
+      selected.map((m) => [m.url, routing.accepts[m.url] ?? [m.url]]),
+    ),
+    '',
+    READS,
+  ].join('\n');
 }
 
 function printStamps(stamps: Record<string, string[]>): string {
@@ -534,7 +663,7 @@ function printStamps(stamps: Record<string, string[]>): string {
 export function printFiles(
   models: ProfileModel[],
   hashOf: (model: ProfileModel) => string,
-  routing: RoutingTable = { routes: {}, profiles: [], stamps: {}, managed: [] },
+  routing: RoutingTable = { routes: {}, profiles: [], stamps: {}, managed: [], accepts: {} },
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -549,12 +678,15 @@ export function printFiles(
   index.appendNoWrap(
     "export { createProfiled, type ProfiledClient, type ProfileTypes, type ProfileUrl, RoutingError, route, updateProfiled } from './_routes.js';",
   );
+  index.appendNoWrap(
+    "export { asProfiled, isProfiled, pickProfiled, ProfileReadError, type ProfileReadFailure } from './_reads.js';",
+  );
   for (const name of models.map((m) => m.typeName).sort()) {
     index.appendNoWrap(`export * from './${name}.js';`);
   }
   files.set('index.ts', index.toString());
   files.set('_plumb.ts', HELPERS);
   files.set('_routes.ts', printRoutes(routing, new Map(models.map((m) => [m.url, m.typeName]))));
-  files.set('_reads.ts', printReads(models, routing.profiles));
+  files.set('_reads.ts', printReads(models, routing));
   return files;
 }

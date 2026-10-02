@@ -267,7 +267,7 @@ class ProfileTransform {
       if (key.includes('.')) continue;
       const be = baseElements[key];
       const children = childrenOf(elements, key);
-      if (key.endsWith('[x]')) this.choice(key, e, be, children, { fields, omit, oneOf });
+      if (key.endsWith('[x]')) this.choice(baseName, key, e, be, children, { fields, omit, oneOf });
       else this.member(key, e, be, children, `${path}.${key}`, { fields, omit, required });
     }
     if (fields.length === 0 && oneOf.length === 0 && omit.length === 0) {
@@ -575,6 +575,7 @@ class ProfileTransform {
   }
 
   private choice(
+    baseName: string,
     key: string,
     e: InternalSchemaElement,
     be: InternalSchemaElement | undefined,
@@ -595,7 +596,10 @@ class ProfileTransform {
     for (const code of baseCodes) if (!codes.includes(code)) into.omit.push(prop(code));
     const item = (code: string): TypeExpr => {
       const narrowed = codes.length === 1 ? this.elementType(e, be, children, key) : undefined;
-      return narrowed ?? (isComplex(code) ? ref(code) : primitive(code));
+      if (narrowed) return narrowed;
+      // A bare Reference would widen the base's targets, so it keeps the base's own type.
+      if (code === 'Reference') return { kind: 'index', base: baseName, key: prop(code) };
+      return isComplex(code) ? ref(code) : primitive(code);
     };
     const single = codes.length === 1 ? (codes[0] as string) : undefined;
     if (e.min > 0 && single) {

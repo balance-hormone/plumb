@@ -263,7 +263,7 @@ See `plumb validate --env <env>`.
 ## Types
 
 ```ts
-function isProfiled<U extends ProfileUrl>(resource: Resource, profile: U): resource is ProfileTypes[U];
+function isProfiled<U extends ProfileUrl>(resource: Resource, profile: U): resource is Resource & ProfileTypes[U];
 function asProfiled<U extends ProfileUrl>(resource: Resource, profile: U): ProfileTypes[U];
 function pickProfiled<U extends ProfileUrl>(resources: readonly Resource[], profile: U): ProfileTypes[U][];
 function readProfiled<U extends ProfileUrl>(
@@ -287,9 +287,15 @@ class ProfileReadError<U extends ProfileUrl = ProfileUrl> extends Error {
   readonly profile: U;
   readonly reason: 'unstamped' | 'missing' | 'refused';
   readonly failed: readonly { reference: string; missing: readonly string[] }[];
-  readonly passed: readonly WithId<ProfileTypes[U]>[]; // non-enumerable
+  readonly passed: readonly ProfileTypes[U][]; // non-enumerable
 }
 ```
+
+The guard narrows to `Resource & ProfileTypes[U]` because a profile type is not
+always assignable to its base: an optional position in an ordered slicing's
+tuple admits `undefined`, which `HumanName[]` does not. `passed` is typed
+without `WithId`, since `pickProfiled` takes resources from anywhere, unsaved
+ones included.
 
 `pickProfiled` returns a typed array on TypeScript 5.0, where
 `resources.filter((r) => isProfiled(r, url))` would stay `Resource[]`:

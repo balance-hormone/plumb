@@ -164,6 +164,23 @@ describe('transform', () => {
     ]);
   });
 
+  test("a choice's Reference keeps the base's targets", () => {
+    const t = decl(
+      fromPackage(
+        'hl7.fhir.uv.ips@2.0.1',
+        'http://hl7.org/fhir/uv/ips/StructureDefinition/Composition-uv-ips',
+      ),
+      'CompositionUvIpsRelatesTo',
+    );
+    if (t.kind !== 'narrow') throw new Error('not narrowed');
+    const branches = (t.oneOf ?? []).flat(2).filter((f) => f.name === 'targetReference');
+    expect(branches.map((f) => f.type)).toContainEqual({
+      kind: 'index',
+      base: 'CompositionRelatesTo',
+      key: 'targetReference',
+    });
+  });
+
   test('fixed values are exact; patterns on a Coding stay open', () => {
     const m = model('fixed-pattern-encounter');
     const t = decl(m);

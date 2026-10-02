@@ -40,6 +40,17 @@ export interface GeneratedRoutes {
   parentsOf: (profile: string) => readonly string[];
   /** The generated presence check: the rows of the profile's `required` the resource lacks. */
   missing: (resource: Resource, profile: string) => string[];
+  isProfiled: (resource: Resource, profile: string) => boolean;
+  asProfiled: (resource: Resource, profile: string) => Resource;
+  pickProfiled: (resources: readonly Resource[], profile: string) => Resource[];
+  ProfileReadError: new (
+    ...args: never[]
+  ) => Error & {
+    profile: string;
+    reason: string;
+    failed: readonly { reference: string; missing: readonly string[] }[];
+    passed: readonly Resource[];
+  };
   warnings: string[];
 }
 
@@ -79,9 +90,10 @@ export async function generatedRoutes(
   const written = writeFiles(out, files);
   if (!written.ok) throw new Error(`write: ${JSON.stringify(written.errors)}`);
   const generated = (await import(join(out, '_routes.ts'))) as GeneratedModule;
-  const { required } = (await import(join(out, '_reads.ts'))) as {
-    required: Record<string, readonly (readonly string[])[]>;
-  };
+  const reads = (await import(join(out, '_reads.ts'))) as Pick<
+    GeneratedRoutes,
+    'isProfiled' | 'asProfiled' | 'pickProfiled' | 'ProfileReadError'
+  > & { required: Record<string, readonly (readonly string[])[]> };
   const plumb = (await import(join(out, '_plumb.ts'))) as {
     missing: (resource: object, rows: readonly (readonly string[])[]) => string[];
   };
@@ -95,7 +107,11 @@ export async function generatedRoutes(
     updateProfiled,
     typecheck: (source) => typecheck(files, source),
     parentsOf,
-    missing: (resource, profile) => plumb.missing(resource, required[profile] ?? []),
+    missing: (resource, profile) => plumb.missing(resource, reads.required[profile] ?? []),
+    isProfiled: reads.isProfiled,
+    asProfiled: reads.asProfiled,
+    pickProfiled: reads.pickProfiled,
+    ProfileReadError: reads.ProfileReadError,
     warnings: routing.warnings,
   };
 }
