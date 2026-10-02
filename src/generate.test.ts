@@ -69,6 +69,17 @@ describe('generate', () => {
     expect(result.totalMs).toBeGreaterThanOrEqual(0);
   });
 
+  test('reports a routing row the loaded profile cannot take, and writes nothing', async () => {
+    const p = project();
+    const url = `${PLUMB}/cardinality-patient`;
+    const result = await generate({
+      ...p,
+      config: { ...p.config, routes: { [url]: { code: ['x'] } } },
+    });
+    expect(result.errors.map((e) => [e.step, e.code])).toEqual([['load', 'invalid-route-element']]);
+    expect(existsSync(p.config.out)).toBe(false);
+  });
+
   test('passes the value-set size limit to the emitter', async () => {
     const p = project(['bindings-observation']);
     await generate({ ...p, config: { ...p.config, bindings: { maxCodes: 200 } } });

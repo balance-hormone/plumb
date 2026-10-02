@@ -228,6 +228,16 @@ Named after the tools developers already know:
   in as a value is a named error when the config loads; an unknown
   environment or an unset variable is one when a command picks the
   environment.
+- **`routes`** (optional) adds routing rows for selected profiles, by URL:
+  a first-level element mapped to the codings (or, for a `code` element, the
+  strings) that select the profile, or `false` to take it out of routing
+  ([design 03](design/03-routing-and-create.md)). **`defaultProfile`**
+  (optional) maps a resource type to the profile URLs stamped on every write
+  of it, as Medplum's `Project.defaultProfile`. A malformed row or default,
+  or a `url|version` URL, is a named error when the config loads; a row for
+  a profile that is not selected, or an element that is not first-level on
+  its type, is one once the profiles load (at once when `profiles` lists
+  URLs only, as `name/*` is expanded by the loader).
 - **`profiles` lists canonical URLs, or `name/*` for a whole IG:** every
   resource profile in a package `igs` lists (`kind: resource`,
   `derivation: constraint`). The version stays in `igs`, and a wildcard naming

@@ -5,7 +5,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { type LoadConfigResult, type PlumbConfig, resolveEnvironment } from './config.js';
+import {
+  checkRoutes,
+  type LoadConfigResult,
+  type PlumbConfig,
+  resolveEnvironment,
+} from './config.js';
+import { loadProfiles } from './loader.js';
 
 const CONFIG_MODULE = join(import.meta.dirname, 'config.ts');
 
@@ -264,6 +270,125 @@ describe('loadConfig', () => {
     expect(!wrong.ok && wrong.errors.map((e) => [e.code, e.path])).toEqual([
       ['invalid-type', 'environments.prod'],
     ]);
+  });
+});
+
+const PLUMB = 'http://example.org/fhir/plumb-test/StructureDefinition';
+const routed = (fields: string) =>
+  load({
+    'plumb.config.ts': `export default { igs: [], profiles: ['${PLUMB}/fixed-pattern-encounter'], out: './out', ${fields} };`,
+  });
+const paths = (result: LoadConfigResult) =>
+  result.ok ? [] : result.errors.map((e) => [e.code, e.path]);
+
+describe('routes and defaultProfile', () => {
+  test('accepts routing rows, false, and defaults by resource type', () => {
+    const result = routed(`
+      routes: {
+        '${PLUMB}/fixed-pattern-encounter': {
+          class: [{ system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode', code: 'AMB' }],
+          status: ['finished'],
+        },
+      },
+      defaultProfile: { Encounter: ['https://example.org/fhir/StructureDefinition/org-encounter'] },`);
+    expect(result.ok && result.config.routes).toEqual({
+      [`${PLUMB}/fixed-pattern-encounter`]: {
+        class: [{ system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode', code: 'AMB' }],
+        status: ['finished'],
+      },
+    });
+    expect(result.ok && result.config.defaultProfile).toEqual({
+      Encounter: ['https://example.org/fhir/StructureDefinition/org-encounter'],
+    });
+    expect(routed(`routes: { '${PLUMB}/fixed-pattern-encounter': false }`).ok).toBe(true);
+  });
+
+  test('unselected-route, for a row naming a profile the config does not select', () => {
+    expect(paths(routed(`routes: { '${PLUMB}/cardinality-patient': false }`))).toEqual([
+      ['unselected-route', `routes["${PLUMB}/cardinality-patient"]`],
+    ]);
+  });
+
+  test('invalid-route, for a row that is not a map of codings or code strings', () => {
+    const url = `${PLUMB}/fixed-pattern-encounter`;
+    expect(
+      paths(
+        routed(`routes: { '${url}': { class: [], status: [5], priority: [{ display: 'x' }] } }`),
+      ),
+    ).toEqual([
+      ['invalid-route', `routes["${url}"].class`],
+      ['invalid-route', `routes["${url}"].status`],
+      ['invalid-route', `routes["${url}"].priority`],
+    ]);
+    expect(paths(routed(`routes: { '${url}': true }`))).toEqual([
+      ['invalid-route', `routes["${url}"]`],
+    ]);
+    expect(paths(routed('routes: []'))).toEqual([['invalid-type', 'routes']]);
+  });
+
+  test('versioned-url, in a routing row or a default', () => {
+    const url = `${PLUMB}/fixed-pattern-encounter|0.1.0`;
+    expect(paths(routed(`routes: { '${url}': false }`))).toEqual([
+      ['versioned-url', `routes["${url}"]`],
+    ]);
+    expect(paths(routed(`defaultProfile: { Encounter: ['${url}'] }`))).toEqual([
+      ['versioned-url', 'defaultProfile.Encounter[0]'],
+    ]);
+  });
+
+  test.each([
+    ["['x']", 'defaultProfile'],
+    ["{ encounter: ['https://example.org/p'] }", 'defaultProfile.encounter'],
+    ["{ Encounter: 'https://example.org/p' }", 'defaultProfile.Encounter'],
+    ['{ Encounter: [] }', 'defaultProfile.Encounter'],
+  ])('invalid-default-profile: %s', (value, path) => {
+    expect(paths(routed(`defaultProfile: ${value}`))).toEqual([['invalid-default-profile', path]]);
+  });
+
+  // Once profiles load: a wildcard's selection, and each profile's elements.
+  describe('checkRoutes', () => {
+    const loaded = loadProfiles({
+      packages: [],
+      igs: [],
+      local: join(import.meta.dirname, '../test/fixtures/profiles/fsh-generated/resources'),
+      profiles: [`${PLUMB}/fixed-pattern-encounter`, `${PLUMB}/choice-observation`],
+    });
+
+    test('accepts first-level elements, and a choice by its typed name', () => {
+      expect(
+        checkRoutes(
+          {
+            routes: {
+              [`${PLUMB}/fixed-pattern-encounter`]: { class: [{ code: 'AMB' }] },
+              [`${PLUMB}/choice-observation`]: { valueCodeableConcept: [{ code: 'x' }] },
+            },
+          },
+          loaded.profiles,
+        ),
+      ).toEqual([]);
+    });
+
+    test('invalid-route-element, for a nested or unknown element', () => {
+      const url = `${PLUMB}/fixed-pattern-encounter`;
+      const errors = checkRoutes(
+        { routes: { [url]: { 'class.code': ['AMB'], colour: ['red'], valueQuantity: ['1'] } } },
+        loaded.profiles,
+      );
+      expect(errors.map((e) => [e.code, e.path])).toEqual([
+        ['invalid-route-element', `routes["${url}"].class.code`],
+        ['invalid-route-element', `routes["${url}"].colour`],
+        ['invalid-route-element', `routes["${url}"].valueQuantity`],
+      ]);
+      expect(errors[1]?.message).toBe('"colour" is not a first-level element of Encounter.');
+    });
+
+    test('unselected-route, for a row no loaded profile matches', () => {
+      expect(
+        checkRoutes({ routes: { [`${PLUMB}/cardinality-patient`]: false } }, loaded.profiles).map(
+          (e) => e.code,
+        ),
+      ).toEqual(['unselected-route']);
+    });
   });
 });
 
