@@ -5,10 +5,15 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { type ConfigError, loadConfig, resolveEnvironment } from './config.js';
-import { type TypeReport, type ValidateEnvResult, validateEnvironment } from './conformance.js';
+import {
+  type Checked,
+  type TypeReport,
+  type ValidateEnvResult,
+  validateEnvironment,
+} from './conformance.js';
 import type { EnvStep } from './connect.js';
 import { type GenerateResult, generate, type Step } from './generate.js';
-import { push } from './push.js';
+import { type PushResult, push } from './push.js';
 
 export interface CliIo {
   cwd: string;
@@ -23,18 +28,20 @@ export interface CliIo {
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
        plumb validate --env <name> [--resume] [--config <path>]
-       plumb push --env <name> [--config <path>]
+       plumb push --env <name> [--dry-run] [--config <path>]
 
 generate  Generate TypeScript types that narrow @medplum/fhirtypes from the
           FHIR profiles plumb.config.ts selects.
 validate  Count the stored resources that would fail each selected profile,
           and why, with Plumb's checker bot inside the project.
-push      Install or update Plumb's checker bot in a Medplum project.
+push      Install the checker, then load the selected profiles into a Medplum
+          project, refusing while stored resources would fail them.
 
 Options:
   --check          compare with the committed output instead of writing; fail if stale
   --env <name>     the environment in plumb.config.ts to act on
   --resume         continue an interrupted validate from its last page
+  --dry-run        push: stop after the gate, loading nothing
   --config <path>  the config file (default: plumb.config.ts)
   --json           print the report as JSON on stdout
   --quiet          print only problems
@@ -150,6 +157,27 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
 async function envCommand(command: 'push' | 'validate', values: Values, io: CliIo) {
   const quiet = values.quiet ?? false;
   const { bad, say, problem } = printer(io, quiet);
+  const options = await envOptions(command, values, io);
+  if (typeof options === 'number') return options;
+  say(`plumb ${command} --env ${values.env}`);
+  const { root, ...shared } = options;
+  const reportPath = join(root, '.plumb', `validate-${values.env}.json`);
+  const result =
+    command === 'push'
+      ? await push({ ...shared, reportPath, dryRun: values['dry-run'] })
+      : await validateEnvironment({ ...shared, reportPath, resume: values.resume });
+  printValidation(result, relative(io.cwd, result.reportPath ?? ''), say, problem);
+  for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
+  (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
+  if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.ok) return OK;
+  // Profiles that fail, or will not load, are problems found; the rest kept the command from running.
+  return result.errors.every((e) => e.step === 'load') ? PROBLEMS : USAGE_ERROR;
+}
+
+/** The config, environment and checker a command on an environment needs, or its exit code. */
+async function envOptions(command: string, values: Values, io: CliIo) {
+  const quiet = values.quiet ?? false;
   if (!values.env) {
     io.stderr(`plumb: ${command} needs --env <name>\n\n${USAGE}`);
     return USAGE_ERROR;
@@ -158,9 +186,9 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
   if (!config.ok) return configErrors(config.errors, values, io);
   const environment = resolveEnvironment(config.config, values.env, io.env);
   if (!environment.ok) return configErrors(environment.errors, values, io);
-  say(`plumb ${command} --env ${values.env}`);
   const root = dirname(config.configPath);
-  const options = {
+  return {
+    root,
     config: config.config,
     environment: environment.environment,
     lockPath: join(root, 'plumb.lock'),
@@ -172,21 +200,6 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
     fetch: io.fetch,
     onStep: (step: EnvStep<string>) => printStep(step, printer(io, quiet), quiet),
   };
-  const result =
-    command === 'push'
-      ? await push(options)
-      : await validateEnvironment({
-          ...options,
-          reportPath: join(root, '.plumb', `validate-${values.env}.json`),
-          resume: values.resume,
-        });
-  if ('profiles' in result) printValidation(result, io.cwd, say, problem);
-  for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
-  (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
-  if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
-  if (result.ok) return OK;
-  // Profiles that fail, or will not load, are problems found; the rest kept the command from running.
-  return result.errors.every((e) => e.step === 'load') ? PROBLEMS : USAGE_ERROR;
 }
 
 /** A step's line, then its warnings: a failed step's always print, as problems do. */
@@ -199,21 +212,27 @@ function printStep(step: EnvStep<string>, p: ReturnType<typeof printer>, quiet: 
 
 /** The report under the validate step, and where the failing ids are: never the ids themselves. */
 function printValidation(
-  result: ValidateEnvResult,
-  cwd: string,
+  result: ValidateEnvResult | PushResult,
+  reportPath: string,
   say: (line: string) => void,
   problem: (line: string) => void,
 ) {
-  for (const line of formatValidation(result)) (result.ok ? say : problem)(line);
-  if (Object.values(result.profiles).some((p) => p.failing > 0)) {
-    problem(`Failing ids: ${relative(cwd, result.reportPath ?? '')} (gitignored)`);
+  // validate always shows what it found; push only what refused or failed it.
+  const found =
+    'profiles' in result ? result : result.ok ? undefined : (result.recheck ?? result.gate);
+  if (!found) return;
+  for (const line of formatValidation(found)) (result.ok ? say : problem)(line);
+  if (Object.values(found.profiles).some((p) => p.failing > 0)) {
+    problem(`Failing ids: ${reportPath} (gitignored)`);
   }
 }
+
+type Found = Pick<Checked, 'types' | 'profiles'>;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** The validate report under its step: each type, then each of its profiles and their reasons. */
-export function formatValidation(result: ValidateEnvResult): string[] {
+export function formatValidation(result: Found): string[] {
   const lines: string[] = [];
   for (const [type, t] of Object.entries(result.types)) {
     const profiles = Object.entries(result.profiles).filter(([, p]) => p.resourceType === type);
@@ -272,6 +291,7 @@ function parse(argv: string[]) {
       config: { type: 'string' },
       env: { type: 'string' },
       resume: { type: 'boolean' },
+      'dry-run': { type: 'boolean' },
       json: { type: 'boolean' },
       quiet: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },

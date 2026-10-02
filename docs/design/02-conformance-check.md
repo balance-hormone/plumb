@@ -159,7 +159,10 @@ Refusing to load: fix or migrate them first, or see `plumb validate --env prod`.
 2. **Plan:** the StructureDefinitions of the selected profiles and their
    dependency closure, from the loader, compared with what the project holds.
    Unchanged profiles are skipped; a profile edited without a version bump is
-   flagged, because comparing versions would otherwise miss it.
+   flagged, because comparing versions would otherwise miss it. A URL the
+   project holds once is updated in place, never added again: a second
+   StructureDefinition would shadow the first. A URL already shadowed stops
+   the push until all but one are deleted.
 3. **The gate:** run `validate` against the planned versions. Any failure
    refuses the push, and nothing is written.
 4. **Apply:** create or update the StructureDefinitions.

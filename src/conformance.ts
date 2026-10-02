@@ -12,8 +12,9 @@ import {
 import type { AsyncJob, Bot, ResourceType } from '@medplum/fhirtypes';
 import type { PageResult, Reason } from './checker/handler.js';
 import { checkerInput } from './checker/input.js';
+import { checkerFilename, deployedVersion, findChecker } from './checker/install.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
-import { checkerFilename, deployedVersion, findChecker } from './push.js';
+import type { LoadProfilesResult } from './loader.js';
 
 type ValidateStepName = 'load' | 'connect' | 'checker' | 'profiles' | 'validate';
 
@@ -49,7 +50,7 @@ export interface ValidateEnvResult extends EnvResult<ValidateStepName> {
   resumed: number;
 }
 
-export interface ValidateEnvOptions extends EnvOptions<ValidateStepName> {
+export interface ValidateEnvOptions extends EnvOptions {
   /** The bundled bot, to check the installed one is this Plumb's. */
   checker: { code: string; version: string };
   /** Where failing ids and the cursor are kept: `.plumb/validate-<env>.json`, gitignored. */
@@ -57,7 +58,7 @@ export interface ValidateEnvOptions extends EnvOptions<ValidateStepName> {
   /** Continue an interrupted run from its last cursor. */
   resume?: boolean;
   /** Called after each page is saved, with the resource type and the pages done so far. */
-  onPage?: (resourceType: string, pages: number) => void;
+  onPage?: (resourceType: string, pages: number) => void | Promise<void>;
 }
 
 /** What the report file holds: the run so far, with failing ids, and where to resume it. */
@@ -89,7 +90,7 @@ export async function validateEnvironment(options: ValidateEnvOptions): Promise<
   const step = steps<ValidateStepName, ValidateEnvResult>(result, options.onStep);
   const ready = await loadAndConnect(options, result, step);
   if (!ready) return result;
-  const { loaded, resourceTypes, medplum } = ready;
+  const { loaded, medplum } = ready;
 
   const filename = checkerFilename(options.checker.code, options.checker.version);
   const bot = await findChecker(medplum);
@@ -112,43 +113,88 @@ export async function validateEnvironment(options: ValidateEnvOptions): Promise<
     result.shadowed.length > 0,
   );
 
-  const key = createHash('sha256')
-    .update(JSON.stringify([filename, loaded.profiles.map((p) => [p.url, p.sd.version]).sort()]))
-    .digest('hex');
-  const { saved, warnings } = start(options, key);
-  result.resumed = saved.pages;
-  result.reportPath = options.reportPath;
-
-  let core: string | undefined;
+  let checked: Checked;
   try {
-    for (const resourceType of resourceTypes) {
-      const input = checkerInput(loaded, resourceType as ResourceType);
-      await checkType(medplum, saved, options, bot.id as string, input, (c) => {
-        core = c;
-      });
-    }
-    await classifyOtherStamps(medplum, saved);
+    checked = await checkStored(medplum, loaded, bot.id as string, { ...options, filename });
   } catch (err) {
     return step.fail('validate', [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
   }
+  Object.assign(result, {
+    types: checked.types,
+    profiles: checked.profiles,
+    resumed: checked.resumed,
+    reportPath: options.reportPath,
+    checker: { version: options.checker.version, ...(checked.core ? { core: checked.core } : {}) },
+  });
+  const verdict = judge(checked, urls.length);
+  step.finish('validate', verdict.summary, checked.warnings, verdict.failed);
+  result.ok = !verdict.failed && result.shadowed.length === 0;
+  return step.done();
+}
+
+/** What the checker found across every page: no ids or cursors, which stay in the local file. */
+export interface Checked {
+  types: Record<string, TypeReport>;
+  profiles: Record<string, ProfileReport>;
+  /** The `@medplum/core` version the bot validated with. */
+  core?: string;
+  resumed: number;
+  warnings: string[];
+}
+
+/**
+ * Drives the checker through every page of each type the profiles
+ * constrain, against the profiles as `loaded` holds them, saving each page to
+ * `reportPath`. Throws when a page's job fails.
+ */
+export async function checkStored(
+  medplum: MedplumClient,
+  loaded: Pick<LoadProfilesResult, 'profiles' | 'definitions'>,
+  botId: string,
+  options: Pick<ValidateEnvOptions, 'reportPath' | 'resume' | 'onPage'> & { filename: string },
+): Promise<Checked> {
+  const key = createHash('sha256')
+    .update(
+      JSON.stringify([options.filename, loaded.profiles.map((p) => [p.url, p.sd.version]).sort()]),
+    )
+    .digest('hex');
+  const { saved, warnings } = start(options, key);
+  const resumed = saved.pages;
+  let core: string | undefined;
+  const resourceTypes = [...new Set(loaded.profiles.map((p) => p.sd.type))].sort();
+  for (const resourceType of resourceTypes) {
+    const input = checkerInput(loaded, resourceType as ResourceType);
+    await checkType(medplum, saved, options, botId, input, (c) => {
+      core = c;
+    });
+  }
+  await classifyOtherStamps(medplum, saved);
   saved.complete = true;
   write(options.reportPath, saved);
 
-  result.checker = { version: options.checker.version, ...(core ? { core } : {}) };
   if (core && core !== MEDPLUM_VERSION) {
     warnings.push(
       `plumb-checker validates with @medplum/core ${core}; this project has ${MEDPLUM_VERSION}.`,
     );
   }
-  summarize(saved, result);
-  const verdict = judge(result, urls.length);
-  step.finish('validate', verdict.summary, warnings, verdict.failed);
-  result.ok = !verdict.failed && result.shadowed.length === 0;
-  return step.done();
+  const checked: Checked = {
+    types: {},
+    profiles: {},
+    resumed,
+    warnings,
+    ...(core ? { core } : {}),
+  };
+  for (const [type, { cursor: _cursor, done: _done, ...report }] of Object.entries(saved.types)) {
+    checked.types[type] = report;
+  }
+  for (const [url, p] of Object.entries(saved.profiles)) {
+    checked.profiles[url] = { ...p, failing: p.failing.length };
+  }
+  return checked;
 }
 
 /** A fresh run, or with `resume` the interrupted one for the same checker and profiles. */
-function start(options: ValidateEnvOptions, key: string) {
+function start(options: Pick<ValidateEnvOptions, 'reportPath' | 'resume'>, key: string) {
   const previous = options.resume ? read(options.reportPath) : undefined;
   const resumable = previous?.key === key && !previous.complete;
   const saved: Saved = resumable
@@ -160,7 +206,7 @@ function start(options: ValidateEnvOptions, key: string) {
 }
 
 /** Failing resources fail the run, and so does a type the checker could read none of. */
-function judge(result: ValidateEnvResult, selected: number) {
+export function judge(result: Pick<Checked, 'types' | 'profiles'>, selected: number) {
   const failing = Object.values(result.profiles).filter((p) => p.failing > 0).length;
   const unreadable = Object.values(result.types).some((t) => t.read === 0 && t.exists > 0);
   if (failing > 0)
@@ -203,16 +249,6 @@ async function findShadowed(medplum: MedplumClient, urls: string[]) {
   return shadowed;
 }
 
-/** The report without ids or cursors, which stay in the local file. */
-function summarize(saved: Saved, result: ValidateEnvResult): void {
-  for (const [type, { cursor: _cursor, done: _done, ...report }] of Object.entries(saved.types)) {
-    result.types[type] = report;
-  }
-  for (const [url, p] of Object.entries(saved.profiles)) {
-    result.profiles[url] = { ...p, failing: p.failing.length };
-  }
-}
-
 /** Drives the checker through one resource type's pages, saving after each. */
 async function checkType(
   medplum: MedplumClient,
@@ -252,7 +288,7 @@ async function checkType(
     type.done = !page.next;
     saved.pages++;
     write(options.reportPath, saved);
-    options.onPage?.(resourceType, saved.pages);
+    await options.onPage?.(resourceType, saved.pages);
   } while (!type.done);
 }
 

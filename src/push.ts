@@ -1,161 +1,244 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { createHash } from 'node:crypto';
-import { createReference, type MedplumClient, normalizeErrorString } from '@medplum/core';
-import type {
-  AccessPolicy,
-  AccessPolicyResource,
-  Bot,
-  ProjectMembership,
-} from '@medplum/fhirtypes';
+import { deepEquals, type MedplumClient, normalizeErrorString } from '@medplum/core';
+import type { StructureDefinition } from '@medplum/fhirtypes';
+import { closure } from './checker/input.js';
+import {
+  type CheckerInstall,
+  type CheckerOptions,
+  checkerFilename,
+  installChecker,
+} from './checker/install.js';
+import { type Checked, checkStored, judge, type ValidateEnvOptions } from './conformance.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
+import type { LoadProfilesResult } from './loader.js';
 
-/** How `push` finds its checker bot again, whatever it is named. */
-export const CHECKER_IDENTIFIER = {
-  system: 'https://github.com/balance-hormone/plumb',
-  value: 'checker',
-};
+type PushStepName = 'load' | 'connect' | 'checker' | 'plan' | 'gate' | 'apply' | 'recheck';
 
-export const findChecker = (medplum: MedplumClient) =>
-  medplum.searchOne('Bot', {
-    identifier: `${CHECKER_IDENTIFIER.system}|${CHECKER_IDENTIFIER.value}`,
-  });
-
-/** `$deploy` records the filename on the Bot, so it names the version and bundle deployed. */
-export function checkerFilename(code: string, version: string): string {
-  const hash = createHash('sha256').update(code).digest('hex').slice(0, 16);
-  return `plumb-checker-${version}-${hash}.cjs`;
+/** What push will do with one StructureDefinition: the selected profiles and what they depend on. */
+export interface PlannedDefinition {
+  url: string;
+  version?: string;
+  action: 'create' | 'update' | 'unchanged' | 'shadowed';
+  /** The version the project holds, when it holds one. */
+  held?: string;
+  /** Changed content under the version the project already holds. */
+  edited?: true;
 }
-
-export const deployedVersion = (bot: Bot) =>
-  bot.executableCode?.title?.match(/^plumb-checker-(.+)-[0-9a-f]{16}\.cjs$/)?.[1];
-
-// The checker reads the types it checks, and the base definitions of contained resources.
-const READ: AccessPolicyResource['interaction'] = ['read', 'vread', 'search', 'history'];
-
-interface CheckerInstall {
-  status: 'installed' | 'updated' | 'unchanged';
-  /** Plumb's version, deployed with the bundle. */
-  version: string;
-  /** The version replaced, when the bundle was redeployed over an older one. */
-  previous?: string;
-  botId: string;
-}
-
-interface CheckerOptions {
-  /** The bundled bot, `dist/checker.cjs`. */
-  code: string;
-  version: string;
-  /** The resource types the selected profiles constrain: all the bot may read, with StructureDefinition. */
-  resourceTypes: string[];
-}
-
-/**
- * Creates or updates the checker bot and its read-only AccessPolicy, and
- * deploys its bundle unless the deployed one has the same version and hash.
- * Needs an admin membership that can write Bot and AccessPolicy.
- */
-async function installChecker(
-  medplum: MedplumClient,
-  options: CheckerOptions,
-): Promise<CheckerInstall> {
-  const filename = checkerFilename(options.code, options.version);
-  const policy: AccessPolicy = {
-    resourceType: 'AccessPolicy',
-    name: 'plumb-checker (read-only)',
-    resource: [...new Set([...options.resourceTypes, 'StructureDefinition'])]
-      .sort()
-      .map((resourceType) => ({ resourceType, interaction: READ })),
-  };
-
-  const found = await findChecker(medplum);
-  let bot: Bot;
-  let changed = false;
-  if (found) {
-    bot = found;
-    changed = await updatePolicy(medplum, bot, policy);
-  } else {
-    const created = await medplum.createResource(policy);
-    const projectId = medplum.getProject()?.id as string;
-    // The admin endpoint creates the bot's membership, with its policy, too.
-    const createdBot = await medplum.post<Bot>(`admin/projects/${projectId}/bot`, {
-      name: 'plumb-checker',
-      description: 'Validates stored resources against profiles for plumb validate; reads only.',
-      accessPolicy: createReference(created),
-    });
-    bot = await medplum.updateResource<Bot>({ ...createdBot, identifier: [CHECKER_IDENTIFIER] });
-  }
-  const botId = bot.id as string;
-
-  const deployed = bot.executableCode?.title;
-  if (deployed !== filename) {
-    await medplum.post(medplum.fhirUrl('Bot', botId, '$deploy'), {
-      code: options.code,
-      filename,
-    });
-    changed = true;
-  }
-  const previous = deployedVersion(bot);
-  return {
-    status: deployed === undefined ? 'installed' : changed ? 'updated' : 'unchanged',
-    version: options.version,
-    ...(previous !== undefined && previous !== options.version ? { previous } : {}),
-    botId,
-  };
-}
-
-/** Points the bot's membership at a policy with exactly the planned entries. */
-async function updatePolicy(medplum: MedplumClient, bot: Bot, policy: AccessPolicy) {
-  const membership = await medplum.searchOne('ProjectMembership', {
-    profile: `Bot/${bot.id}`,
-  });
-  if (!membership) throw new Error(`plumb-checker (Bot/${bot.id}) has no ProjectMembership.`);
-  const current = membership.accessPolicy
-    ? await medplum.readReference(membership.accessPolicy)
-    : undefined;
-  if (!current) {
-    const created = await medplum.createResource(policy);
-    await medplum.updateResource<ProjectMembership>({
-      ...membership,
-      accessPolicy: createReference(created),
-    });
-    return true;
-  }
-  if (JSON.stringify(current.resource) === JSON.stringify(policy.resource)) return false;
-  await medplum.updateResource({ ...current, resource: policy.resource });
-  return true;
-}
-
-type PushStepName = 'load' | 'connect' | 'checker';
 
 export interface PushResult extends EnvResult<PushStepName> {
   checker?: CheckerInstall;
+  plan: PlannedDefinition[];
+  /** What would fail the planned profiles, before anything is loaded. */
+  gate?: Checked;
+  /** What fails the loaded profiles, straight after loading. */
+  recheck?: Checked;
+  reportPath?: string;
 }
 
-export interface PushOptions extends EnvOptions<PushStepName> {
+export interface PushOptions extends EnvOptions {
   checker: Pick<CheckerOptions, 'code' | 'version'>;
+  /** Where the gate's and the re-check's failing ids go, as `validate`'s do. */
+  reportPath: string;
+  /** Stop after the gate: report what would load and what would fail it, and write no profile. */
+  dryRun?: boolean;
+  onPage?: ValidateEnvOptions['onPage'];
 }
 
 /**
- * Loads the selected profiles, connects to the environment and installs or
- * updates the checker bot: step 1 of design 02's push.
+ * Installs or updates the checker, then loads the selected profiles and what
+ * they depend on, refusing while stored resources would fail them: design
+ * 02's push. Nothing is loaded when the gate fails. Profiles loaded and then
+ * failed by the re-check stay loaded, as Postgres keeps a `NOT VALID`
+ * constraint.
  */
 export async function push(options: PushOptions): Promise<PushResult> {
-  const result: PushResult = { ok: false, steps: [], totalMs: 0, errors: [] };
-  const step = steps(result, options.onStep);
+  const result: PushResult = { ok: false, steps: [], totalMs: 0, errors: [], plan: [] };
+  const step = steps<PushStepName, PushResult>(result, options.onStep);
   const ready = await loadAndConnect(options, result, step);
   if (!ready) return result;
+  const { loaded, medplum } = ready;
 
   try {
-    result.checker = await installChecker(ready.medplum, {
+    result.checker = await installChecker(medplum, {
       ...options.checker,
       resourceTypes: ready.resourceTypes,
     });
   } catch (err) {
     return step.fail('checker', [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
   }
-  const { status, version, previous } = result.checker;
+  const { status, version, previous, botId } = result.checker;
   step.finish('checker', `plumb-checker ${previous ? `${previous} → ` : ''}${version} ${status}`);
-  result.ok = true;
+
+  const { planned, held } = await planStep(medplum, loaded, result, step);
+  const changes = result.plan.filter((p) => p.action === 'create' || p.action === 'update');
+  if (changes.length === 0 || result.plan.some((p) => p.action === 'shadowed')) {
+    result.ok = !result.plan.some((p) => p.action === 'shadowed');
+    return step.done();
+  }
+
+  const filename = checkerFilename(options.checker.code, options.checker.version);
+  result.reportPath = options.reportPath;
+  const check = (name: 'gate' | 'recheck') =>
+    checkStored(medplum, loaded, botId, { ...options, filename }).catch((err: unknown) => {
+      step.fail(name, [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
+      return undefined;
+    });
+
+  result.gate = await check('gate');
+  if (!result.gate) return result;
+  const gate = judge(result.gate, loaded.profiles.length);
+  const env = options.environment.name;
+  step.finish(
+    'gate',
+    gate.failed ? failingSummary(result.gate) : 'nothing stored would fail',
+    gate.failed
+      ? [`Refusing to load: fix or migrate them first, or see plumb validate --env ${env}.`]
+      : options.dryRun
+        ? ['Dry run: nothing loaded.']
+        : [],
+    gate.failed,
+  );
+  if (gate.failed || options.dryRun) {
+    result.ok = !gate.failed;
+    return step.done();
+  }
+
+  try {
+    await apply(medplum, changes, planned, held);
+  } catch (err) {
+    return step.fail('apply', [{ code: 'apply-failed', message: normalizeErrorString(err) }]);
+  }
+  const created = changes.filter((p) => p.action === 'create').length;
+  step.finish('apply', `${created} created, ${changes.length - created} updated`);
+
+  result.recheck = await check('recheck');
+  if (!result.recheck) return result;
+  const recheck = judge(result.recheck, loaded.profiles.length);
+  step.finish(
+    'recheck',
+    recheck.failed ? failingSummary(result.recheck, true) : 'nothing stored fails',
+    recheckNotes(recheck.failed, result.strictMode === true),
+    recheck.failed,
+  );
+  result.ok = !recheck.failed;
   return step.done();
+}
+
+/** The selected profiles and what they depend on, against what the project holds. */
+async function planStep(
+  medplum: MedplumClient,
+  loaded: LoadProfilesResult,
+  result: PushResult,
+  step: { finish: (name: PushStepName, summary: string, w: string[], failed: boolean) => void },
+) {
+  const planned = closure(
+    loaded.profiles.map((p) => p.url),
+    loaded,
+  );
+  const held = new Map<string, StructureDefinition[]>();
+  for (const sd of planned) {
+    const found = await medplum.searchResources('StructureDefinition', {
+      url: sd.url,
+      _count: '100',
+    });
+    held.set(sd.url, found);
+  }
+  result.plan = planLoad(planned, held);
+  const shadowed = result.plan.filter((p) => p.action === 'shadowed');
+  step.finish(
+    'plan',
+    planSummary(result.plan, new Set(loaded.profiles.map((p) => p.url))),
+    [
+      ...shadowed.map(
+        (p) => `${p.url}: the project holds more than one; delete all but one, then push again.`,
+      ),
+      ...result.plan
+        .filter((p) => p.edited)
+        .map((p) => `${p.url}|${p.version}: changed without a version bump.`),
+    ],
+    shadowed.length > 0,
+  );
+  return { planned, held };
+}
+
+/** Updates the one StructureDefinition the project holds for a URL, or creates it. */
+async function apply(
+  medplum: MedplumClient,
+  changes: PlannedDefinition[],
+  planned: StructureDefinition[],
+  held: Map<string, StructureDefinition[]>,
+): Promise<void> {
+  for (const change of changes) {
+    const sd = planned.find((d) => d.url === change.url) as StructureDefinition;
+    const { id: _, meta: __, ...content } = sd;
+    const target = held.get(change.url)?.[0];
+    if (target) await medplum.updateResource({ ...content, id: target.id });
+    else await medplum.createResource(content);
+  }
+}
+
+/** Strict mode is reported, never set: only a super admin can change it. */
+function recheckNotes(failed: boolean, strictMode: boolean): string[] {
+  const notes = failed ? ['Written between the gate and loading; the profiles stay loaded.'] : [];
+  if (!strictMode) {
+    notes.push(
+      `Strict mode is off, and only a super admin can turn it on${failed ? '' : '; every stamped resource checked passes its profiles'}.`,
+    );
+  }
+  return notes;
+}
+
+/**
+ * Compares each planned StructureDefinition with what the project holds under
+ * its URL. Push updates the one it holds rather than adding another, which
+ * would shadow it: Medplum picks the "newest" by sorting versions as text.
+ */
+export function planLoad(
+  planned: StructureDefinition[],
+  held: Map<string, StructureDefinition[]>,
+): PlannedDefinition[] {
+  return planned.map((sd) => {
+    const found = held.get(sd.url) ?? [];
+    const base = { url: sd.url, ...(sd.version ? { version: sd.version } : {}) };
+    const current = found[0];
+    if (found.length > 1) return { ...base, action: 'shadowed' };
+    if (!current) return { ...base, action: 'create' };
+    const was = current.version ? { held: current.version } : {};
+    if (sameContent(sd, current)) return { ...base, ...was, action: 'unchanged' };
+    return {
+      ...base,
+      ...was,
+      action: 'update',
+      ...(current.version === sd.version ? { edited: true } : {}),
+    };
+  });
+}
+
+const sameContent = (a: StructureDefinition, b: StructureDefinition) => {
+  const { id: _a, meta: _am, ...left } = a;
+  const { id: _b, meta: _bm, ...right } = b;
+  return deepEquals(left, right);
+};
+
+/** The selected profiles push loads by name and version, then a count of their dependencies. */
+function planSummary(plan: PlannedDefinition[], selected: Set<string>): string {
+  const changes = plan.filter((p) => p.action === 'create' || p.action === 'update');
+  if (plan.some((p) => p.action === 'shadowed')) return 'refusing: profiles are shadowed';
+  if (changes.length === 0) return `${plan.length} up to date, nothing to load`;
+  const named = changes
+    .filter((p) => selected.has(p.url))
+    .map((p) => `${p.url.slice(p.url.lastIndexOf('/') + 1)}${p.version ? ` ${p.version}` : ''}`);
+  const dependencies = changes.length - named.length;
+  return `load ${named.join(', ') || 'no selected profile'}${dependencies ? ` (+${dependencies} dependencies)` : ''}`;
+}
+
+/** What fails: `loaded` once the profiles are in the project, before that what would. */
+function failingSummary(checked: Checked, loaded = false): string {
+  const failing = Object.entries(checked.profiles).filter(([, p]) => p.failing > 0);
+  if (failing.length === 0) return 'a checked type was not readable';
+  const count = failing.reduce((n, [, p]) => n + p.failing, 0);
+  const names = failing.map(([url]) => url.slice(url.lastIndexOf('/') + 1)).join(', ');
+  const verb = !loaded ? 'would fail' : count === 1 ? 'fails' : 'fail';
+  return `${count} stored resource${count === 1 ? '' : 's'} ${verb} ${names}`;
 }

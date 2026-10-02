@@ -124,6 +124,16 @@
   tell "nothing readable" from "nothing stored", sorts stamps naming
   profiles the project lacks into the silent ones, and flags shadowed
   profile URLs. Failing ids never reach the terminal or `--json`.
+  `plumb push` now runs design 02's whole first slice (#56): after the
+  checker, it plans the selected profiles and the definitions they depend
+  on against what the project holds, updating the one StructureDefinition
+  held for a URL rather than adding a second that would shadow it, and
+  flagging content changed without a version bump; refuses on a shadowed
+  URL; runs the checker against the planned versions and loads nothing
+  while anything stored would fail (`--dry-run` stops there); loads; and
+  re-checks at once. Real-server tests cover the refusal, the fix, the
+  edit without a bump, a failing write between the gate and loading, and
+  that a project admin's write to `strictMode` changes nothing.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

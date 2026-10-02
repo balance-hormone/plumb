@@ -10,38 +10,38 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
 import type { PageResult } from '../../src/checker/handler.js';
 import { checkerInput } from '../../src/checker/input.js';
+import { CHECKER_IDENTIFIER } from '../../src/checker/install.js';
 import { loadProfiles } from '../../src/loader.js';
 import { fetchPackages } from '../../src/packages.js';
-import { CHECKER_IDENTIFIER, type PushOptions, push } from '../../src/push.js';
+import { type PushOptions, push } from '../../src/push.js';
 import { connect, server } from './medplum.js';
+import { newProject, type TestServer } from './setup.js';
 
 const PATIENT = 'http://example.org/fhir/plumb-test/StructureDefinition/cardinality-patient';
 const SYNTHETIC = join(import.meta.dirname, '../fixtures/profiles/fsh-generated/resources');
 const READ = ['read', 'vread', 'search', 'history'];
 
-// The tests share one checker bot in this run's project, so they run in order.
-describe.skipIf(!server)('push installs the checker bot', () => {
+// Push loads profiles, so it has a project of its own; its tests share one checker bot.
+describe.skipIf(!server)('push installs the checker bot', { timeout: 60_000 }, () => {
+  let project: TestServer;
   let options: PushOptions;
   beforeAll(async () => {
+    project = await newProject();
     const lockPath = join(mkdtempSync(join(tmpdir(), 'plumb-push-')), 'plumb.lock');
     await fetchPackages({ igs: [], lockPath });
     const code = (await build({ ...CHECKER_BUILD, write: false })).outputFiles[0]?.text ?? '';
     options = {
       config: { igs: [], profiles: [PATIENT], local: SYNTHETIC, out: '' },
-      environment: {
-        name: 'test',
-        baseUrl: server?.baseUrl ?? '',
-        clientId: server?.clientId ?? '',
-        clientSecret: server?.clientSecret ?? '',
-      },
+      environment: { name: 'test', ...project },
       lockPath,
       checker: { code, version: '0.2.0' },
+      reportPath: join(lockPath, '../.plumb/validate-test.json'),
     };
-  });
+  }, 60_000);
 
   /** The checker bot, its membership and its AccessPolicy, as stored. */
   async function installed() {
-    const medplum = await connect();
+    const medplum = await connect(project);
     const bot = await medplum.searchOne('Bot', {
       identifier: `${CHECKER_IDENTIFIER.system}|${CHECKER_IDENTIFIER.value}`,
     });
@@ -59,6 +59,10 @@ describe.skipIf(!server)('push installs the checker bot', () => {
       '1 profiles of Patient',
       expect.stringMatching(/\(strict mode on\)$/),
       'plumb-checker 0.2.0 installed',
+      'load cardinality-patient 0.1.0',
+      'nothing stored would fail',
+      '1 created, 0 updated',
+      'nothing stored fails',
     ]);
     const { bot, policy } = await installed();
     expect(bot.id).toBe(result.checker?.botId);
@@ -73,6 +77,10 @@ describe.skipIf(!server)('push installs the checker bot', () => {
     const before = await installed();
     const result = await push(options);
     expect(result.checker?.status).toBe('unchanged');
+    expect(result.steps.at(-1)).toMatchObject({
+      name: 'plan',
+      summary: '1 up to date, nothing to load',
+    });
     const after = await installed();
     expect(after.bot.meta?.versionId).toBe(before.bot.meta?.versionId);
     expect(after.policy.meta?.versionId).toBe(before.policy.meta?.versionId);
@@ -120,7 +128,9 @@ describe.skipIf(!server)('push installs the checker bot', () => {
     expect(redeployed.checker).not.toHaveProperty('previous');
 
     const newer = await push({ ...options, checker: { ...changed, version: '0.3.0' } });
-    expect(newer.steps.at(-1)?.summary).toBe('plumb-checker 0.2.0 → 0.3.0 updated');
+    expect(newer.steps.find((s) => s.name === 'checker')?.summary).toBe(
+      'plumb-checker 0.2.0 → 0.3.0 updated',
+    );
 
     const observation = 'http://example.org/fhir/plumb-test/StructureDefinition/sliced-observation';
     const config = { ...options.config, profiles: [PATIENT, observation] };

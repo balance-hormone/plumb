@@ -39,7 +39,7 @@ export function checkerInput(
 }
 
 /** The profiles, their parents and the extensions they name, as the loader walked them. */
-function closure(urls: string[], loaded: Pick<LoadProfilesResult, 'definitions'>) {
+export function closure(urls: string[], loaded: Pick<LoadProfilesResult, 'definitions'>) {
   const found = new Map<string, StructureDefinition>();
   const todo = [...urls];
   for (let url = todo.pop(); url !== undefined; url = todo.pop()) {
