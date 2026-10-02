@@ -7,7 +7,7 @@ import { newProject } from './project.js';
 
 // The README's quickstart, against a packed tarball in a new project: install,
 // configure, generate, use the types and helpers, route and stamp a write,
-// validate, then --check. It
+// read it back with isProfiled, validate, then --check. It
 // uses Plumb's synthetic profiles as `local`, so it needs npm but not the FHIR
 // registry. It installs packages, so it runs in CI, or locally with PLUMB_E2E=1.
 const ROOT = join(import.meta.dirname, '../..');
@@ -48,7 +48,7 @@ export default defineConfig({
       'src/app.ts',
       `import type { Resource } from '@medplum/fhirtypes';
 import { validateProfiled } from 'plumb-fhir';
-import { type CardinalityPatient, createProfiled, route, SlicedObservation, SlicedObservationProfileUrl } from './fhir/generated/index.js';
+import { type CardinalityPatient, CardinalityPatientProfileUrl, createProfiled, isProfiled, route, SlicedObservation, SlicedObservationProfileUrl } from './fhir/generated/index.js';
 
 export const patient: CardinalityPatient = { resourceType: 'Patient', birthDate: '1970-01-01', name: [{ family: 'Doe' }] };
 // @ts-expect-error birthDate is required
@@ -65,7 +65,10 @@ const client = {
   updateResource: async <T extends Resource>(r: T): Promise<T> => r,
 };
 await createProfiled(client, patient);
-console.log(JSON.stringify({ read: SlicedObservation.getSystolic({ component: [systolic] })?.valueQuantity?.value, ok: report.ok, routed: route(patient), stamped: written[0]?.meta?.profile }));
+// Read back as its profile: stamped, and holding what the type requires.
+const stored = written[0] as Resource;
+const profiled: CardinalityPatient | undefined = isProfiled(stored, CardinalityPatientProfileUrl) ? stored : undefined;
+console.log(JSON.stringify({ read: SlicedObservation.getSystolic({ component: [systolic] })?.valueQuantity?.value, ok: report.ok, routed: route(patient), stamped: stored.meta?.profile, profiled: profiled !== undefined, unstamped: isProfiled(patient, CardinalityPatientProfileUrl) }));
 `,
     );
     const tsc = project.tsc();
@@ -80,6 +83,8 @@ console.log(JSON.stringify({ read: SlicedObservation.getSystolic({ component: [s
       ok: false,
       routed: `${PLUMB}/cardinality-patient`,
       stamped: [`${PLUMB}/cardinality-patient`],
+      profiled: true,
+      unstamped: false,
     });
 
     // 6. Check.
