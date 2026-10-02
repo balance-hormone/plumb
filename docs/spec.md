@@ -426,7 +426,8 @@ These reuse the same parsed profiles and are specified when they are picked up.
 - **Typed reads.** A read or search helper per profile that returns the profile
   type, asserts the stamp, and refuses `_elements`, `_summary` and `_history`.
   A stamp proves a record passed its profile only if it was written while the
-  project was strict.
+  project was strict, so each read also checks the paths the type requires.
+  See [design 04](design/04-typed-reads.md).
 - **Zod schemas** from the same parse, for forms and input edges. A passing
   parse means the input looks right, not that the server will accept it.
 - **Agent summaries,** one short Markdown file per profile next to the
