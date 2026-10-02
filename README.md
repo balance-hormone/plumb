@@ -181,6 +181,150 @@ export default defineConfig({
 });
 ```
 
+## Check stored data, then load profiles
+
+Medplum validates a resource when it is written, and never again. Tightening a
+profile, or turning strict mode on, therefore arms a failure in the next write
+of every stored record that does not meet it. Plumb checks first, as a database
+migration tool does before it adds a constraint: `plumb validate` counts what
+would fail, and `plumb push` loads profiles only while nothing would.
+
+**1. Name the environment** in `plumb.config.ts`. The config is committed, so
+it names the environment variables that hold the credentials, never the
+values:
+
+```ts
+import { defineConfig } from 'plumb-fhir';
+
+export default defineConfig({
+  igs: ['hl7.fhir.us.core@9.0.0'],
+  profiles: ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient'],
+  out: './src/fhir/generated',
+  environments: {
+    prod: {
+      baseUrl: 'https://api.medplum.com/',
+      clientId: { env: 'MEDPLUM_PROD_CLIENT_ID' },
+      clientSecret: { env: 'MEDPLUM_PROD_CLIENT_SECRET' },
+    },
+  },
+});
+```
+
+**2. Give Plumb a client.** Create a ClientApplication in the project for CI,
+and make its project membership an admin: `push` creates Plumb's checker bot
+through Medplum's admin endpoint, reads bot memberships, and writes Bot,
+AccessPolicy and StructureDefinition resources. If the membership has an
+AccessPolicy, it must allow those writes. The project needs bots enabled; on a
+self-hosted server, `push` creates the bot on the server's default bot
+runtime (`defaultBotRuntimeVersion`).
+
+**3. Install the checker** with a first `plumb push --env prod --dry-run`
+(below), then check what is stored:
+
+```bash
+npx plumb validate --env prod
+```
+
+```text
+plumb validate --env prod
+✔ load      1 profiles of Patient   1.9s
+✔ connect   https://api.medplum.com/ (strict mode off)   320ms
+✔ checker   plumb-checker 0.2.0 installed   60ms
+✔ profiles  1 selected, none shadowed   80ms
+✖ validate  1 of 1 profiles would fail   38.4s
+    Patient: 12400 of 12400 read, 300 of 12360 fail; 40 unstamped; silent stamps: 3 url|version
+      us-core-patient   12360 checked, 300 failures
+        Patient.identifier: Missing required property   (300)
+Failing ids: .plumb/validate-prod.json (gitignored)
+Failed in 40.8s
+```
+
+- **Validation runs inside the project**, in Plumb's checker bot, with the
+  `@medplum/core` release Plumb was built with. Patient data never leaves
+  Medplum: only counts, reasons and the ids of failing records come back. The
+  bot's own AccessPolicy reads the checked resource types and
+  StructureDefinition, and writes nothing.
+- **Against the versions in `plumb.config.ts`,** not what the project has
+  loaded: it answers "what would fail if we loaded these?"
+- **Each resource is checked against the selected profiles it is stamped
+  with** (`meta.profile`). Resources with no stamp are counted, not checked.
+  Silent stamps, which today validate against nothing, are counted too: a
+  profile URL the project does not hold, a `url|version` stamp (Medplum
+  matches bare URLs only) and an empty `meta.profile`.
+- **Empty is never ambiguous.** Each type reports how many resources the bot
+  read against how many exist, so "all passed", "none carries a selected
+  profile", "none stored" and "0 of N readable" (an AccessPolicy that hides
+  them) read differently.
+- **Shadowed profiles** fail the check: more than one StructureDefinition for
+  a selected URL, of which Medplum enforces the one whose version sorts last
+  as text, so `1.9.0` beats `1.10.0`.
+- **Failing ids go to `.plumb/validate-<env>.json`**, never to the terminal,
+  CI logs or `--json`. The `.plumb` folder ignores itself in git.
+- **Large projects:** the bot checks one page per run, as an async job, and
+  the file saves each page; `--resume` continues an interrupted run from its
+  last page.
+- **Exit codes:** 0 when nothing fails; 1 when something would fail, a type
+  could not be read, or a profile is shadowed; 2 for usage, config and
+  connection errors, and when the checker is missing or from another Plumb
+  release (run `plumb push` to install it). `validate` never installs or
+  changes anything.
+
+**4. Fix or migrate** the failing records, and validate again until nothing
+fails.
+
+**5. Load the profiles:**
+
+```bash
+npx plumb push --env prod
+```
+
+```text
+plumb push --env prod
+✔ load      1 profiles of Patient   1.9s
+✔ connect   https://api.medplum.com/ (strict mode off)   320ms
+✔ checker   plumb-checker 0.2.0 unchanged   90ms
+✔ plan      load us-core-patient 9.0.0 (+7 dependencies)   210ms
+✔ gate      nothing stored would fail   36.1s
+✔ apply     8 created, 0 updated   1.4s
+✔ recheck   nothing stored fails   35.7s
+    Strict mode is off, and only a super admin can turn it on; every stamped resource checked passes its profiles.
+Done in 76.4s
+```
+
+- **checker** installs or updates the checker bot and its AccessPolicy, and
+  redeploys it only when Plumb's version or the bundle changes.
+- **plan** compares the selected profiles, and the extensions and parents
+  they depend on, with what the project holds. A URL the project already
+  holds is updated in place, never added again (that would shadow it). A
+  StructureDefinition whose content changed without a version bump is
+  flagged, and a URL already shadowed stops the push. Base R4 is the server's
+  own and is never written.
+- **gate** runs the checker against the planned versions. If any stored
+  resource would fail, `push` refuses and loads nothing. `--dry-run` stops
+  here, so it is a safe way to install the checker and preview a push.
+- **apply** creates or updates the StructureDefinitions.
+- **recheck** checks again at once, to catch a failing write made between the
+  gate and loading. A failure there fails the push (exit 1), and the profiles
+  stay loaded, as Postgres keeps a `NOT VALID` constraint.
+
+Exit codes are `validate`'s, and `--json` and `--quiet` work as for `generate`.
+
+**6. Turn strict mode on.** Plumb reports strict mode, and never sets it: only
+a super admin can, so on hosted Medplum ask Medplum's team, and on a
+self-hosted server its operator. With strict mode off, the server accepts a
+resource that fails a profile it names; a clean `push` re-check says the
+stored data is ready.
+
+In CI, run `push` where the deploy runs, with the secrets as environment
+variables:
+
+```yaml
+- run: npx plumb push --env prod
+  env:
+    MEDPLUM_PROD_CLIENT_ID: ${{ secrets.MEDPLUM_PROD_CLIENT_ID }}
+    MEDPLUM_PROD_CLIENT_SECRET: ${{ secrets.MEDPLUM_PROD_CLIENT_SECRET }}
+```
+
 ## Keep `@medplum/*` in step with your server
 
 The types and `validateProfiled` use the `@medplum/*` packages you install.
@@ -223,6 +367,16 @@ the rest. Each generated type's doc comment lists the rules it cannot check.
   contents, `closed` or `ordered` slicing, narrowed choice types, or rules
   reached through a `contentReference`. See
   [`docs/design/01-generator.md`](docs/design/01-generator.md), Testing.
+
+- **Unstamped resources are counted, not checked.** Which profile an
+  unstamped resource should carry is routing's job, planned for v0.3.
+- **Plumb never sets strict mode** or `defaultProfile`; a super admin turns
+  strict mode on.
+- **Nothing yet stops another writer** loading StructureDefinitions around
+  `push`, and every failure blocks it: a baseline of accepted failures and
+  the AccessPolicy lockdown come later.
+- **The checker is tested on Medplum's `vmcontext` bot runtime.** Hosted
+  Medplum runs bots on AWS Lambda, which the tests cannot run.
 
 ## Development
 
