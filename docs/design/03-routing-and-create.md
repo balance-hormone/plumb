@@ -1,6 +1,6 @@
 # Design 03: Routing and `createProfiled`
 
-**Status: proposed.** Builds the spec's "Routing and `create`" (user story 10).
+**Status: implemented in v0.3.** Builds the spec's "Routing and `create`" (user story 10).
 Read the [US Core 9.0.0 routing](../research/us-core-9-routing.md) research
 first: it is the evidence for which routes generate and which need config.
 

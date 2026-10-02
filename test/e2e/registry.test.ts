@@ -34,11 +34,22 @@ test.skipIf(!run)(
 
     // Its usage example and validateProfiled test, as one module that prints the verdict.
     const usage = block("import { createReference } from '@medplum/core';");
+    // The routing example: route(bp) as an assertion; createProfiled needs a server.
+    const routing = block("import { createProfiled, route } from './fhir/generated/index.js';")
+      .replace(
+        /^import \{ createProfiled, route \}.*$/m,
+        "import { route } from './fhir/generated/index.js';",
+      )
+      .replace(
+        /^route\(bp\);.*$/m,
+        "if (route(bp) !== USCoreBloodPressureProfileUrl) throw new Error('routed to ' + route(bp));",
+      )
+      .replace(/^const saved = .*$/m, '');
     const check = block("import { validateProfiled } from 'plumb-fhir';")
       .replace(/test\('[^']*', async \(\) => \{/, '{')
       .replace('expect(report.errors).toEqual([]);', 'console.log(JSON.stringify(report.errors));')
       .replace(/\}\);\s*$/, '}\n');
-    project.write('src/app.ts', `${usage}\n${check}`);
+    project.write('src/app.ts', `${usage}\n${routing}\n${check}`);
     const tsc = project.tsc();
     expect(tsc.status, tsc.stdout).toBe(0);
     const ran = project.node('build/app.js');
