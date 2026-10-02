@@ -1,8 +1,8 @@
 # Idea: Conformance Check
 
-**Status: parked.** An idea for a later tool, not a commitment. Plumb's first
-deliverable is profile types ([`../spec.md`](../spec.md)). This note keeps the
-design sketch and research so the idea can be picked up without starting over.
+**Status: stages 1 and 2 built in v0.2,** by
+[design 02](../design/02-conformance-check.md). This note keeps the design
+sketch and research for the stages still parked.
 
 ## Problem
 

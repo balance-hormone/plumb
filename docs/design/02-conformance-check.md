@@ -1,6 +1,6 @@
 # Design 02: Conformance Check
 
-**Status: proposed.** Picks up the parked [conformance check](../future/conformance-check.md)
+**Status: implemented in v0.2.** Picks up the parked [conformance check](../future/conformance-check.md)
 idea. Read that note's "In SQL terms" section first: this design builds its
 stages 1 and 2.
 
