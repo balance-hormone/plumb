@@ -55,14 +55,15 @@ export interface EnvResult<Name extends string> {
   errors: { code: string; message: string; step: Name }[];
 }
 
-export interface EnvOptions<Name extends string> {
+export interface EnvOptions {
   /** A loaded config, with `local` resolved to an absolute path. */
   config: PlumbConfig;
   environment: ResolvedEnvironment;
   lockPath: string;
   cacheDir?: string;
   fetch?: typeof globalThis.fetch;
-  onStep?: (step: EnvStep<Name>) => void;
+  // Any step name, so one printer serves every command.
+  onStep?: (step: EnvStep<string>) => void;
 }
 
 const ms = (since: number) => Math.round(performance.now() - since);
@@ -70,7 +71,7 @@ const ms = (since: number) => Math.round(performance.now() - since);
 /** Records each step as it finishes, and each error with its step. */
 export function steps<Name extends string, Result extends EnvResult<Name>>(
   result: Result,
-  onStep?: (step: EnvStep<Name>) => void,
+  onStep?: (step: EnvStep<string>) => void,
 ) {
   const start = performance.now();
   let since = start;
@@ -99,7 +100,7 @@ export function steps<Name extends string, Result extends EnvResult<Name>>(
  * `generate --check`), then log in to the environment.
  */
 export async function loadAndConnect<Name extends string>(
-  options: EnvOptions<Name | 'load' | 'connect'>,
+  options: EnvOptions,
   result: EnvResult<Name | 'load' | 'connect'>,
   step: Pick<
     ReturnType<typeof steps<Name | 'load' | 'connect', EnvResult<Name | 'load' | 'connect'>>>,

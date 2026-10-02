@@ -7,9 +7,9 @@ import { inject } from 'vitest';
 export const server = inject('medplum');
 
 /** A client logged in to the test project as its CI ClientApplication, an admin. */
-export async function connect(): Promise<MedplumClient> {
-  if (!server) throw new Error('No Medplum server: run with PLUMB_SERVER=1.');
-  const medplum = new MedplumClient({ baseUrl: server.baseUrl });
-  await medplum.startClientLogin(server.clientId, server.clientSecret);
+export async function connect(project = server): Promise<MedplumClient> {
+  if (!project) throw new Error('No Medplum server: run with PLUMB_SERVER=1.');
+  const medplum = new MedplumClient({ baseUrl: project.baseUrl });
+  await medplum.startClientLogin(project.clientId, project.clientSecret);
   return medplum;
 }

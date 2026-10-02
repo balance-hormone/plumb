@@ -15,9 +15,10 @@ import type {
 import { build } from 'esbuild';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
+import { findChecker } from '../../src/checker/install.js';
 import { type ValidateEnvOptions, validateEnvironment } from '../../src/conformance.js';
 import { fetchPackages } from '../../src/packages.js';
-import { findChecker, push } from '../../src/push.js';
+import { push } from '../../src/push.js';
 import { server } from './medplum.js';
 import { newProject, type TestServer } from './setup.js';
 
@@ -111,14 +112,14 @@ describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
     ]);
     expect(missing.errors[0]?.message).toContain('Run plumb push --env test.');
 
-    expect((await push({ ...options, checker: { ...options.checker, version: '0.1.0' } })).ok).toBe(
-      true,
-    );
+    // Push installs the checker first; the shadowed profile then stops it loading anything.
+    const older = await push({ ...options, checker: { ...options.checker, version: '0.1.0' } });
+    expect(older.checker?.status).toBe('installed');
     const outdated = await validateEnvironment(options);
     expect(outdated.errors[0]).toMatchObject({ step: 'checker', code: 'checker-outdated' });
     expect(outdated.errors[0]?.message).toContain('is 0.1.0, not this plumb');
 
-    expect((await push(options)).ok).toBe(true);
+    expect((await push(options)).checker?.status).toBe('updated');
   });
 
   test('reports failures, reasons, stamps, shadowing and the kinds of empty', async () => {
@@ -177,7 +178,9 @@ describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
     const resumed = await validateEnvironment({
       ...options,
       resume: true,
-      onPage: (type) => pages.push(type),
+      onPage: (type) => {
+        pages.push(type);
+      },
     });
     // Encounter, Observation and the first Patient page were saved; only the second runs.
     expect(resumed.resumed).toBe(3);
