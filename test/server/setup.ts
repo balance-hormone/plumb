@@ -48,15 +48,16 @@ export default async function setup(project: TestProject) {
 
 /**
  * A strict project with bots, a CI client that is its admin, and synthetic
- * data. Tests that count what a project holds make their own.
+ * data. Tests that count what a project holds make their own; tests of what a
+ * loose project stores make one with `strictMode: false`.
  */
-export async function newProject(seed?: Bundle): Promise<TestServer> {
+export async function newProject(seed?: Bundle, { strictMode = true } = {}): Promise<TestServer> {
   const admin = new MedplumClient({ baseUrl: BASE_URL });
   await admin.startClientLogin(...SUPER_ADMIN);
   const project = await admin.createResource({
     resourceType: 'Project',
     name: `plumb-test-${crypto.randomUUID()}`,
-    strictMode: true,
+    strictMode,
     features: ['bots'],
   });
   const client = await admin.post(`admin/projects/${project.id}/client`, { name: 'Plumb CI' });

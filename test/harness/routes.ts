@@ -20,6 +20,12 @@ interface Client {
   createResource<T extends Resource>(resource: T): Promise<T>;
   updateResource<T extends Resource>(resource: T): Promise<T>;
 }
+/** What the generated reads call: a MedplumClient, or a stub that records the calls. */
+export interface Reader {
+  readResource(resourceType: string, id: string): Promise<Resource>;
+  readReference(reference: object): Promise<Resource>;
+  searchResources(resourceType: string, query: URLSearchParams): Promise<Resource[]>;
+}
 type Write = <T extends Resource>(
   medplum: Client,
   resource: T,
@@ -43,6 +49,12 @@ export interface GeneratedRoutes {
   isProfiled: (resource: Resource, profile: string) => boolean;
   asProfiled: (resource: Resource, profile: string) => Resource;
   pickProfiled: (resources: readonly Resource[], profile: string) => Resource[];
+  readProfiled: (
+    medplum: Reader,
+    profile: string,
+    idOrReference: string | object,
+  ) => Promise<Resource>;
+  searchProfiled: (medplum: Reader, profile: string, query?: unknown) => Promise<Resource[]>;
   ProfileReadError: new (
     ...args: never[]
   ) => Error & {
@@ -92,7 +104,12 @@ export async function generatedRoutes(
   const generated = (await import(join(out, '_routes.ts'))) as GeneratedModule;
   const reads = (await import(join(out, '_reads.ts'))) as Pick<
     GeneratedRoutes,
-    'isProfiled' | 'asProfiled' | 'pickProfiled' | 'ProfileReadError'
+    | 'isProfiled'
+    | 'asProfiled'
+    | 'pickProfiled'
+    | 'readProfiled'
+    | 'searchProfiled'
+    | 'ProfileReadError'
   > & { required: Record<string, readonly (readonly string[])[]> };
   const plumb = (await import(join(out, '_plumb.ts'))) as {
     missing: (resource: object, rows: readonly (readonly string[])[]) => string[];
@@ -111,6 +128,8 @@ export async function generatedRoutes(
     isProfiled: reads.isProfiled,
     asProfiled: reads.asProfiled,
     pickProfiled: reads.pickProfiled,
+    readProfiled: reads.readProfiled,
+    searchProfiled: reads.searchProfiled,
     ProfileReadError: reads.ProfileReadError,
     warnings: routing.warnings,
   };

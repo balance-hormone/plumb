@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import type { Resource } from '@medplum/fhirtypes';
-import { beforeAll, describe, expect, test } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { baseType, compileCases, generateTypes, type ProfileType } from './compile.js';
 import { contractTables, usCoreCases } from './fixtures.js';
-import { type GeneratedRoutes, generatedRoutes } from './routes.js';
+import { type GeneratedRoutes, generatedRoutes, type Reader } from './routes.js';
 
 // Design 04: the presence check follows the type. A fixture that compiles
 // passes it; one that fails it does not compile; and one that tsc reports
@@ -128,6 +128,120 @@ export function recover(err: unknown): readonly ChildObservation[] {
 }
 // @ts-expect-error only a selected profile can be read
 export const unknown = asProfiled(resource, 'http://example.org/other');
+`);
+  expect(diagnostics).toEqual([]);
+});
+
+describe('readProfiled and searchProfiled, against a stub client', () => {
+  const parent = `${PLUMB}/parent-observation`;
+  const child = `${PLUMB}/child-observation`;
+  const conforming = contractTables
+    .find((t) => t.profile === child)
+    ?.fixtures.find((f) => f.conforms && f.compiles)?.resource as Resource;
+  const calls: unknown[][] = [];
+  const stub = (results: Resource[]): Reader => ({
+    readResource: async (...args) => {
+      calls.push(['readResource', ...args]);
+      return results[0] as Resource;
+    },
+    readReference: async (...args) => {
+      calls.push(['readReference', ...args]);
+      return results[0] as Resource;
+    },
+    searchResources: async (type, query) => {
+      calls.push(['searchResources', type, query.toString()]);
+      return results;
+    },
+  });
+  beforeEach(() => {
+    calls.length = 0;
+  });
+
+  test('reads by id from the profile type, or by reference, then checks', async () => {
+    const stamped = stamp({ ...conforming, id: 'obs-1' }, child);
+    await expect(generated.readProfiled(stub([stamped]), child, 'obs-1')).resolves.toBe(stamped);
+    await expect(
+      generated.readProfiled(stub([stamped]), child, { reference: 'Observation/obs-1' }),
+    ).resolves.toBe(stamped);
+    expect(calls).toEqual([
+      ['readResource', 'Observation', 'obs-1'],
+      ['readReference', { reference: 'Observation/obs-1' }],
+    ]);
+    await expect(
+      generated.readProfiled(stub([{ ...stamped, meta: {} }]), child, 'obs-1'),
+    ).rejects.toMatchObject({ reason: 'unstamped' });
+  });
+
+  test("searches for the profile's stamps: one URL alone, or with its children's", async () => {
+    const stamped = stamp({ ...conforming, id: 'obs-1' }, child);
+    await generatedSearch(child, { status: 'final' });
+    await generatedSearch(parent, [
+      ['code', 'a'],
+      ['code', 'b'],
+    ]);
+    await generatedSearch(parent, '?subject=Patient/1');
+    expect(calls).toEqual([
+      ['searchResources', 'Observation', `status=final&_profile=${encodeURIComponent(child)}`],
+      [
+        'searchResources',
+        'Observation',
+        `code=a&code=b&_profile=${encodeURIComponent(`${parent},${child}`)}`,
+      ],
+      [
+        'searchResources',
+        'Observation',
+        `subject=Patient%2F1&_profile=${encodeURIComponent(`${parent},${child}`)}`,
+      ],
+    ]);
+    async function generatedSearch(profile: string, query: unknown) {
+      return generated.searchProfiled(stub([stamped]), profile, query);
+    }
+  });
+
+  test.each(['_elements', '_fields', '_summary', '_include', '_revinclude:iterate'])(
+    'refuses %s before any request',
+    async (key) => {
+      const err = await generated
+        .searchProfiled(stub([]), child, { [key]: 'subject' })
+        .catch((e: unknown) => e as InstanceType<GeneratedRoutes['ProfileReadError']>);
+      expect(err).toBeInstanceOf(generated.ProfileReadError);
+      expect(err).toMatchObject({ reason: 'refused', failed: [] });
+      expect((err as Error).message).toMatch(
+        new RegExp(`^searchProfiled\\(child-observation\\) refuses ${key.split(':')[0]}: `),
+      );
+      expect(calls).toEqual([]);
+    },
+  );
+
+  test('one failing result fails the search, with the rest in passed', async () => {
+    const good = stamp({ ...conforming, id: 'obs-1' }, child);
+    const { subject: _, ...bad } = { ...good, id: 'obs-2' } as Resource & { subject?: unknown };
+    const err = await generated
+      .searchProfiled(stub([good, bad as Resource]), parent)
+      .catch((e: unknown) => e as InstanceType<GeneratedRoutes['ProfileReadError']>);
+    expect(err).toMatchObject({
+      reason: 'missing',
+      failed: [{ reference: 'Observation/obs-2', missing: ['Observation.subject'] }],
+    });
+    expect((err as { passed: unknown }).passed).toEqual([good]);
+  });
+});
+
+test('types: a MedplumClient reads, typed with its id', () => {
+  const child = `${PLUMB}/child-observation`;
+  const diagnostics = generated.typecheck(`
+import type { MedplumClient } from '@medplum/core';
+import type { ChildObservation } from './generated/ChildObservation.js';
+import { type ProfiledReader, readProfiled, searchProfiled } from './generated/index.js';
+
+declare const medplum: MedplumClient;
+export const reader: ProfiledReader = medplum;
+export async function read(): Promise<string> {
+  const one: ChildObservation = await readProfiled(medplum, '${child}', 'obs-1');
+  const byReference = await readProfiled(medplum, '${child}', { reference: 'Observation/obs-1' });
+  const many: ChildObservation[] = await searchProfiled(medplum, '${child}', { status: 'final' });
+  return one.id + byReference.id + many.map((o) => o.id).join();
+}
 `);
   expect(diagnostics).toEqual([]);
 });
