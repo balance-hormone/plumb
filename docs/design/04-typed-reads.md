@@ -1,6 +1,6 @@
 # Design 04: Typed Reads
 
-**Status: accepted** on 2026-10-02. Builds the spec's "Typed reads" (user
+**Status: implemented** in v0.4 (accepted 2026-10-02). Builds the spec's "Typed reads" (user
 story 11), tracked in the v0.4 milestone. Read
 [design 03](03-routing-and-create.md) first: typed reads check the stamp
 `createProfiled` writes, and reuse its `ProfileUrl`, `ProfileTypes` and

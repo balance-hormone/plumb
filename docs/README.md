@@ -91,8 +91,8 @@
   [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 - **Roadmap:** v0.2 is the conformance check
   ([design 02](design/02-conformance-check.md)), v0.3 routing and
-  `createProfiled` ([design 03](design/03-routing-and-create.md)). Next:
-  typed reads ([design 04](design/04-typed-reads.md)), then
+  `createProfiled` ([design 03](design/03-routing-and-create.md)), v0.4
+  typed reads ([design 04](design/04-typed-reads.md)). Next:
   [project config as code](future/project-config-as-code.md), which extends
   v0.2's `push`. Later: SUSHI integration, Zod schemas, agent
   summaries.
@@ -184,6 +184,10 @@
   Real-server tests show a loose project's stamped record missing a field, a
   field an AccessPolicy hides, `defaultProfile`'s stamp, `_profile` with one
   URL and several, and a failing search's `passed`.
+  The README shows the reads, recovering `passed`, pairing `_profile` with a
+  selective filter, and why a stamp proves conformance only once `validate`
+  passes (#73); the e2e quickstart reads its write back with `isProfiled`.
+  **v0.4 is complete.**
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
@@ -200,7 +204,7 @@
   - [03: routing and `createProfiled`](design/03-routing-and-create.md)
     (implemented in v0.3): the profile a resource's content selects, stamped
     on write
-  - [04: typed reads](design/04-typed-reads.md) (accepted): reads and
+  - [04: typed reads](design/04-typed-reads.md) (implemented in v0.4): reads and
     searches that return the profile type, checking the stamp and what the
     type requires
 - [`future/`](future/): parked ideas, each with its design sketch and research.

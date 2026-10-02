@@ -261,6 +261,88 @@ export default defineConfig({
   default. Plumb does not set the server's `defaultProfile` yet: keep the
   two in step by hand.
 
+## Read each resource as its profile
+
+Every Medplum read returns base R4, and a cast to the profile type claims what
+nothing checked. A stamp is not proof either: a record written while the
+project was loose, before the profile tightened, or read through an
+AccessPolicy that hides a field can carry the stamp and still lack what its
+type requires. `generate` writes reads that check before they type:
+
+```ts
+import {
+  readProfiled,
+  searchProfiled,
+  USCoreBloodPressureProfileUrl,
+  USCorePatientProfileUrl,
+} from './fhir/generated/index.js';
+
+const patient = await readProfiled(medplum, USCorePatientProfileUrl, id);
+patient.name; // HumanName[], not HumanName[] | undefined
+
+const bps = await searchProfiled(medplum, USCoreBloodPressureProfileUrl, {
+  patient: `Patient/${id}`,
+});
+```
+
+- **The stamp:** `meta.profile` must hold the profile's URL, or a selected
+  profile deriving from it (a heart rate is a vital sign). A `url|version`
+  stamp does not count: Medplum validated nothing against it.
+- **What the type requires:** every path the type makes required beyond
+  `@medplum/fhirtypes` is present, from a table in `_reads.ts` generated with
+  the types. Values, bindings and slices stay the validator's job.
+- **`readProfiled(medplum, profile, idOrReference)`** reads by id or by
+  `Reference` and rejects with a `ProfileReadError` when either check fails.
+- **`searchProfiled(medplum, profile, query)`** adds `_profile` to the query,
+  so only stamped records come back, and returns them typed. It refuses
+  `_elements`, `_fields`, `_summary`, `_include` and `_revinclude` before any
+  request: a subset is not the profile's type, and included resources are
+  other types. Pair it with a selective filter (`patient`, `subject`) on
+  large tables: a profile URL is common, so `_profile` alone narrows little.
+- **`isProfiled`, `asProfiled` and `pickProfiled`** run the same checks
+  offline, for a resource from anywhere else: a subscription, a bot's input,
+  a Bundle's entries. `pickProfiled` keeps the stamped ones in a mixed list.
+- They take any client with `readResource`, `readReference` and
+  `searchResources`, such as a `MedplumClient`.
+
+**One failing record fails a search, and the error carries the rest.**
+Dropping it would hide a blood pressure from a chart without saying so; a
+caller that can show the others recovers them without a second request:
+
+```ts
+import { ProfileReadError, type USCoreBloodPressure } from './fhir/generated/index.js';
+
+let bps: USCoreBloodPressure[];
+try {
+  bps = await searchProfiled(medplum, USCoreBloodPressureProfileUrl, { patient });
+} catch (err) {
+  if (!ProfileReadError.is(err, USCoreBloodPressureProfileUrl) || err.reason !== 'missing') {
+    throw err;
+  }
+  bps = err.passed; // typed
+  showNotice(`${err.failed.length} records could not be shown`);
+}
+```
+
+```text
+ProfileReadError: Patient/123 is not a us-core-patient.
+  missing  Patient.name
+Stamped records lack required data when written while the project was loose,
+when an AccessPolicy hides the field, or when the profile tightened since.
+See `plumb validate --env <env>`.
+```
+
+The error names records and paths, never values, and `passed` is not
+enumerable, so loggers and error trackers that copy an error leave the
+clinical data out. `reason` is `'unstamped'`, `'missing'` or `'refused'`.
+
+**A stamp proves conformance only once `plumb validate` passes.** The read
+checks presence on every call; `validate` (below) is what proves every stored
+record meets its profile, values and all, and is how to find each record a
+read would refuse. History is not offered typed: an old version may predate
+its stamp, so read it with `medplum.readHistory` and `asProfiled` it if you
+must.
+
 ## Check stored data, then load profiles
 
 Medplum validates a resource when it is written, and never again. Tightening a
@@ -454,6 +536,9 @@ the rest. Each generated type's doc comment lists the rules it cannot check.
   be present: absence (US Core Coverage's `us-core-15`) cannot select a
   profile. Bundles passed to `executeBatch` are not routed; route each entry
   with `route`.
+- **Typed reads check presence, not values.** A stamped record whose code no
+  longer matches its profile reads typed; `validate` finds it.
+  `searchProfiled` reads one page, as `searchResources` does.
 - **Plumb never sets strict mode** or `defaultProfile`; a super admin turns
   strict mode on.
 - **Nothing yet stops another writer** loading StructureDefinitions around
