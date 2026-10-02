@@ -114,8 +114,9 @@ describe.skipIf(!server)(
           profile: false,
         }),
       ).rejects.toThrow(/value/);
+      // The server applies its default, and stores it as the stamp.
       const ok = await r.createProfiled(fresh, observation('0000-0'), { profile: false });
-      expect(ok.meta?.profile).toBeUndefined();
+      expect(ok.meta?.profile).toEqual([ORG]);
     });
   },
 );
