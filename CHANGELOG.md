@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+Routing: each write held to the profile its content selects.
+
+- **`route(resource)`**, generated into `out`, returns the selected profile a
+  resource's content selects, preferring a child over its parent, and throws
+  a `RoutingError` naming what would select each candidate rather than
+  guess.
+- **`createProfiled` and `updateProfiled`** route, stamp the type's
+  `defaultProfile` plus the routed profile, and write; `{ profile }` chooses
+  one, typed, and `{ profile: false }` writes no stamp.
+- **`routes`** in the config adds rows for profiles keyed on a value set, or
+  `false` to take one out; **`defaultProfile`** names the defaults stamped
+  with each write. `generate` warns for profiles one resource could match.
+
 ## 0.2.0 (unreleased)
 
 The conformance check: what stored data would fail a profile, before it loads.

@@ -182,6 +182,85 @@ export default defineConfig({
 });
 ```
 
+## Write each resource to its profile
+
+Medplum validates a resource against the profiles in its `meta.profile`, and
+nothing else. Without a stamp it applies the project's `defaultProfile` for
+the type, one list per type, so a heart rate, a lab result and a smoking
+status written unstamped are all held to the same Observation default. And a
+stamp replaces the default: an Observation stamped by hand as a heart rate
+silently loses it.
+
+`generate` writes a routing table and the functions that use it, so each
+write is held to the profile its content selects:
+
+```ts
+import { createProfiled, route } from './fhir/generated/index.js';
+
+route(bp); // 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure'
+const saved = await createProfiled(medplum, bp); // stamped, then medplum.createResource
+```
+
+- **`route(resource)`** is pure and offline, for tests. It keeps every
+  profile whose keys the resource matches, prefers a child over its parent,
+  and returns the one left; `undefined` when no selected profile constrains
+  the type. It never guesses: no match, or several unrelated ones, throws a
+  `RoutingError` that says what would select each candidate:
+
+  ```text
+  RoutingError: no profile matches this Observation.
+    us-core-heart-rate      needs category http://terminology.hl7.org/CodeSystem/observation-category|vital-signs, code http://loinc.org|8867-4
+    us-core-smokingstatus   needs category http://terminology.hl7.org/CodeSystem/observation-category|social-history, code http://loinc.org|72166-2
+  Pass { profile } to choose one, or { profile: false } to write it unprofiled.
+  ```
+
+- **`createProfiled(medplum, resource)`** routes, stamps the type's
+  `defaultProfile` plus the routed profile, and calls `createResource`. It
+  never changes the object passed, and a refusal rejects before anything is
+  written. **`updateProfiled`** routes the new content and replaces the
+  stamps Plumb manages, keeping any other URL in `meta.profile`.
+- **`{ profile: SomeProfileUrl }`** skips routing; the resource and the
+  result are typed as that profile. **`{ profile: false }`** writes no Plumb
+  stamp, so the server's own default applies.
+- They take any client with `createResource` and `updateResource`, such as
+  a `MedplumClient`, so the generated code needs nothing from Plumb at run
+  time.
+
+**Keys come from each profile:** every fixed or pattern value on a required
+first-level element (a pinned `code`), and every required slice's
+discriminator values (US Core's `vital-signs` category). They are in
+`_routes.ts`, reviewed with the profile change that moved them. A profile
+keyed on value-set membership needs a row in the config, and so does one
+whose keys overlap another's:
+
+```ts
+export default defineConfig({
+  // …igs, profiles, out
+  routes: {
+    'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus': {
+      code: [{ system: 'http://loinc.org', code: '72166-2' }],
+    },
+    // Never routed: chosen only with { profile }.
+    'http://hl7.org/fhir/us/core/StructureDefinition/us-core-adi-documentreference': false,
+  },
+  defaultProfile: {
+    Observation: ['https://example.org/fhir/StructureDefinition/org-observation'],
+  },
+});
+```
+
+- A row maps a first-level element to the codings (or, for a `code`
+  element, the strings) that select the profile; the resource matches when
+  the element holds any of them. `false` takes a profile out of routing.
+- `generate`'s `routes` step warns for each pair of unrelated profiles one
+  resource could match, naming both, so a missing row shows up before a
+  write fails.
+- **`defaultProfile`** has the shape of Medplum's `Project.defaultProfile`.
+  `createProfiled` stamps it alongside the routed profile, less any default
+  the routed profile derives from, since a stamp replaces the server's
+  default. Plumb does not set the server's `defaultProfile` yet: keep the
+  two in step by hand.
+
 ## Check stored data, then load profiles
 
 Medplum validates a resource when it is written, and never again. Tightening a
@@ -369,8 +448,12 @@ the rest. Each generated type's doc comment lists the rules it cannot check.
   reached through a `contentReference`. See
   [`docs/design/01-generator.md`](docs/design/01-generator.md), Testing.
 
-- **Unstamped resources are counted, not checked.** Which profile an
-  unstamped resource should carry is routing's job, planned for v0.3.
+- **Unstamped resources are counted, not checked.** `validate` does not
+  route them; `createProfiled` stamps new writes.
+- **Routing keys are first-level elements,** and a key is a value that must
+  be present: absence (US Core Coverage's `us-core-15`) cannot select a
+  profile. Bundles passed to `executeBatch` are not routed; route each entry
+  with `route`.
 - **Plumb never sets strict mode** or `defaultProfile`; a super admin turns
   strict mode on.
 - **Nothing yet stops another writer** loading StructureDefinitions around

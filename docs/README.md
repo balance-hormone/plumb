@@ -164,6 +164,9 @@
   and the routed profile, a refused resource never written, foreign URLs
   kept on update, and `{ profile: false }` falling back to the project's own
   default.
+  The README shows routing, `createProfiled`, `routes` rows and
+  `defaultProfile` (#62), and the e2e quickstart calls the generated `route`
+  and `createProfiled` from the packed tarball. **v0.3 is complete.**
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
@@ -177,7 +180,8 @@
   - [02: conformance check](design/02-conformance-check.md) (proposed):
     `plumb validate` inside the project as a bot, and a gated `plumb push`
   - [03: routing and `createProfiled`](design/03-routing-and-create.md)
-    (proposed): the profile a resource's content selects, stamped on write
+    (implemented in v0.3): the profile a resource's content selects, stamped
+    on write
   - [04: typed reads](design/04-typed-reads.md) (accepted): reads and
     searches that return the profile type, checking the stamp and what the
     type requires
