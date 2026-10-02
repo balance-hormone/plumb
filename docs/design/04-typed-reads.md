@@ -52,11 +52,33 @@ the type promises is present.
 
 ## How others do it
 
-- **tRPC and the T3 stack** validate once at the edge, then trust the type
-  inside. A typed read is that edge for data coming back from Medplum.
-- **Zod's `parse`** returns the narrowed type or throws, and never casts. A
-  typed read does the same, but checks only what the type claims, not a whole
-  schema.
+Read from each project's docs and source, October 2026.
+
+- **Trusting the stamp is the common shortcut.** HAPI FHIR's
+  `setDefaultTypeForProfile` picks a profile's class from `meta.profile` alone,
+  and fhir-dsl's `search(type, profileUrl)` types its results as the profile
+  without checking them unless `.validate()` is chained. Both type a record by
+  its claim, which the four cases above show can be false.
+- **`@atomic-ehr/codegen`'s `Profile.from(resource)`** is the nearest to
+  `asProfiled`: it checks `meta.profile`, validates, and throws. It runs a full
+  validator; Plumb checks only what the type claims, so it stays a few lines
+  of generated code with no definitions to load.
+- **A list with a bad item fails as a whole by default:** tRPC and ts-rest
+  on a failed output schema, Zodios, Prisma on a stored enum value the schema
+  does not know (users asking for the row to be skipped instead,
+  prisma#24288), Zod's `z.array`, and fhir-dsl's `.validate()`.
+- **Where partial results exist, they are opt-in and never silent.** Relay's
+  `@catch` turns a failure into `{ ok: false, errors }` at the call site that
+  asked, because "some components may be able to recover better from missing
+  data than others". Firely's `DeserializationFailedException` carries the
+  `PartialResult` with every error it collected. Rust's `serde_with::VecSkipError`
+  skips bad elements and reports each one through an `InspectError` hook. Zod
+  never added a skip mode, despite repeated requests.
+- **No FHIR library's validator takes a Bundle.** HAPI
+  (`BundleUtil.toListOfResourcesOfType`), Firely (`ByResourceType<T>`) and
+  fhirclient.js flatten and filter by type first, and checks run per
+  resource. fhir-dsl checks a search's matches and leaves its `_include`s
+  alone.
 - **Prisma's `select`** changes the return type to the fields selected. Plumb
   does not try to type a subset; it refuses one, because a profile type with
   holes is no longer the profile type.
@@ -67,20 +89,23 @@ The functions are generated next to `createProfiled`, as design 03 generates
 routing, so apps still take no runtime dependency on Plumb. `MedplumClient`
 stays a type-only import.
 
-The generated index exports four functions:
+The generated index exports five functions:
 
 - **`isProfiled(resource, profile)`** is pure and offline: a type guard that is
   true when the resource carries the stamp and holds every path the type
-  requires. It is the check the other three run, and the one to use on a
-  resource from anywhere else: a subscription, a bot's input, a Bundle entry,
-  `readPatientEverything`.
+  requires. It is the check the others run, and the one to use on a single
+  resource from anywhere else: a subscription, a bot's input.
 - **`asProfiled(resource, profile)`** returns the resource as the profile type
   or throws a `ProfileReadError`.
+- **`pickProfiled(resources, profile)`** is pure and offline too: it keeps the
+  resources stamped with the profile, checks each, and returns them as the
+  profile type, or throws when a stamped one fails. It is for a mixed list:
+  a Bundle's entries, a page of `readPatientEverything`.
 - **`readProfiled(medplum, profile, idOrReference)`** calls
   `medplum.readResource` (or `readReference`, given a `Reference`) and
   `asProfiled`.
 - **`searchProfiled(medplum, profile, query?)`** adds the profile to the query,
-  calls `medplum.searchResources` and checks each result.
+  calls `medplum.searchResources` and runs `pickProfiled` on the results.
 
 The names match `validateProfiled` and `createProfiled`. One function per kind
 of read, keyed by the profile URL, keeps the index small; the spec's "a helper
@@ -145,10 +170,23 @@ The walker is a dozen lines in `_plumb.ts`, next to `matches`.
 
 ## Search
 
-`searchProfiled` adds `_profile` to the query, with the profile's URL and each
-selected profile whose parents include it, comma-separated. Medplum indexes
-`meta.profile` as the `_profile` column on every resource table, so the search
-returns only stamped records and the presence check rarely fails.
+`searchProfiled` adds `_profile` to the query: the profile's URL alone, or,
+when selected profiles have it as a parent, those URLs too, comma-separated.
+Medplum stores `meta.profile` in a `_profile` `TEXT[]` column with a GIN
+index on every resource table, so the search returns only stamped records and
+the presence check rarely fails.
+
+- **The filter is for correctness, not speed.** Filtering stamps in the client
+  instead would shrink pages unpredictably: asking for 20 could return 3.
+- **One URL where it can.** Medplum compiles one value to `@>` and several to
+  `&&`, and its source keeps `@>` for one value because it "can lead to better
+  query plans" (`sql.ts`).
+- **A profile URL is a common value,** so `_profile` narrows little on its own.
+  Postgres plans from the more selective filter a search usually also has
+  (`patient`, `subject`) and checks `_profile` along the way. Medplum's
+  known array-statistics problems (#7310, #7539) misestimate *rare* values,
+  the opposite case. The docs advise pairing `_profile` with a selective
+  filter on large tables.
 
 It refuses, before any request:
 
@@ -164,10 +202,27 @@ ProfileReadError: searchProfiled(us-core-patient) refuses _elements: a subset
 is not a us-core-patient. Use medplum.searchResources for a subset.
 ```
 
-**One failing result fails the search.** The error names each failing record
-and what it lacks; `validate` is how to find them all. Returning the passing
-results and dropping the rest would hide records from a list without saying
-so.
+**One failing result fails the search, and the error carries the rest.**
+Dropping a failing record would hide it from a list without saying so; for a
+blood pressure in a chart, that is worse than an error. Failing with nothing
+to show breaks the whole view over one record. So, as Firely does, the
+`ProfileReadError` holds `passed`, the records that passed, typed, and
+`failed`, each failing record's reference and missing paths:
+
+```ts
+let bps: USCoreBloodPressure[];
+try {
+  bps = await searchProfiled(medplum, USCoreBloodPressureProfileUrl, { patient });
+} catch (err) {
+  if (!ProfileReadError.is(err, USCoreBloodPressureProfileUrl) || err.reason !== 'missing') throw err;
+  bps = err.passed;
+  showNotice(`${err.failed.length} records could not be shown`);
+}
+```
+
+The default stays safe, the caller who can recover does so without a second
+request, and nothing disappears silently. It needs no option and no second
+function. `validate` is still how to find every failing record.
 
 ## History is not offered
 
@@ -190,12 +245,21 @@ See `plumb validate --env <env>`.
   up in logs, and the values are clinical data.
 - **`reason`** is `'unstamped'`, `'missing'` or `'refused'`, so a caller can
   tell an AccessPolicy problem from a data problem without parsing the message.
+- **`failed`** lists each failing record's reference and missing paths.
+- **`passed` is non-enumerable.** Error trackers and loggers copy an error's
+  enumerable properties into their reports, so an enumerable `passed` would
+  put clinical data in logs. `JSON.stringify`, spreads and those serializers
+  skip it; `err.passed` still reads it.
+- **`ProfileReadError.is(err, profile)`** narrows a caught error to the
+  profile's, so `passed` is typed. It is empty from `asProfiled` and
+  `readProfiled`.
 
 ## Types
 
 ```ts
 function isProfiled<U extends ProfileUrl>(resource: Resource, profile: U): resource is ProfileTypes[U];
 function asProfiled<U extends ProfileUrl>(resource: Resource, profile: U): ProfileTypes[U];
+function pickProfiled<U extends ProfileUrl>(resources: readonly Resource[], profile: U): ProfileTypes[U][];
 function readProfiled<U extends ProfileUrl>(
   medplum: MedplumClient,
   profile: U,
@@ -211,6 +275,20 @@ function searchProfiled<U extends ProfileUrl>(
 `WithId` and `QueryTypes` are type-only imports from `@medplum/core`, as
 `MedplumClient` already is.
 
+```ts
+class ProfileReadError<U extends ProfileUrl = ProfileUrl> extends Error {
+  static is<U extends ProfileUrl>(err: unknown, profile: U): err is ProfileReadError<U>;
+  readonly profile: U;
+  readonly reason: 'unstamped' | 'missing' | 'refused';
+  readonly failed: readonly { reference: string; missing: readonly string[] }[];
+  readonly passed: readonly WithId<ProfileTypes[U]>[]; // non-enumerable
+}
+```
+
+`pickProfiled` returns a typed array on TypeScript 5.0, where
+`resources.filter((r) => isProfiled(r, url))` would stay `Resource[]`:
+inferring a type predicate from an arrow function arrived in 5.5.
+
 ## Testing
 
 - **The presence check agrees with `compiles`.** Every contract fixture that
@@ -219,6 +297,11 @@ function searchProfiled<U extends ProfileUrl>(
   already record `compiles`, so this needs no new expectations.
 - **US Core 9.0.0's examples** each pass `isProfiled` for the profile they
   declare, and for that profile's parents.
+- **`pickProfiled` on a mixed list** of US Core examples keeps exactly the
+  ones stamped with the profile or a child, and throws on a stamped one with a
+  required element removed, with the others in `passed`.
+- **The error keeps clinical data out of serialization:** `JSON.stringify`,
+  `Object.keys` and a spread of a `ProfileReadError` hold no resource.
 - **Against a real Medplum server** (design 02's Docker server), each claim in
   "Why the stamp is not enough" has a test:
   - a record stored while the project is loose, stamped but missing a required
@@ -226,8 +309,9 @@ function searchProfiled<U extends ProfileUrl>(
   - an AccessPolicy with `hiddenFields` on a required element makes
     `readProfiled` fail for that reader and pass for an admin;
   - a record written under `defaultProfile` carries the stamp and reads typed;
-  - `_profile` with comma-separated URLs returns parent- and child-stamped
-    records, and no unstamped ones;
+  - `_profile` with one URL, and with comma-separated URLs, returns parent-
+    and child-stamped records, and no unstamped ones;
+  - a search with one failing record throws with the rest in `passed`;
   - a refused query makes no request.
 - **Generated output** joins the goldens: `_reads.ts` for the US Core and IPS
   profiles already there.
@@ -240,14 +324,3 @@ function searchProfiled<U extends ProfileUrl>(
   They would add a type import from a package not every app has.
 - **Checking fixed and pattern values on read,** if `validate` keeps finding
   stamped records whose code no longer matches their profile.
-
-## Open questions
-
-- **Whether a search should be able to skip failing records,** for a list view
-  that should not break on one bad record. It would be an option on the call,
-  not config, and only if a real project asks.
-- **Bundles:** whether `asProfiled` should check each entry of a Bundle
-  returned by `readPatientEverything`, or leave that to a loop.
-- **The `_profile` search on hosted Medplum:** the column exists in every
-  table (migrations `v30` and later); whether hosted Medplum's search planner
-  uses its index on large tables is untested.
