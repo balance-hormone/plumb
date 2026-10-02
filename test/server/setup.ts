@@ -42,12 +42,15 @@ export default async function setup(project: TestProject) {
   const up = spawnSync('docker', [...COMPOSE, 'up', '--detach', '--wait'], { stdio: 'inherit' });
   if (up.status !== 0) throw new Error('The Medplum server did not start.');
 
-  project.provide('medplum', await newProject());
+  project.provide('medplum', await newProject(SEED));
   if (!running) return () => void docker(...COMPOSE, 'down', '--volumes');
 }
 
-/** A strict project with bots, a CI client that is its admin, and synthetic data. */
-async function newProject(): Promise<TestServer> {
+/**
+ * A strict project with bots, a CI client that is its admin, and synthetic
+ * data. Tests that count what a project holds make their own.
+ */
+export async function newProject(seed?: Bundle): Promise<TestServer> {
   const admin = new MedplumClient({ baseUrl: BASE_URL });
   await admin.startClientLogin(...SUPER_ADMIN);
   const project = await admin.createResource({
@@ -65,7 +68,7 @@ async function newProject(): Promise<TestServer> {
 
   const ci = new MedplumClient({ baseUrl: BASE_URL });
   await ci.startClientLogin(client.id, client.secret);
-  await ci.executeBatch(SEED);
+  if (seed) await ci.executeBatch(seed);
   return {
     baseUrl: BASE_URL,
     projectId: project.id,

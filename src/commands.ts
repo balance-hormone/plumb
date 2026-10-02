@@ -5,6 +5,8 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { type ConfigError, loadConfig, resolveEnvironment } from './config.js';
+import { type TypeReport, type ValidateEnvResult, validateEnvironment } from './conformance.js';
+import type { EnvStep } from './connect.js';
 import { type GenerateResult, generate, type Step } from './generate.js';
 import { push } from './push.js';
 
@@ -20,15 +22,19 @@ export interface CliIo {
 }
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
+       plumb validate --env <name> [--resume] [--config <path>]
        plumb push --env <name> [--config <path>]
 
 generate  Generate TypeScript types that narrow @medplum/fhirtypes from the
           FHIR profiles plumb.config.ts selects.
+validate  Count the stored resources that would fail each selected profile,
+          and why, with Plumb's checker bot inside the project.
 push      Install or update Plumb's checker bot in a Medplum project.
 
 Options:
   --check          compare with the committed output instead of writing; fail if stale
-  --env <name>     the environment in plumb.config.ts to push to
+  --env <name>     the environment in plumb.config.ts to act on
+  --resume         continue an interrupted validate from its last page
   --config <path>  the config file (default: plumb.config.ts)
   --json           print the report as JSON on stdout
   --quiet          print only problems
@@ -91,9 +97,9 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
   }
   const command = positionals.length === 1 ? positionals[0] : undefined;
   if (command === 'generate') return generateCommand(values, io);
-  if (command === 'push') return pushCommand(values, io);
+  if (command === 'push' || command === 'validate') return envCommand(command, values, io);
   const got = positionals.length === 0 ? 'no command' : `"${positionals.join(' ')}"`;
-  io.stderr(`plumb: expected the generate or push command, got ${got}\n\n${USAGE}`);
+  io.stderr(`plumb: expected generate, validate or push, got ${got}\n\n${USAGE}`);
   return USAGE_ERROR;
 }
 
@@ -140,38 +146,113 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
   return result.ok ? OK : PROBLEMS;
 }
 
-async function pushCommand(values: Values, io: CliIo): Promise<number> {
+/** `push` and `validate`: both act on an environment, so both take `--env`. */
+async function envCommand(command: 'push' | 'validate', values: Values, io: CliIo) {
   const quiet = values.quiet ?? false;
-  const { ok, bad, say, problem } = printer(io, quiet);
+  const { bad, say, problem } = printer(io, quiet);
   if (!values.env) {
-    io.stderr(`plumb: push needs --env <name>\n\n${USAGE}`);
+    io.stderr(`plumb: ${command} needs --env <name>\n\n${USAGE}`);
     return USAGE_ERROR;
   }
   const config = await loadConfig({ cwd: io.cwd, configPath: values.config });
   if (!config.ok) return configErrors(config.errors, values, io);
   const environment = resolveEnvironment(config.config, values.env, io.env);
   if (!environment.ok) return configErrors(environment.errors, values, io);
-  say(`plumb push --env ${values.env}`);
-  const result = await push({
+  say(`plumb ${command} --env ${values.env}`);
+  const root = dirname(config.configPath);
+  const options = {
     config: config.config,
     environment: environment.environment,
-    lockPath: join(dirname(config.configPath), 'plumb.lock'),
+    lockPath: join(root, 'plumb.lock'),
     checker: {
       code: readFileSync(join(packageDir(), 'dist/checker.cjs'), 'utf8'),
       version: version(),
     },
     cacheDir: io.cacheDir,
     fetch: io.fetch,
-    onStep: (step) => {
-      say(`${ok} ${step.name.padEnd(8)}  ${step.summary}   ${time(step.ms)}`);
-      for (const w of step.warnings) (quiet ? problem : say)(`    ${w}`);
-    },
-  });
+    onStep: (step: EnvStep<string>) => printStep(step, printer(io, quiet), quiet),
+  };
+  const result =
+    command === 'push'
+      ? await push(options)
+      : await validateEnvironment({
+          ...options,
+          reportPath: join(root, '.plumb', `validate-${values.env}.json`),
+          resume: values.resume,
+        });
+  if ('profiles' in result) printValidation(result, io.cwd, say, problem);
   for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
   if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
   if (result.ok) return OK;
-  return result.errors.some((e) => e.step === 'connect') ? USAGE_ERROR : PROBLEMS;
+  // Profiles that fail, or will not load, are problems found; the rest kept the command from running.
+  return result.errors.every((e) => e.step === 'load') ? PROBLEMS : USAGE_ERROR;
+}
+
+/** A step's line, then its warnings: a failed step's always print, as problems do. */
+function printStep(step: EnvStep<string>, p: ReturnType<typeof printer>, quiet: boolean) {
+  const line = `${step.name.padEnd(8)}  ${step.summary}   ${time(step.ms)}`;
+  if (step.failed) p.problem(`${p.bad} ${line}`);
+  else p.say(`${p.ok} ${line}`);
+  for (const w of step.warnings) (quiet || step.failed ? p.problem : p.say)(`    ${w}`);
+}
+
+/** The report under the validate step, and where the failing ids are: never the ids themselves. */
+function printValidation(
+  result: ValidateEnvResult,
+  cwd: string,
+  say: (line: string) => void,
+  problem: (line: string) => void,
+) {
+  for (const line of formatValidation(result)) (result.ok ? say : problem)(line);
+  if (Object.values(result.profiles).some((p) => p.failing > 0)) {
+    problem(`Failing ids: ${relative(cwd, result.reportPath ?? '')} (gitignored)`);
+  }
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** The validate report under its step: each type, then each of its profiles and their reasons. */
+export function formatValidation(result: ValidateEnvResult): string[] {
+  const lines: string[] = [];
+  for (const [type, t] of Object.entries(result.types)) {
+    const profiles = Object.entries(result.profiles).filter(([, p]) => p.resourceType === type);
+    const checked = profiles.reduce((n, [, p]) => n + p.checked, 0);
+    const failing = profiles.reduce((n, [, p]) => n + p.failing, 0);
+    const status = typeStatus(t, checked, failing);
+    lines.push(`    ${type}: ${[status, ...typeExtras(t)].join('; ')}`);
+    for (const [url, p] of profiles) {
+      const name = url.slice(url.lastIndexOf('/') + 1);
+      lines.push(`      ${name}   ${p.checked} checked, ${plural(p.failing, 'failure')}`);
+      for (const r of p.reasons) lines.push(`        ${r.path}: ${r.message}   (${r.count})`);
+    }
+  }
+  return lines;
+}
+
+/** The three kinds of empty told apart, then what failed. */
+function typeStatus(t: TypeReport, checked: number, failing: number): string {
+  const read = `${t.read} of ${t.exists} read`;
+  if (t.exists === 0) return 'none stored';
+  if (t.read === 0) return `0 of ${t.exists} readable: check plumb-checker's AccessPolicy`;
+  if (checked === 0) return `${read}, none carries a selected profile`;
+  if (failing === 0) return `${read}, all ${checked} passed`;
+  return `${read}, ${failing} of ${checked} fail`;
+}
+
+/** What was not validated: unstamped resources, silent stamps, and other profiles' stamps. */
+function typeExtras(t: TypeReport): string[] {
+  const silent = [
+    t.silent.unknown && `${t.silent.unknown} unknown profile URL`,
+    t.silent.versioned && `${t.silent.versioned} url|version`,
+    t.silent.empty && `${t.silent.empty} empty meta.profile`,
+  ].filter((x) => typeof x === 'string');
+  const others = Object.values(t.otherProfiles).reduce((n, c) => n + c, 0);
+  return [
+    t.unstamped > 0 && `${t.unstamped} unstamped`,
+    silent.length > 0 && `silent stamps: ${silent.join(', ')}`,
+    others > 0 && `${others} stamped with profiles not selected`,
+  ].filter((x) => typeof x === 'string');
 }
 
 function configErrors(errors: ConfigError[], values: Values, io: CliIo): number {
@@ -190,6 +271,7 @@ function parse(argv: string[]) {
       check: { type: 'boolean' },
       config: { type: 'string' },
       env: { type: 'string' },
+      resume: { type: 'boolean' },
       json: { type: 'boolean' },
       quiet: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },

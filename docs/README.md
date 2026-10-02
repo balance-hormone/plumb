@@ -116,6 +116,14 @@
   version and a hash of the bundle, so an unchanged checker is not
   redeployed. Real-server tests show a second push changes nothing and,
   acting as the bot's membership, that it can read but not write.
+  `plumb validate --env <env>` (#55) stops with exit 2 unless the installed
+  checker is this Plumb's build, then drives it one page per async job,
+  saving counts, reasons, failing ids and the cursor to a gitignored
+  `.plumb/validate-<env>.json` after each page, so `--resume` continues an
+  interrupted run. From the CLI it counts each type's stored resources, to
+  tell "nothing readable" from "nothing stored", sorts stamps naming
+  profiles the project lacks into the silent ones, and flags shadowed
+  profile URLs. Failing ids never reach the terminal or `--json`.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
