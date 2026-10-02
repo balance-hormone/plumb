@@ -3,12 +3,13 @@
 import { createHash } from 'node:crypto';
 import { checkRoutes, type PlumbConfig } from './config.js';
 import { printFiles } from './emit/print.js';
+import { routingRows } from './emit/routes.js';
 import { type ProfileModel, transform } from './emit/transform.js';
 import { compareFiles, type Stale, writeFiles } from './emit/write.js';
 import { loadProfiles } from './loader.js';
 import { fetchPackages } from './packages.js';
 
-type StepName = 'packages' | 'load' | 'emit' | 'write' | 'check';
+type StepName = 'packages' | 'load' | 'emit' | 'routes' | 'write' | 'check';
 
 /** One finished step, with what it did, for the CLI to print as it goes. */
 export interface Step {
@@ -109,8 +110,6 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
 
   const { models, errors, warnings } = transform(loaded, { maxCodes: config.bindings?.maxCodes });
   if (errors.length > 0) return fail('emit', errors);
-  const integrity = new Map(fetched.packages.map((p) => [`${p.name}@${p.version}`, p.integrity]));
-  const files = printFiles(models, (m) => integrity.get(m.source) ?? hashOf(m));
   finish(
     'emit',
     {
@@ -120,6 +119,20 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     },
     warnings,
   );
+
+  const routing = routingRows(loaded, config);
+  const rows = Object.values(routing.routes);
+  finish(
+    'routes',
+    {
+      rows: rows.reduce((n, r) => n + r.length, 0),
+      types: rows.length,
+      ambiguous: routing.warnings.length,
+    },
+    routing.warnings,
+  );
+  const integrity = new Map(fetched.packages.map((p) => [`${p.name}@${p.version}`, p.integrity]));
+  const files = printFiles(models, (m) => integrity.get(m.source) ?? hashOf(m), routing.routes);
 
   if (check) {
     const compared = compareFiles(config.out, files);

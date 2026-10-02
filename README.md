@@ -73,7 +73,8 @@ plumb generate
 ✔ packages  0 cached, 7 fetched   10.2s
 ✔ load      2 profiles   1.2s
 ✔ emit      2 types, 16 slices, 0 code lists   4ms
-✔ write     4 written, 0 removed, 0 unchanged → src/fhir/generated   1ms
+✔ routes    2 rows for 2 types   1ms
+✔ write     5 written, 0 removed, 0 unchanged → src/fhir/generated   1ms
 Done in 11.4s
 ```
 

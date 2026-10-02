@@ -61,7 +61,7 @@ describe('generate', () => {
       ]),
     );
     expect(existsSync(p.lockPath)).toBe(true);
-    expect(steps.map((s) => s.name)).toEqual(['packages', 'load', 'emit', 'write']);
+    expect(steps.map((s) => s.name)).toEqual(['packages', 'load', 'emit', 'routes', 'write']);
     expect(result.steps).toEqual(steps);
     expect(steps.find((s) => s.name === 'load')?.counts).toMatchObject({ profiles: 2 });
     expect(steps.find((s) => s.name === 'emit')?.counts).toMatchObject({ types: 2, slices: 3 });
@@ -105,7 +105,13 @@ describe('generate', () => {
       expect(codes(result)).toEqual([]);
       expect(result.stale).toEqual([]);
       expect(result.ok).toBe(true);
-      expect(result.steps.map((s) => s.name)).toEqual(['packages', 'load', 'emit', 'check']);
+      expect(result.steps.map((s) => s.name)).toEqual([
+        'packages',
+        'load',
+        'emit',
+        'routes',
+        'check',
+      ]);
       expect(snapshot(p.root)).toEqual(before);
     });
 
@@ -142,6 +148,7 @@ describe('generate', () => {
       expect(problems(result).sort()).toEqual([
         ['extra', 'NestingPatient.ts'],
         ['missing', 'SlicedObservation.ts'],
+        ['stale', '_routes.ts'],
         ['stale', 'index.ts'],
       ]);
     });

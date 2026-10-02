@@ -143,6 +143,12 @@
   a profile that is not selected, and an element that is not first-level on
   the profile's type, the last two checked once `generate` has loaded the
   profiles.
+  `generate` now writes `_routes.ts` (#59): per resource type, a row per
+  selected profile with its selected parents and the keys that select it,
+  from each required first-level fixed or pattern value, each required
+  slice's discriminator values, and the config's `routes` row. A `routes`
+  step warns for each pair of unrelated profiles whose keys conflict on no
+  element. The goldens include it.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

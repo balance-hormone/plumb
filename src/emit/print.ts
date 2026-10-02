@@ -4,6 +4,7 @@
 // Print: every formatting rule lives here. A pure function from the type
 // model to text, with no FHIR knowledge.
 import { FileBuilder, wordWrap } from '@medplum/core';
+import type { Route } from './routes.js';
 import type { Field, Helper, ProfileModel, TypeExpr } from './transform.js';
 
 /** The first line of every file Plumb writes, so it can tell its files from others. */
@@ -243,10 +244,44 @@ function printProfile(model: ProfileModel, hash: string, owners: Owners): string
   return b.toString();
 }
 
-/** Every file Plumb writes to `out`: one per profile, the index and the shared helpers. */
+/** The routing rows, by resource type then profile URL, so a profile change moves only its own lines. */
+function printRoutes(routes: Record<string, Route[]>): string {
+  const lines = [
+    `${MARKER}. Do not edit.`,
+    '/**',
+    ' * The content that selects each profile: a row matches a resource when, for',
+    ' * every key, the element holds one of its patterns (`matches` in _plumb.ts).',
+    ' */',
+    'export const routes = {',
+  ];
+  for (const type of Object.keys(routes).sort()) {
+    lines.push(`  ${type}: [`);
+    const rows = [...(routes[type] ?? [])].sort((a, b) => a.profile.localeCompare(b.profile));
+    for (const row of rows) {
+      lines.push(
+        '    {',
+        `      profile: ${quote(row.profile)},`,
+        `      parents: ${printValue(row.parents)},`,
+      );
+      if (row.keys.length === 0) lines.push('      keys: [],');
+      else {
+        lines.push('      keys: [');
+        for (const key of row.keys) lines.push(`        ${printValue(key)},`);
+        lines.push('      ],');
+      }
+      lines.push('    },');
+    }
+    lines.push('  ],');
+  }
+  lines.push('} as const;', '');
+  return lines.join('\n');
+}
+
+/** Every file Plumb writes to `out`: one per profile, the index, the shared helpers and the routes. */
 export function printFiles(
   models: ProfileModel[],
   hashOf: (model: ProfileModel) => string,
+  routes: Record<string, Route[]> = {},
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -263,5 +298,6 @@ export function printFiles(
   }
   files.set('index.ts', index.toString());
   files.set('_plumb.ts', HELPERS);
+  files.set('_routes.ts', printRoutes(routes));
   return files;
 }

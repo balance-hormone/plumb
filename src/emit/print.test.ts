@@ -225,7 +225,41 @@ describe('printFiles', () => {
       ].join('\n'),
     );
     expect(files.get('_plumb.ts')).toContain('export type Require<T, K extends keyof T>');
-    expect([...files.keys()].sort()).toEqual(['ExamplePatient.ts', '_plumb.ts', 'index.ts']);
+    expect([...files.keys()].sort()).toEqual([
+      'ExamplePatient.ts',
+      '_plumb.ts',
+      '_routes.ts',
+      'index.ts',
+    ]);
+  });
+
+  test('the routing rows, by type then profile URL', () => {
+    const files = printFiles([model], () => 'sha256-abc', {
+      Observation: [
+        { profile: 'https://example.org/b', parents: ['https://example.org/a'], keys: [] },
+        { profile: 'https://example.org/a', parents: [], keys: [['status', ['final']]] },
+      ],
+    });
+    expect(files.get('_routes.ts')).toContain(
+      [
+        'export const routes = {',
+        '  Observation: [',
+        '    {',
+        "      profile: 'https://example.org/a',",
+        '      parents: [],',
+        '      keys: [',
+        "        ['status', ['final']],",
+        '      ],',
+        '    },',
+        '    {',
+        "      profile: 'https://example.org/b',",
+        "      parents: ['https://example.org/a'],",
+        '      keys: [],',
+        '    },',
+        '  ],',
+        '} as const;',
+      ].join('\n'),
+    );
   });
 });
 

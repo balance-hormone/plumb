@@ -96,8 +96,9 @@ describe('plumb', () => {
       expect.stringMatching(/^✔ packages {2}0 cached, 0 fetched {3}\d+ms$/),
       expect.stringMatching(/^✔ load {6}2 profiles {3}\d+ms$/),
       expect.stringMatching(/^✔ emit {6}2 types, 3 slices, 0 code lists {3}\d+ms$/),
+      expect.stringMatching(/^✔ routes {4}2 rows for 2 types {3}\d+ms$/),
       expect.stringMatching(
-        /^✔ write {5}4 written, 0 removed, 0 unchanged → src\/fhir\/generated {3}\d+ms$/,
+        /^✔ write {5}5 written, 0 removed, 0 unchanged → src\/fhir\/generated {3}\d+ms$/,
       ),
     ]);
     expect(lines.at(-1)).toMatch(/^Done in \d+(ms|\.\ds)$/);
@@ -144,6 +145,7 @@ describe('plumb', () => {
       'packages',
       'load',
       'emit',
+      'routes',
       'write',
     ]);
   });

@@ -4,6 +4,7 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { printFiles } from '../../src/emit/print.js';
+import { routingRows } from '../../src/emit/routes.js';
 import { transform } from '../../src/emit/transform.js';
 import { compareFiles, writeFiles } from '../../src/emit/write.js';
 import { loadProfiles } from '../../src/loader.js';
@@ -36,7 +37,7 @@ test('generated output matches the committed goldens', () => {
   const { models, errors } = transform(loaded);
   expect(errors).toEqual([]);
   // The fixtures are trimmed packages, so their hashes are not the registry's.
-  const files = printFiles(models, () => 'fixture');
+  const files = printFiles(models, () => 'fixture', routingRows(loaded).routes);
   if (process.env.GOLDEN_UPDATE) expect(writeFiles(OUT, files).errors).toEqual([]);
   const { stale, errors: folder } = compareFiles(OUT, files);
   expect(folder).toEqual([]);
