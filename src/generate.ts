@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { createHash } from 'node:crypto';
-import type { PlumbConfig } from './config.js';
+import { checkRoutes, type PlumbConfig } from './config.js';
 import { printFiles } from './emit/print.js';
 import { type ProfileModel, transform } from './emit/transform.js';
 import { compareFiles, type Stale, writeFiles } from './emit/write.js';
@@ -97,6 +97,9 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     profiles: config.profiles,
   });
   if (!loaded.ok) return fail('load', loaded.errors);
+  // Whether a routing row names a selected profile and its elements is known only now.
+  const routeErrors = checkRoutes(config, loaded.profiles);
+  if (routeErrors.length > 0) return fail('load', routeErrors);
   const skipped = loaded.warnings.filter((w) => w.code === 'unparseable-skipped').length;
   finish(
     'load',

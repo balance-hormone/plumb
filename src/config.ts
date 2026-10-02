@@ -3,6 +3,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { Coding, StructureDefinition } from '@medplum/fhirtypes';
 
 export interface PlumbConfig {
   /** IG packages as `name@version`, with an exact version. */
@@ -22,7 +23,26 @@ export interface PlumbConfig {
   };
   /** The Medplum projects `validate` and `push` act on, by name. */
   environments?: Record<string, Environment>;
+  /**
+   * Routing rows for selected profiles, by canonical URL, added to the keys
+   * generated from each profile: for one keyed on a value set Plumb cannot
+   * expand, or `false` to take a profile out of routing.
+   */
+  routes?: Record<string, RouteRow | false>;
+  /**
+   * The profiles stamped on every write of a type, as Medplum's
+   * `Project.defaultProfile`: a stamp replaces the server's default, so
+   * `createProfiled` stamps these too.
+   */
+  defaultProfile?: Record<string, string[]>;
 }
+
+/**
+ * A first-level element, such as `code` or `category`, mapped to the values
+ * that select the profile: codings, or strings for a `code` element. A
+ * resource matches when the element holds any of them.
+ */
+export type RouteRow = Record<string, (Coding | string)[]>;
 
 /**
  * A Medplum project, reached with client credentials. The config is committed,
@@ -56,7 +76,12 @@ export type ConfigErrorCode =
   | 'invalid-max-codes'
   | 'invalid-base-url'
   | 'unknown-environment'
-  | 'missing-variable';
+  | 'missing-variable'
+  | 'invalid-route'
+  | 'unselected-route'
+  | 'invalid-route-element'
+  | 'invalid-default-profile'
+  | 'versioned-url';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -75,7 +100,16 @@ export function defineConfig(config: PlumbConfig): PlumbConfig {
 }
 
 const DEFAULT_CONFIG = 'plumb.config.ts';
-const KEYS = new Set(['igs', 'profiles', 'local', 'out', 'bindings', 'environments']);
+const KEYS = new Set([
+  'igs',
+  'profiles',
+  'local',
+  'out',
+  'bindings',
+  'environments',
+  'routes',
+  'defaultProfile',
+]);
 const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret'] as const;
 // FHIR package names are lowercase dotted segments; versions are exact, never ranges.
 const NAME = '[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+';
@@ -171,7 +205,12 @@ function check(config: unknown): ConfigError[] {
     ),
     ...checkWildcards(record),
   );
-  errors.push(...checkBindings(record.bindings), ...checkEnvironments(record.environments));
+  errors.push(
+    ...checkBindings(record.bindings),
+    ...checkEnvironments(record.environments),
+    ...checkRouteRows(record),
+    ...checkDefaultProfile(record.defaultProfile),
+  );
   if (record.local !== undefined && typeof record.local !== 'string') {
     errors.push({ code: 'invalid-type', path: 'local', message: '"local" must be a path.' });
   }
@@ -283,6 +322,124 @@ function checkEnvironments(environments: unknown): ConfigError[] {
     return errors;
   });
 }
+
+/** A canonical URL as Medplum matches it: absolute, and bare, since a `url|version` stamp validates nothing. */
+function checkUrl(url: string, path: string): ConfigError[] {
+  if (url.includes('|')) {
+    return [
+      {
+        code: 'versioned-url',
+        path,
+        message: `"${url}" has a |version: Medplum matches bare URLs only, so a versioned stamp validates nothing.`,
+      },
+    ];
+  }
+  return URL.canParse(url)
+    ? []
+    : [{ code: 'invalid-type', path, message: `"${url}" is not an absolute canonical URL.` }];
+}
+
+const isCoding = (value: unknown) =>
+  isObject(value) &&
+  typeof value.code === 'string' &&
+  (value.system === undefined || typeof value.system === 'string');
+
+/** The shape of each routing row; whether its profile and elements exist is checked once profiles load. */
+function checkRouteRows(record: Record<string, unknown>): ConfigError[] {
+  const { routes, profiles } = record;
+  if (routes === undefined) return [];
+  if (!isObject(routes)) {
+    return [{ code: 'invalid-type', path: 'routes', message: '"routes" must be an object.' }];
+  }
+  // With name/* the selection is known only once the IGs load.
+  const listed = Array.isArray(profiles) ? profiles.map(String) : [];
+  const complete = !listed.some((p) => ALL_PROFILES.test(p));
+  return Object.entries(routes).flatMap(([url, row]): ConfigError[] => {
+    const at = `routes["${url}"]`;
+    const errors = checkUrl(url, at);
+    if (errors.length === 0 && complete && !listed.includes(url)) errors.push(unselected(url, at));
+    if (row === false) return errors;
+    if (!isObject(row) || Object.keys(row).length === 0) {
+      return [...errors, invalidRoute(at, 'must map elements to their values, or be false')];
+    }
+    for (const [element, values] of Object.entries(row)) {
+      const valid =
+        Array.isArray(values) &&
+        values.length > 0 &&
+        values.every((v) => typeof v === 'string' || isCoding(v));
+      if (!valid) {
+        errors.push(invalidRoute(`${at}.${element}`, 'must be a list of codings or code strings'));
+      }
+    }
+    return errors;
+  });
+}
+
+const invalidRoute = (path: string, what: string): ConfigError => ({
+  code: 'invalid-route',
+  path,
+  message: `"${path}" ${what}.`,
+});
+
+const unselected = (url: string, path: string): ConfigError => ({
+  code: 'unselected-route',
+  path,
+  message: `"${url}" has a routing row but is not a selected profile; add it to profiles.`,
+});
+
+function checkDefaultProfile(defaults: unknown): ConfigError[] {
+  if (defaults === undefined) return [];
+  const malformed = (path: string, what: string): ConfigError => ({
+    code: 'invalid-default-profile',
+    path,
+    message: `"${path}" ${what}.`,
+  });
+  if (!isObject(defaults)) {
+    return [malformed('defaultProfile', 'must map resource types to profile URLs')];
+  }
+  return Object.entries(defaults).flatMap(([type, urls]): ConfigError[] => {
+    const at = `defaultProfile.${type}`;
+    if (!/^[A-Z][A-Za-z]+$/.test(type)) return [malformed(at, 'is not a resource type')];
+    if (!Array.isArray(urls) || urls.length === 0 || urls.some((u) => typeof u !== 'string')) {
+      return [malformed(at, 'must be a list of profile URLs')];
+    }
+    return (urls as string[]).flatMap((url, i) => checkUrl(url, `${at}[${i}]`));
+  });
+}
+
+/**
+ * The routing rows against the loaded profiles: each names a selected
+ * profile, and each element is a first-level element of the profile's type.
+ */
+export function checkRoutes(
+  config: Pick<PlumbConfig, 'routes'>,
+  selected: { url: string; sd: StructureDefinition }[],
+): ConfigError[] {
+  return Object.entries(config.routes ?? {}).flatMap(([url, row]): ConfigError[] => {
+    const at = `routes["${url}"]`;
+    const profile = selected.find((p) => p.url === url);
+    if (!profile) return [unselected(url, at)];
+    if (row === false) return [];
+    const type = profile.sd.type;
+    const elements = (profile.sd.snapshot?.element ?? []).map((e) => e.path.split('.'));
+    const firstLevel = elements.filter((p) => p.length === 2).map((p) => p[1] as string);
+    return Object.keys(row)
+      .filter((element) => !isFirstLevel(element, firstLevel))
+      .map((element) => ({
+        code: 'invalid-route-element' as const,
+        path: `${at}.${element}`,
+        message: `"${element}" is not a first-level element of ${type}.`,
+      }));
+  });
+}
+
+/** `code`, or a choice's typed name such as `valueCodeableConcept` for `value[x]`. */
+const isFirstLevel = (element: string, firstLevel: string[]) =>
+  firstLevel.some((name) =>
+    name.endsWith('[x]')
+      ? element.startsWith(name.slice(0, -3)) && /^[A-Z]/.test(element.slice(name.length - 3))
+      : name === element,
+  );
 
 /** Picks an environment by name and reads its credentials from `env`. */
 export function resolveEnvironment(

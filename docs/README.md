@@ -138,6 +138,11 @@
   The README walks a project from an environment to a gated push (#57),
   and the nightly registry run loads its environment config. **v0.2 is
   complete.**
+- **v0.3 so far:** `routes` and `defaultProfile` in the config (#58), with
+  named errors for a malformed row or default, a `url|version` URL, a row for
+  a profile that is not selected, and an element that is not first-level on
+  the profile's type, the last two checked once `generate` has loaded the
+  profiles.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
