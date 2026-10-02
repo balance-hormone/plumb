@@ -123,7 +123,7 @@
     `plumb validate` inside the project as a bot, and a gated `plumb push`
   - [03: routing and `createProfiled`](design/03-routing-and-create.md)
     (proposed): the profile a resource's content selects, stamped on write
-  - [04: typed reads](design/04-typed-reads.md) (proposed): reads and
+  - [04: typed reads](design/04-typed-reads.md) (accepted): reads and
     searches that return the profile type, checking the stamp and what the
     type requires
 - [`future/`](future/): parked ideas, each with its design sketch and research.
