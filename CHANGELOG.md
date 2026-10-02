@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+The conformance check: what stored data would fail a profile, before it loads.
+
+- **`environments`** in `plumb.config.ts` name a Medplum project and the
+  environment variables holding its client credentials.
+- **`plumb validate --env <env>`** counts, per profile, the stored resources
+  that would fail and why, with Plumb's checker bot inside the project, so
+  patient data never leaves Medplum. It reports unstamped resources, silent
+  stamps, shadowed profiles, and readable against stored counts; failing ids
+  go only to a gitignored file. `--resume` continues an interrupted run.
+- **`plumb push --env <env>`** installs the checker, then loads the selected
+  profiles and their dependencies, refusing while any stored resource would
+  fail them, and re-checks once they are loaded. `--dry-run` stops after the
+  gate. Strict mode is reported, never set.
+
 ## 0.1.0 (unreleased)
 
 The first release: profile-aware types for Medplum.

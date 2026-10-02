@@ -134,6 +134,9 @@
   re-checks at once. Real-server tests cover the refusal, the fix, the
   edit without a bump, a failing write between the gate and loading, and
   that a project admin's write to `strictMode` changes nothing.
+  The README walks a project from an environment to a gated push (#57),
+  and the nightly registry run loads its environment config. **v0.2 is
+  complete.**
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

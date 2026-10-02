@@ -52,6 +52,25 @@ test.skipIf(!run)(
 );
 
 test.skipIf(!run)(
+  "the README's environment config loads, and push and validate need its credentials",
+  () => {
+    const project = freshProject('registry-environments');
+    project.write('plumb.config.ts', block('environments: {'));
+    // The config loads, and without the variables it names each command stops
+    // before it fetches a package or connects.
+    for (const command of [
+      ['push', '--env', 'prod', '--dry-run'],
+      ['validate', '--env', 'prod'],
+    ]) {
+      const ran = project.plumb(...command);
+      expect(ran.status, ran.stderr).toBe(2);
+      expect(ran.stderr).toContain('MEDPLUM_PROD_CLIENT_ID is not set');
+    }
+  },
+  600_000,
+);
+
+test.skipIf(!run)(
   'IPS 2.0.1 generates and checks',
   () => {
     const project = freshProject('registry-ips');
