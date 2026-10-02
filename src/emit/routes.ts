@@ -26,6 +26,14 @@ export interface Routing {
   routes: Record<string, Route[]>;
   /** Every selected profile, routed or not: each can be chosen with `{ profile }`. */
   profiles: string[];
+  /**
+   * What a write held to each selected profile stamps: its type's
+   * `defaultProfile` less any it derives from, which it already holds, then
+   * the profile. A stamp replaces Medplum's default, so the defaults go too.
+   */
+  stamps: Record<string, string[]>;
+  /** Every URL Plumb stamps, which an update replaces; other URLs in `meta.profile` are kept. */
+  managed: string[];
   /** The pairs of profiles one resource could match. */
   warnings: string[];
 }
@@ -33,7 +41,7 @@ export interface Routing {
 /** The routes of each resource type, and the pairs of profiles one resource could match. */
 export function routingRows(
   loaded: Pick<LoadProfilesResult, 'profiles' | 'definitions'>,
-  config: Pick<PlumbConfig, 'routes'> = {},
+  config: Pick<PlumbConfig, 'routes' | 'defaultProfile'> = {},
 ): Routing {
   const selected = new Set(loaded.profiles.map((p) => p.url));
   const routes: Record<string, Route[]> = {};
@@ -48,7 +56,16 @@ export function routingRows(
     routes[sd.type]?.push(route);
   }
   const warnings = Object.entries(routes).flatMap(([type, rows]) => ambiguous(type, rows));
-  return { routes, profiles: [...selected], warnings };
+  const defaults = config.defaultProfile ?? {};
+  const stamps = Object.fromEntries(
+    loaded.profiles.map(({ url, sd }) => {
+      const derivesFrom = ancestors(sd.baseDefinition, loaded);
+      const kept = (defaults[sd.type] ?? []).filter((d) => d !== url && !derivesFrom.includes(d));
+      return [url, [...kept, url]];
+    }),
+  );
+  const managed = [...new Set([...selected, ...Object.values(defaults).flat()])];
+  return { routes, profiles: [...selected], stamps, managed, warnings };
 }
 
 /** Each fixed or pattern value on a required first-level element, and each required slice's discriminator values. */
@@ -90,20 +107,23 @@ function configKeys(row: ConfigRow, elements: Record<string, InternalSchemaEleme
   });
 }
 
-function parents(
-  base: string | undefined,
-  loaded: Pick<LoadProfilesResult, 'definitions'>,
-  selected: Set<string>,
-): string[] {
+/** The `baseDefinition` chain, as bare URLs. */
+function ancestors(base: string | undefined, loaded: Pick<LoadProfilesResult, 'definitions'>) {
   const chain: string[] = [];
   for (let url = base; url; ) {
     const bare = url.split('|')[0] as string;
-    if (selected.has(bare)) chain.push(bare);
+    chain.push(bare);
     const sd = loaded.definitions.get(bare)?.resource;
     url = sd?.resourceType === 'StructureDefinition' ? sd.baseDefinition : undefined;
   }
   return chain;
 }
+
+const parents = (
+  base: string | undefined,
+  loaded: Pick<LoadProfilesResult, 'definitions'>,
+  selected: Set<string>,
+) => ancestors(base, loaded).filter((url) => selected.has(url));
 
 /**
  * Unrelated profiles whose keys conflict on no element: one resource could
