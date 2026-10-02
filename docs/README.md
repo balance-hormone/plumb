@@ -149,6 +149,12 @@
   slice's discriminator values, and the config's `routes` row. A `routes`
   step warns for each pair of unrelated profiles whose keys conflict on no
   element. The goldens include it.
+  `_routes.ts` also holds the generated `route(resource)`, `RoutingError`,
+  `ProfileUrl` and `ProfileTypes`, exported from the index (#60). Tests
+  import the generated file itself: routing contract tables on the synthetic
+  profiles, and every one of US Core 9.0.0's 224 profiled examples routes to
+  the profile it claims or a more specific one, given the `routes` config a
+  US Core project writes (in `test/harness/routes.test.ts`).
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

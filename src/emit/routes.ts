@@ -22,23 +22,33 @@ export interface Route {
   keys: RouteKey[];
 }
 
+export interface Routing {
+  routes: Record<string, Route[]>;
+  /** Every selected profile, routed or not: each can be chosen with `{ profile }`. */
+  profiles: string[];
+  /** The pairs of profiles one resource could match. */
+  warnings: string[];
+}
+
 /** The routes of each resource type, and the pairs of profiles one resource could match. */
 export function routingRows(
   loaded: Pick<LoadProfilesResult, 'profiles' | 'definitions'>,
   config: Pick<PlumbConfig, 'routes'> = {},
-): { routes: Record<string, Route[]>; warnings: string[] } {
+): Routing {
   const selected = new Set(loaded.profiles.map((p) => p.url));
   const routes: Record<string, Route[]> = {};
   for (const { url, sd, schema } of loaded.profiles) {
     const row = config.routes?.[url];
+    // A type whose profiles are all out of routing still has rows, so route refuses rather than skip it.
+    routes[sd.type] ??= [];
     if (row === false) continue;
     const keys = generatedKeys(schema.elements);
     if (row) keys.push(...configKeys(row, schema.elements));
     const route = { profile: url, parents: parents(sd.baseDefinition, loaded, selected), keys };
-    routes[sd.type] = [...(routes[sd.type] ?? []), route];
+    routes[sd.type]?.push(route);
   }
   const warnings = Object.entries(routes).flatMap(([type, rows]) => ambiguous(type, rows));
-  return { routes, warnings };
+  return { routes, profiles: [...selected], warnings };
 }
 
 /** Each fixed or pattern value on a required first-level element, and each required slice's discriminator values. */

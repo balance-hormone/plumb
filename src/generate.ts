@@ -132,7 +132,7 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     routing.warnings,
   );
   const integrity = new Map(fetched.packages.map((p) => [`${p.name}@${p.version}`, p.integrity]));
-  const files = printFiles(models, (m) => integrity.get(m.source) ?? hashOf(m), routing.routes);
+  const files = printFiles(models, (m) => integrity.get(m.source) ?? hashOf(m), routing);
 
   if (check) {
     const compared = compareFiles(config.out, files);
