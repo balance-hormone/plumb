@@ -4,8 +4,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { loadConfig } from './config.js';
+import { type ConfigError, loadConfig, resolveEnvironment } from './config.js';
 import { type GenerateResult, generate, type Step } from './generate.js';
+import { push } from './push.js';
 
 export interface CliIo {
   cwd: string;
@@ -19,12 +20,15 @@ export interface CliIo {
 }
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
+       plumb push --env <name> [--config <path>]
 
-Generate TypeScript types that narrow @medplum/fhirtypes from the FHIR
-profiles plumb.config.ts selects.
+generate  Generate TypeScript types that narrow @medplum/fhirtypes from the
+          FHIR profiles plumb.config.ts selects.
+push      Install or update Plumb's checker bot in a Medplum project.
 
 Options:
   --check          compare with the committed output instead of writing; fail if stale
+  --env <name>     the environment in plumb.config.ts to push to
   --config <path>  the config file (default: plumb.config.ts)
   --json           print the report as JSON on stdout
   --quiet          print only problems
@@ -37,12 +41,16 @@ const OK = 0;
 const PROBLEMS = 1;
 const USAGE_ERROR = 2;
 
-/** Plumb's own version, from the package.json above this module in source or in dist. */
-function version(): string {
+/** Plumb's package directory, the one above this module in source or in dist. */
+function packageDir(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
   while (!existsSync(join(dir, 'package.json'))) dir = dirname(dir);
-  return (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version: string })
-    .version;
+  return dir;
+}
+
+function version(): string {
+  const file = join(packageDir(), 'package.json');
+  return (JSON.parse(readFileSync(file, 'utf8')) as { version: string }).version;
 }
 
 const time = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
@@ -81,12 +89,12 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
     io.stdout(`${version()}\n`);
     return OK;
   }
-  if (positionals.length !== 1 || positionals[0] !== 'generate') {
-    const got = positionals.length === 0 ? 'no command' : `"${positionals.join(' ')}"`;
-    io.stderr(`plumb: expected the generate command, got ${got}\n\n${USAGE}`);
-    return USAGE_ERROR;
-  }
-  return generateCommand(values, io);
+  const command = positionals.length === 1 ? positionals[0] : undefined;
+  if (command === 'generate') return generateCommand(values, io);
+  if (command === 'push') return pushCommand(values, io);
+  const got = positionals.length === 0 ? 'no command' : `"${positionals.join(' ')}"`;
+  io.stderr(`plumb: expected the generate or push command, got ${got}\n\n${USAGE}`);
+  return USAGE_ERROR;
 }
 
 type Values = ReturnType<typeof parse>['values'];
@@ -109,12 +117,7 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
   const quiet = values.quiet ?? false;
   const { ok, bad, say, problem } = printer(io, quiet);
   const config = await loadConfig({ cwd: io.cwd, configPath: values.config });
-  if (!config.ok) {
-    for (const e of config.errors) problem(`${bad} config    ${e.message}`);
-    if (values.json)
-      io.stdout(`${JSON.stringify({ ok: false, errors: config.errors }, null, 2)}\n`);
-    return USAGE_ERROR;
-  }
+  if (!config.ok) return configErrors(config.errors, values, io);
   const out = relative(io.cwd, config.config.out) || '.';
   say(`plumb generate${values.check ? ' --check' : ''}`);
   const result = await generate({
@@ -137,6 +140,47 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
   return result.ok ? OK : PROBLEMS;
 }
 
+async function pushCommand(values: Values, io: CliIo): Promise<number> {
+  const quiet = values.quiet ?? false;
+  const { ok, bad, say, problem } = printer(io, quiet);
+  if (!values.env) {
+    io.stderr(`plumb: push needs --env <name>\n\n${USAGE}`);
+    return USAGE_ERROR;
+  }
+  const config = await loadConfig({ cwd: io.cwd, configPath: values.config });
+  if (!config.ok) return configErrors(config.errors, values, io);
+  const environment = resolveEnvironment(config.config, values.env, io.env);
+  if (!environment.ok) return configErrors(environment.errors, values, io);
+  say(`plumb push --env ${values.env}`);
+  const result = await push({
+    config: config.config,
+    environment: environment.environment,
+    lockPath: join(dirname(config.configPath), 'plumb.lock'),
+    checker: {
+      code: readFileSync(join(packageDir(), 'dist/checker.cjs'), 'utf8'),
+      version: version(),
+    },
+    cacheDir: io.cacheDir,
+    fetch: io.fetch,
+    onStep: (step) => {
+      say(`${ok} ${step.name.padEnd(8)}  ${step.summary}   ${time(step.ms)}`);
+      for (const w of step.warnings) (quiet ? problem : say)(`    ${w}`);
+    },
+  });
+  for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
+  (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
+  if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.ok) return OK;
+  return result.errors.some((e) => e.step === 'connect') ? USAGE_ERROR : PROBLEMS;
+}
+
+function configErrors(errors: ConfigError[], values: Values, io: CliIo): number {
+  const { bad, problem } = printer(io, true);
+  for (const e of errors) problem(`${bad} config    ${e.message}`);
+  if (values.json) io.stdout(`${JSON.stringify({ ok: false, errors }, null, 2)}\n`);
+  return USAGE_ERROR;
+}
+
 function parse(argv: string[]) {
   return parseArgs({
     args: argv,
@@ -145,6 +189,7 @@ function parse(argv: string[]) {
     options: {
       check: { type: 'boolean' },
       config: { type: 'string' },
+      env: { type: 'string' },
       json: { type: 'boolean' },
       quiet: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
