@@ -96,7 +96,7 @@
   [project config as code](future/project-config-as-code.md), which extends
   v0.2's `push`. Later: SUSHI integration, Zod schemas, agent
   summaries.
-- **v0.2 so far:** the server tests in [`../test/server`](../test/server/)
+- **v0.2:** the server tests in [`../test/server`](../test/server/)
   start Medplum, Postgres and Redis in Docker and give each run a strict
   project with an admin CI client and synthetic data. CI runs them on Node 22
   and 24, and on Medplum 5.1.0 (#51). `environments` in the config name a
@@ -138,7 +138,7 @@
   The README walks a project from an environment to a gated push (#57),
   and the nightly registry run loads its environment config. **v0.2 is
   complete.**
-- **v0.3 so far:** `routes` and `defaultProfile` in the config (#58), with
+- **v0.3:** `routes` and `defaultProfile` in the config (#58), with
   named errors for a malformed row or default, a `url|version` URL, a row for
   a profile that is not selected, and an element that is not first-level on
   the profile's type, the last two checked once `generate` has loaded the
@@ -177,7 +177,8 @@
   decisions.
 - [`design/`](design/): one design note per feature, written before it is built.
   - [01: profile compiler and type generator](design/01-generator.md)
-  - [02: conformance check](design/02-conformance-check.md) (proposed):
+  - [02: conformance check](design/02-conformance-check.md)
+    (implemented in v0.2):
     `plumb validate` inside the project as a bot, and a gated `plumb push`
   - [03: routing and `createProfiled`](design/03-routing-and-create.md)
     (implemented in v0.3): the profile a resource's content selects, stamped
@@ -186,8 +187,8 @@
     searches that return the profile type, checking the stamp and what the
     type requires
 - [`future/`](future/): parked ideas, each with its design sketch and research.
-  - [Conformance check](future/conformance-check.md): how many stored records a
-    profile would fail, the load gate, the baseline, adopting late.
+  - [Conformance check](future/conformance-check.md): the later stages, the
+    baseline and adopting late; stages 1 and 2 are design 02.
   - [Project config as code](future/project-config-as-code.md): `push`,
     converged settings, the lockdown recipe.
   - [Data migrations](future/data-migrations.md): `defineMigration` and a ledger

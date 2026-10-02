@@ -309,7 +309,7 @@ npx plumb validate --env prod
 plumb validate --env prod
 ✔ load      1 profiles of Patient   1.9s
 ✔ connect   https://api.medplum.com/ (strict mode off)   320ms
-✔ checker   plumb-checker 0.2.0 installed   60ms
+✔ checker   plumb-checker 0.3.0 installed   60ms
 ✔ profiles  1 selected, none shadowed   80ms
 ✖ validate  1 of 1 profiles would fail   38.4s
     Patient: 12400 of 12400 read, 300 of 12360 fail; 40 unstamped; silent stamps: 3 url|version
@@ -362,7 +362,7 @@ npx plumb push --env prod
 plumb push --env prod
 ✔ load      1 profiles of Patient   1.9s
 ✔ connect   https://api.medplum.com/ (strict mode off)   320ms
-✔ checker   plumb-checker 0.2.0 unchanged   90ms
+✔ checker   plumb-checker 0.3.0 unchanged   90ms
 ✔ plan      load us-core-patient 9.0.0 (+7 dependencies)   210ms
 ✔ gate      nothing stored would fail   36.1s
 ✔ apply     8 created, 0 updated   1.4s
