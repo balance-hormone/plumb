@@ -83,9 +83,10 @@ and its validator. See [Medplum server behaviour](medplum-server-behaviour.md).
 
 ## Terraform *(parked)*
 
-- **Plan, then apply; converge on every run.** `plumb push` shows a plan and
-  applies only with `--write`, and a second run with no config change is an
-  empty plan.
+- **Converge on every run:** a second run with no config change is an empty
+  plan. `plumb push` borrows that, but not the separate `plan`/`apply` verbs:
+  it applies as `prisma db push` and `drizzle-kit push` do, and `--dry-run`
+  stops at the plan ([design 06](../design/06-project-config.md)).
 
 ## Medplum itself
 
