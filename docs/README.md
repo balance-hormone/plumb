@@ -92,8 +92,8 @@
 - **Roadmap:** v0.2 is the conformance check
   ([design 02](design/02-conformance-check.md)), v0.3 routing and
   `createProfiled` ([design 03](design/03-routing-and-create.md)), v0.4
-  typed reads ([design 04](design/04-typed-reads.md)). Next:
-  [project config as code](future/project-config-as-code.md), which extends
+  typed reads ([design 04](design/04-typed-reads.md)). Next: project config
+  as code ([design 05](design/05-project-config.md), proposed), which extends
   v0.2's `push`. Later: SUSHI integration, Zod schemas, agent
   summaries.
 - **v0.2:** the server tests in [`../test/server`](../test/server/)
@@ -207,6 +207,8 @@
   - [04: typed reads](design/04-typed-reads.md) (implemented in v0.4): reads and
     searches that return the profile type, checking the stamp and what the
     type requires
+  - [05: project config as code](design/05-project-config.md) (proposed):
+    `push` converges settings, default profiles, access policies and clients
 - [`future/`](future/): parked ideas, each with its design sketch and research.
   - [Conformance check](future/conformance-check.md): the later stages, the
     baseline and adopting late; stages 1 and 2 are design 02.

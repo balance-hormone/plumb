@@ -1,7 +1,7 @@
 # Idea: Project Config as Code
 
-**Status: parked.** An idea for a later tool, not a commitment. Plumb's first
-deliverable is profile types ([`../spec.md`](../spec.md)).
+**Status: picked up** by [design 05](../design/05-project-config.md)
+(proposed). This note keeps the original sketch and research.
 
 ## Problem
 
