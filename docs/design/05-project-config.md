@@ -65,7 +65,7 @@ to be rebuilt:
 | Config | Medplum | Who can write it |
 | --- | --- | --- |
 | `project.settings` | `Project.setting` | project admin |
-| `project.secrets` (names only) | `Project.secret` | project admin |
+| `project.secrets` | `Project.secret` | project admin |
 | `defaultProfile` (v0.3's) | `Project.defaultProfile` | project admin |
 | `project.accessPolicies` | `AccessPolicy` | AccessPolicy-governed |
 | `project.defaultAccessPolicies` | `Project.defaultAccessPolicies` | project admin |
@@ -79,9 +79,9 @@ Not declared, and why:
   `push` reads `strictMode` and `features` from `GET /auth/me` and reports them
   in the plan (`strictMode is off; ask a super admin`), as `validate` already
   reports strict mode. A break-glass super-admin credential is a later stage.
-- **Secret values:** the config is committed. `project.secrets` lists the
-  names the project needs, and the plan fails when one is missing; values are
-  set in the console or by a deploy script.
+- **Secret values in the config:** the config is committed. A secret's value
+  comes from an environment variable, as an environment's credentials already
+  do (see [Secrets](#secrets)).
 - **People** (Users, invites): who works in a project is not configuration.
 - **Bots** other than Plumb's checker: Medplum's CLI already deploys bots and
   their code. Declaring their registrations is a later stage.
@@ -94,8 +94,11 @@ Not declared, and why:
 export default defineConfig({
   // …igs, profiles, out, routes, defaultProfile as today
   project: {
-    settings: { supportEmail: 'support@example.org' },
-    secrets: ['PAYMENT_API_KEY'],
+    settings: { supportEmail: 'support@example.org', maxUploadMb: 25, betaForms: false },
+    secrets: {
+      PAYMENT_API_KEY: { env: 'PAYMENT_API_KEY' }, // set from CI's environment
+      LEGACY_SFTP_KEY: true, // must exist; set by hand
+    },
     accessPolicies: {
       clinician: {
         resource: [
@@ -128,6 +131,11 @@ export default defineConfig({
 - **An AccessPolicy is written as Medplum's own shape,** less `id`, `meta` and
   `name` (the key, unless given). `defineConfig` types it with
   `@medplum/fhirtypes`' `AccessPolicyResource`, so the editor checks it.
+- **A setting's type follows its value:** a string is `valueString`, a
+  boolean `valueBoolean`, a whole number `valueInteger` and any other number
+  `valueDecimal`, the four types `ProjectSetting` holds. The plan prints the
+  type, so a decimal that should be an integer shows in review. An explicit
+  form waits for someone who needs it.
 - **Per-environment settings** merge over `project.settings`, the one thing
   that commonly differs between environments (a URL, a support address).
   Nothing else is per-environment: two environments that need different
@@ -136,13 +144,41 @@ export default defineConfig({
   stamps `createProfiled` writes and the defaults the server applies come from
   one place.
 
+## Secrets
+
+A secret is declared by name, with where its value comes from:
+
+- **`{ env: 'NAME' }`:** `push` reads the value from that environment
+  variable in CI, sets `Project.secret` when it differs, and fails when the
+  variable is unset. It compares the value without printing it: the plan says
+  `~ secret PAYMENT_API_KEY (value changed)`, and neither the plan, `--json`
+  nor an error message ever holds a value.
+- **`true`:** the secret must exist and is set by hand, in the console. The
+  plan fails when it is missing and never changes it.
+- A secret in the project but not in the config is left alone, even under
+  `--prune`: a `ProjectSetting` has no tag, so Plumb cannot tell one it set
+  from one set by hand.
+
+This is the pattern Plumb already uses for an environment's client
+credentials, and the one Auth0's Deploy CLI uses for values it must not commit
+(keyword replacement from environment variables).
+
 ## Found again by a tag
 
 Plumb finds what it manages by a `meta.tag` with Plumb's system and the
-config key as code (`https://github.com/balance-hormone/plumb|clinician`),
+config key as code (`https://www.npmjs.com/package/plumb-fhir|clinician`),
 searched with `_tag`. Not by name, which a person can change in the console,
-and not by an identifier: AccessPolicy and ClientApplication have none. The
-checker bot keeps its identifier.
+and not by an identifier: AccessPolicy and ClientApplication have none.
+
+- **One system for everything Plumb owns:** the tag system and the checker
+  bot's identifier become one constant, the package's npm URL. Today the
+  checker's identifier is the repository's GitHub URL, which names the
+  organization and moves if the repository does; the package name already has
+  to stay stable. Kubernetes asks the same of label prefixes (a domain the
+  owner controls), and FHIR of code systems. The change is cheap now: the
+  package is unpublished, and only test projects hold a checker. If the
+  project gets a domain of its own before v0.5 ships, the constant moves there
+  instead.
 
 - **A tagged resource is Plumb's.** It is updated to match the config, and
   listed for removal when its key leaves the config.
@@ -177,6 +213,7 @@ checker bot keeps its identifier.
 - **Removal needs `--prune`.** A tagged policy or client no longer in the
   config is listed, and deleted only with `--prune`: deleting the policy a
   person's membership uses locks that person out.
+- **A secret value is never printed,** in the plan, `--json` or an error.
 - **A client's secret is never printed or stored.** A created client's id is
   printed; its secret is read in the console, or rotated there, and kept in
   whatever secrets store the project uses.
@@ -205,6 +242,19 @@ warns, without refusing, where the config breaks it:
 - a policy that writes StructureDefinition, other than the client `push`
   itself runs as, because that bypasses the profile gate.
 
+## Conventions this follows
+
+| Decision | Follows | Instead of |
+| --- | --- | --- |
+| `push` applies; `--dry-run` stops at the plan | `prisma db push`, `drizzle-kit push`, `kubectl apply`, and v0.2's `push` | Terraform's `plan`/`apply` and Pulumi's `preview`/`up`, which are separate verbs with an interactive prompt that CI skips (`-auto-approve`, `--yes`) |
+| Found by a tag; untagged needs `--adopt` | Kubernetes' `app.kubernetes.io/managed-by` label; Helm 3 refusing objects without its ownership metadata; Terraform and Pulumi's explicit `import` | Matching by name, as Auth0's Deploy CLI does, which a rename in the console breaks |
+| `--check` exits 1 on drift | `kubectl diff`, `terraform plan -detailed-exitcode`, `prisma migrate diff --exit-code`, and Plumb's own `generate --check` | A separate `drift` command |
+| Removal only with `--prune` | `kubectl apply --prune`; Auth0's `AUTH0_ALLOW_DELETE`, `false` by default | Terraform deleting by default, which it can do safely only because it keeps a state file |
+| Secret values from environment variables | Auth0's keyword replacement; Plumb's own environment credentials | Values in the committed config, or names only |
+| Setting types from the value | Terraform and Auth0's JSON config, which infer types from literals | Strings only (Pulumi config), which `ProjectSetting`'s typed values do not fit |
+| Super-admin fields reported, not written | Terraform's separate provider configurations for separate credentials (a later stage here) | One credential that can do everything |
+| One owned URL for tags and identifiers | Kubernetes' domain-prefixed label keys; FHIR's persistent system URIs | A URL that moves with the repository |
+
 ## Commands stay plain functions
 
 `planProject(config, environment, client)` returns the plan, and
@@ -231,8 +281,11 @@ Against the Docker Medplum server, in a project of its own per test file:
   configured policy and `admin`.
 - **A super-admin field is reported, never written:** a config cannot declare
   `strictMode`, and the plan reports the live value.
-- **A missing secret name fails the plan,** and the plan never contains a
-  secret value.
+- **Secrets:** an `{ env }` secret is set, then left alone while its value is
+  unchanged; a missing `true` secret fails the plan; no plan, `--json` output
+  or error holds a value.
+- **Setting types:** a string, boolean, whole number and decimal each store as
+  their `ProjectSetting` type.
 
 Unit tests cover the config checks (unknown policy key, duplicate keys, a
 `*` entry warning) and the plan diff, with a stub client.
@@ -244,8 +297,9 @@ Unit tests cover the config checks (unknown policy key, duplicate keys, a
 2. **Plan and apply AccessPolicies,** found by tag, with `--dry-run`,
    `--prune` and `--adopt`, and the real-server server tests.
 3. **Clients:** create through the admin endpoint, converge the membership.
-4. **Project fields:** `setting`, secret names, `defaultProfile`,
-   `defaultAccessPolicies`; report `strictMode` and `features`.
+4. **Project fields:** `setting`, secrets, `defaultProfile`,
+   `defaultAccessPolicies`; report `strictMode` and `features`. The tag
+   system and the checker's identifier move to one constant.
 5. **`push --check`** for drift, and a nightly example in the README.
 6. **Docs:** the README's project section and the lockdown recipe; design 05
    becomes implemented.
@@ -257,15 +311,9 @@ Unit tests cover the config checks (unknown policy key, duplicate keys, a
 - **Bot registrations** (the Bot and its membership, not its code).
 - **Installing through `PackageRelease/$install`** once the marketplace's
   manifest and idempotency land.
-- **Secret values** from a secrets store.
+- **Secret values** read from a secrets store rather than CI's environment.
 
 ## Open questions
 
-- **Settings types:** `ProjectSetting` holds a string, boolean, decimal or
-  integer; whether the config infers the value type from the JavaScript value
-  or asks for it.
-- **The tag system URL** is Plumb's repository URL, as the checker's identifier
-  is; whether to move both to a URL that survives a repository move before
-  either is widely deployed.
 - **Linked projects:** policies and profiles can come from a linked project;
   whether `push` should see them when planning.

@@ -11,7 +11,8 @@ It cannot be reviewed, and it cannot be reproduced in a second environment.
 
 ## Sketch
 
-- **`push --env <env>`** shows a plan and applies it only with `--write`, in
+- **`push --env <env>`** shows a plan and applies it (design 05 settled on
+  applying by default, with `--dry-run`, rather than a `--write` flag), in
   dependency order: StructureDefinitions, defaults, settings, clients,
   policies. A second run with no config change is an empty plan (Terraform's
   plan and apply).
