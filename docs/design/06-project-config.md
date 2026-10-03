@@ -1,6 +1,7 @@
-# Design 05: Project Config as Code
+# Design 06: Project Config as Code
 
-**Status: proposed** on 2026-10-03. Picks up the parked
+**Status: proposed** on 2026-10-03, for v0.6 (after [design 05](05-sushi.md)'s
+SUSHI integration in v0.5). Picks up the parked
 [project config as code](../future/project-config-as-code.md) idea, and the
 "`defaultProfile`, and the rest of project config, through `push`" stage that
 [design 02](02-conformance-check.md) left for later. Read design 02 first:
@@ -177,7 +178,7 @@ and not by an identifier: AccessPolicy and ClientApplication have none.
   to stay stable. Kubernetes asks the same of label prefixes (a domain the
   owner controls), and FHIR of code systems. The change is cheap now: the
   package is unpublished, and only test projects hold a checker. If the
-  project gets a domain of its own before v0.5 ships, the constant moves there
+  project gets a domain of its own before v0.6 ships, the constant moves there
   instead.
 
 - **A tagged resource is Plumb's.** It is updated to match the config, and
@@ -290,7 +291,7 @@ Against the Docker Medplum server, in a project of its own per test file:
 Unit tests cover the config checks (unknown policy key, duplicate keys, a
 `*` entry warning) and the plan diff, with a stub client.
 
-## Proposed issues (v0.5 milestone)
+## Proposed issues (v0.6 milestone)
 
 1. **Config:** `project` and per-environment `settings` in `plumb.config.ts`,
    typed and checked, with named errors.
@@ -301,7 +302,7 @@ Unit tests cover the config checks (unknown policy key, duplicate keys, a
    `defaultAccessPolicies`; report `strictMode` and `features`. The tag
    system and the checker's identifier move to one constant.
 5. **`push --check`** for drift, and a nightly example in the README.
-6. **Docs:** the README's project section and the lockdown recipe; design 05
+6. **Docs:** the README's project section and the lockdown recipe; design 06
    becomes implemented.
 
 ## Later (not in this design)

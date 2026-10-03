@@ -274,8 +274,8 @@ Named after the tools developers already know:
   dependency-confusion risk.
 - **Local profiles are StructureDefinition JSON.** Projects that author in FSH
   follow Medplum's documented workflow: `sushi . --snapshot`, then point
-  `local` at `fsh-generated/resources`. Running SUSHI from Plumb is a later
-  release (story 9).
+  `local` at `fsh-generated/resources`. Running SUSHI from Plumb is v0.5
+  (story 9, [design 05](design/05-sushi.md)).
 - **Snapshots are required.** Registry packages ship with them and SUSHI
   produces them. A profile without one is an error, not something Plumb
   repairs.

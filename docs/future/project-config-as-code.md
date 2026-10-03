@@ -1,6 +1,6 @@
 # Idea: Project Config as Code
 
-**Status: picked up** by [design 05](../design/05-project-config.md)
+**Status: picked up** by [design 06](../design/06-project-config.md)
 (proposed). This note keeps the original sketch and research.
 
 ## Problem
@@ -11,7 +11,7 @@ It cannot be reviewed, and it cannot be reproduced in a second environment.
 
 ## Sketch
 
-- **`push --env <env>`** shows a plan and applies it (design 05 settled on
+- **`push --env <env>`** shows a plan and applies it (design 06 settled on
   applying by default, with `--dry-run`, rather than a `--write` flag), in
   dependency order: StructureDefinitions, defaults, settings, clients,
   policies. A second run with no config change is an empty plan (Terraform's
