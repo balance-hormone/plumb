@@ -12,8 +12,24 @@ import {
 import { type Checked, checkStored, judge, type ValidateEnvOptions } from './conformance.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
+import {
+  applyProject,
+  describeChange,
+  type ProjectOptions,
+  type ProjectPlan,
+  planProject,
+  planSummary as projectSummary,
+} from './project.js';
 
-type PushStepName = 'load' | 'connect' | 'checker' | 'plan' | 'gate' | 'apply' | 'recheck';
+type PushStepName =
+  | 'load'
+  | 'connect'
+  | 'checker'
+  | 'plan'
+  | 'gate'
+  | 'apply'
+  | 'recheck'
+  | 'project';
 
 /** What push will do with one StructureDefinition: the selected profiles and what they depend on. */
 export interface PlannedDefinition {
@@ -34,13 +50,15 @@ export interface PushResult extends EnvResult<PushStepName> {
   /** What fails the loaded profiles, straight after loading. */
   recheck?: Checked;
   reportPath?: string;
+  /** The project's planned changes, when the config declares a project. */
+  project?: ProjectPlan;
 }
 
-export interface PushOptions extends EnvOptions {
+export interface PushOptions extends EnvOptions, ProjectOptions {
   checker: Pick<CheckerOptions, 'code' | 'version'>;
   /** Where the gate's and the re-check's failing ids go, as `validate`'s do. */
   reportPath: string;
-  /** Stop after the gate: report what would load and what would fail it, and write no profile. */
+  /** Stop after the gate and the project plan, writing nothing. */
   dryRun?: boolean;
   onPage?: ValidateEnvOptions['onPage'];
 }
@@ -50,7 +68,8 @@ export interface PushOptions extends EnvOptions {
  * they depend on, refusing while stored resources would fail them: design
  * 02's push. Nothing is loaded when the gate fails. Profiles loaded and then
  * failed by the re-check stay loaded, as Postgres keeps a `NOT VALID`
- * constraint.
+ * constraint. Once the gate has passed, the project's own configuration
+ * follows: design 06.
  */
 export async function push(options: PushOptions): Promise<PushResult> {
   const result: PushResult = { ok: false, steps: [], totalMs: 0, errors: [], plan: [] };
@@ -70,12 +89,16 @@ export async function push(options: PushOptions): Promise<PushResult> {
   const { status, version, previous, botId } = result.checker;
   step.finish('checker', `plumb-checker ${previous ? `${previous} → ` : ''}${version} ${status}`);
 
+  const finish = async (ok: boolean) => {
+    const project = options.config.project && (await projectStep(medplum, options, result, step));
+    result.ok = ok && project !== false;
+    return step.done();
+  };
+
   const { planned, held } = await planStep(medplum, loaded, result, step);
   const changes = result.plan.filter((p) => p.action === 'create' || p.action === 'update');
-  if (changes.length === 0 || result.plan.some((p) => p.action === 'shadowed')) {
-    result.ok = !result.plan.some((p) => p.action === 'shadowed');
-    return step.done();
-  }
+  if (result.plan.some((p) => p.action === 'shadowed')) return step.done();
+  if (changes.length === 0) return finish(true);
 
   const filename = checkerFilename(options.checker.code, options.checker.version);
   result.reportPath = options.reportPath;
@@ -99,10 +122,8 @@ export async function push(options: PushOptions): Promise<PushResult> {
         : [],
     gate.failed,
   );
-  if (gate.failed || options.dryRun) {
-    result.ok = !gate.failed;
-    return step.done();
-  }
+  if (gate.failed) return step.done();
+  if (options.dryRun) return finish(true);
 
   try {
     await apply(medplum, changes, planned, held);
@@ -121,8 +142,44 @@ export async function push(options: PushOptions): Promise<PushResult> {
     recheckNotes(recheck.failed, result.strictMode === true),
     recheck.failed,
   );
-  result.ok = !recheck.failed;
-  return step.done();
+  return finish(!recheck.failed);
+}
+
+/**
+ * Plans the project's configuration, then writes it unless the plan is
+ * blocked or this is a dry run. Returns whether it succeeded.
+ */
+async function projectStep(
+  medplum: MedplumClient,
+  options: PushOptions,
+  result: PushResult,
+  step: Pick<ReturnType<typeof steps<PushStepName, PushResult>>, 'finish' | 'fail'>,
+): Promise<boolean> {
+  let plan: ProjectPlan;
+  try {
+    plan = await planProject(options.config.project ?? {}, medplum, options);
+  } catch (err) {
+    step.fail('project', [{ code: 'project-failed', message: normalizeErrorString(err) }]);
+    return false;
+  }
+  result.project = plan;
+  const blocked = plan.blocked.length > 0;
+  step.finish(
+    'project',
+    projectSummary(plan),
+    [...plan.changes.map(describeChange), ...plan.blocked, ...plan.warnings],
+    blocked,
+  );
+  const pending = plan.changes.some((c) => !('kept' in c));
+  if (blocked || options.dryRun || !pending) return !blocked;
+  try {
+    const written = await applyProject(plan, medplum);
+    step.finish('project', `applied ${written} change${written === 1 ? '' : 's'}`);
+  } catch (err) {
+    step.fail('project', [{ code: 'project-failed', message: normalizeErrorString(err) }]);
+    return false;
+  }
+  return true;
 }
 
 /** The selected profiles and what they depend on, against what the project holds. */

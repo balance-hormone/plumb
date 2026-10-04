@@ -78,6 +78,17 @@ export async function newProject(seed?: Bundle, { strictMode = true } = {}): Pro
   };
 }
 
+/** Links `linked` into `project`, which only a super admin can do. */
+export async function linkProject(project: string, linked: string): Promise<void> {
+  const admin = new MedplumClient({ baseUrl: BASE_URL });
+  await admin.startClientLogin(...SUPER_ADMIN);
+  const current = await admin.readResource('Project', project);
+  await admin.updateResource({
+    ...current,
+    link: [{ project: { reference: `Project/${linked}` } }],
+  });
+}
+
 const SEED: Bundle = {
   resourceType: 'Bundle',
   type: 'transaction',
