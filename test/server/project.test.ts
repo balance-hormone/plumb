@@ -49,7 +49,7 @@ describe.skipIf(!server)('the project step converges AccessPolicies', { timeout:
       ['+', 'clinician'],
       ['+', 'reader'],
     ]);
-    expect(await applyProject(first, await connect(project))).toBe(2);
+    expect(await applyProject(first, await connect(project))).toMatchObject({ written: 2 });
     const policies = await stored();
     expect(policies.get('clinician')).toMatchObject({
       resource: [{ resourceType: 'Patient' }, { resourceType: 'Observation' }],
@@ -118,10 +118,10 @@ describe.skipIf(!server)('the project step converges AccessPolicies', { timeout:
     expect(kept.changes).toEqual([
       { kind: '-', type: 'AccessPolicy', key: 'nurse', id: expect.any(String), kept: true },
     ]);
-    expect(await applyProject(kept, await connect(project))).toBe(0);
+    expect(await applyProject(kept, await connect(project))).toMatchObject({ written: 0 });
     expect((await stored()).has('nurse')).toBe(true);
 
-    expect(await converge(CONFIG, { prune: true })).toBe(1);
+    expect(await converge(CONFIG, { prune: true })).toMatchObject({ written: 1 });
     expect((await stored()).has('nurse')).toBe(false);
     expect((await plan(CONFIG, { prune: true })).changes).toEqual([]);
   });
