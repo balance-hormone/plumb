@@ -8,8 +8,9 @@ import { type ProfileModel, transform } from './emit/transform.js';
 import { compareFiles, type Stale, writeFiles } from './emit/write.js';
 import { loadProfiles } from './loader.js';
 import { fetchPackages } from './packages.js';
+import { buildFsh } from './sushi.js';
 
-type StepName = 'packages' | 'load' | 'emit' | 'routes' | 'write' | 'check';
+type StepName = 'sushi' | 'packages' | 'load' | 'emit' | 'routes' | 'write' | 'check';
 
 /** One finished step, with what it did, for the CLI to print as it goes. */
 export interface Step {
@@ -38,7 +39,7 @@ export interface GenerateResult {
 }
 
 export interface GenerateOptions {
-  /** A loaded config, with `local` and `out` resolved to absolute paths. */
+  /** A loaded config, with `local`, `fsh` and `out` resolved to absolute paths. */
   config: PlumbConfig;
   lockPath: string;
   /** Compare with the committed output instead of writing; nothing is written to the project. */
@@ -51,7 +52,8 @@ export interface GenerateOptions {
 const ms = (since: number) => Math.round(performance.now() - since);
 
 /**
- * Fetches the IG packages, loads the selected profiles, emits their types,
+ * Builds the FSH when the config names a SUSHI project, fetches the IG
+ * packages, loads the selected profiles, emits their types,
  * and writes them to `out`, or with `check`, compares them with it byte for
  * byte. Each step is reported as it finishes.
  */
@@ -79,6 +81,13 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     result.totalMs = ms(start);
     return result;
   };
+
+  // SUSHI writes to the project, so a check leaves its output as it is.
+  if (config.fsh && !check) {
+    const built = buildFsh(config.fsh);
+    if (!built.ok) return fail('sushi', built.errors);
+    finish('sushi', built.counts, built.warnings);
+  }
 
   const fetched = await fetchPackages({
     igs: config.igs,

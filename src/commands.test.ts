@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
+import { bareSushiProject } from '../test/sushi-stub.js';
 import { formatStep, formatValidation, run } from './commands.js';
 import type { TypeReport, ValidateEnvResult } from './conformance.js';
 
@@ -103,6 +104,17 @@ describe('plumb', () => {
     ]);
     expect(lines.at(-1)).toMatch(/^Done in \d+(ms|\.\ds)$/);
     expect(existsSync(join(cwd, 'src/fhir/generated/CardinalityPatient.ts'))).toBe(true);
+  });
+
+  test('generate exits 2 when the config names FSH and SUSHI is not installed', async () => {
+    const cwd = bareSushiProject();
+    writeFileSync(
+      join(cwd, 'plumb.config.ts'),
+      `export default { igs: [], profiles: ['${PLUMB}/cardinality-patient'], fsh: '.', out: './out' };`,
+    );
+    const { code, stderr } = await cli(['generate'], cwd);
+    expect(code).toBe(2);
+    expect(stderr).toContain('npm install --save-dev fsh-sushi');
   });
 
   test('--check passes on up-to-date output', async () => {
