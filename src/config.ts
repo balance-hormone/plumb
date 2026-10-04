@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Coding, StructureDefinition } from '@medplum/fhirtypes';
 
@@ -15,6 +15,11 @@ export interface PlumbConfig {
   profiles: string[];
   /** A folder of StructureDefinition JSON outside any package. */
   local?: string;
+  /**
+   * A SUSHI project: the folder holding `sushi-config.yaml`. Its output,
+   * `fsh-generated/resources`, is the local folder, so `local` is not set too.
+   */
+  fsh?: string;
   /** The folder Plumb generates into and owns. */
   out: string;
   bindings?: {
@@ -81,7 +86,9 @@ export type ConfigErrorCode =
   | 'unselected-route'
   | 'invalid-route-element'
   | 'invalid-default-profile'
-  | 'versioned-url';
+  | 'versioned-url'
+  | 'fsh-and-local'
+  | 'no-sushi-config';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -104,6 +111,7 @@ const KEYS = new Set([
   'igs',
   'profiles',
   'local',
+  'fsh',
   'out',
   'bindings',
   'environments',
@@ -119,8 +127,9 @@ const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 
 /**
  * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
- * Node's own type stripping. `local` and `out` come back as absolute paths,
- * resolved against the config file's folder.
+ * Node's own type stripping. `local`, `fsh` and `out` come back as absolute
+ * paths, resolved against the config file's folder; with `fsh`, `local` is its
+ * SUSHI output.
  */
 export async function loadConfig(options: {
   cwd: string;
@@ -151,13 +160,25 @@ export async function loadConfig(options: {
   if (errors.length > 0) return fail(...errors);
   const config = module.default as PlumbConfig;
   const base = dirname(configPath);
+  const fsh = config.fsh === undefined ? undefined : resolve(base, config.fsh);
+  if (fsh && !existsSync(join(fsh, 'sushi-config.yaml'))) {
+    return fail({
+      code: 'no-sushi-config',
+      path: 'fsh',
+      message: `"fsh" names ${fsh}, which has no sushi-config.yaml. It must be the folder of a SUSHI project.`,
+    });
+  }
+  const local = fsh
+    ? join(fsh, 'fsh-generated', 'resources')
+    : config.local && resolve(base, config.local);
   return {
     ok: true,
     configPath,
     config: {
       ...config,
       out: resolve(base, config.out),
-      ...(config.local === undefined ? {} : { local: resolve(base, config.local) }),
+      ...(fsh ? { fsh } : {}),
+      ...(local ? { local } : {}),
     },
   };
 }
@@ -211,8 +232,18 @@ function check(config: unknown): ConfigError[] {
     ...checkRouteRows(record),
     ...checkDefaultProfile(record.defaultProfile),
   );
-  if (record.local !== undefined && typeof record.local !== 'string') {
-    errors.push({ code: 'invalid-type', path: 'local', message: '"local" must be a path.' });
+  for (const key of ['local', 'fsh']) {
+    if (record[key] !== undefined && typeof record[key] !== 'string') {
+      errors.push({ code: 'invalid-type', path: key, message: `"${key}" must be a path.` });
+    }
+  }
+  if (record.local !== undefined && record.fsh !== undefined) {
+    errors.push({
+      code: 'fsh-and-local',
+      path: 'fsh',
+      message:
+        '"fsh" and "local" are both set. With "fsh", SUSHI\'s output is the local folder: remove "local".',
+    });
   }
   if (record.out === undefined) {
     errors.push({ code: 'missing-out', path: 'out', message: '"out" is required.' });

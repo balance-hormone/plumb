@@ -75,6 +75,40 @@ describe('loadConfig', () => {
     expect(result.ok && result.config.local).toBeUndefined();
   });
 
+  test('fsh names a SUSHI project, whose output is the local folder', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], fsh: './fsh', out: './out' };`,
+      'fsh/sushi-config.yaml': 'canonical: http://example.org/fhir\n',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.fsh).toMatch(/[/\\]fsh$/);
+    expect(result.config.local).toMatch(/[/\\]fsh[/\\]fsh-generated[/\\]resources$/);
+  });
+
+  test('fsh-and-local, for both', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], fsh: '.', local: './profiles', out: './out' };`,
+      'sushi-config.yaml': 'canonical: http://example.org/fhir\n',
+    });
+    expect(codes(result)).toEqual(['fsh-and-local']);
+  });
+
+  test('no-sushi-config, for a folder without sushi-config.yaml', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], fsh: './fsh', out: './out' };`,
+    });
+    expect(codes(result)).toEqual(['no-sushi-config']);
+    expect(!result.ok && result.errors[0]?.message).toMatch(/sushi-config\.yaml/);
+  });
+
+  test('invalid-type, for an fsh that is not a path', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], fsh: 1, out: './out' };`,
+    });
+    expect(codes(result)).toEqual(['invalid-type']);
+  });
+
   test('config-not-found', () => {
     expect(codes(load({}))).toEqual(['config-not-found']);
   });
