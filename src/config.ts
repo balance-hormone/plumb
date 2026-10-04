@@ -7,7 +7,6 @@ import type {
   AccessPolicy,
   AccessPolicyResource,
   Coding,
-  ProjectDefaultAccessPolicies,
   StructureDefinition,
 } from '@medplum/fhirtypes';
 
@@ -66,7 +65,7 @@ export interface ProjectConfig {
   accessPolicies?: Record<string, AccessPolicyConfig>;
   /** `Project.defaultAccessPolicies`, naming each policy by its key. */
   defaultAccessPolicies?: {
-    profileType: ProjectDefaultAccessPolicies['profileType'];
+    profileType: (typeof PROFILE_TYPES)[number];
     accessPolicy: string;
   }[];
   /** Client applications by key, with their membership's policy key and `admin`. */
@@ -164,7 +163,8 @@ const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as 
 const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
 // A project admin's write to these is silently restored, so declaring one would never take.
 const SUPER_ADMIN_FIELDS = ['strictMode', 'features', 'link', 'systemSetting'];
-const PROFILE_TYPES = ['Patient', 'Practitioner', 'RelatedPerson', 'Admin'];
+// Medplum's member roles; @medplum/fhirtypes 5.1 has no type for them yet.
+const PROFILE_TYPES = ['Patient', 'Practitioner', 'RelatedPerson', 'Admin'] as const;
 // FHIR package names are lowercase dotted segments; versions are exact, never ranges.
 const NAME = '[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+';
 const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
@@ -610,7 +610,10 @@ function checkDefaultAccessPolicies(rows: unknown, checkPolicyKey: CheckPolicyKe
     if (!isObject(row)) return [notObject(at)];
     const errors = checkPolicyKey(row.accessPolicy, `${at}.accessPolicy`);
     const { profileType } = row;
-    if (typeof profileType !== 'string' || !PROFILE_TYPES.includes(profileType)) {
+    if (
+      typeof profileType !== 'string' ||
+      !(PROFILE_TYPES as readonly string[]).includes(profileType)
+    ) {
       errors.unshift({
         code: 'invalid-type',
         path: `${at}.profileType`,
