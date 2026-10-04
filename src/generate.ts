@@ -11,7 +11,7 @@ import { type ProfileModel, transform } from './emit/transform.js';
 import { compareFiles, type Stale, writeFiles } from './emit/write.js';
 import { loadProfiles } from './loader.js';
 import { fetchPackages } from './packages.js';
-import { buildFsh, compareBuild } from './sushi.js';
+import { buildFsh, compareBuild, dependencyWarnings } from './sushi.js';
 
 type StepName = 'sushi' | 'packages' | 'load' | 'emit' | 'routes' | 'write' | 'check';
 
@@ -105,7 +105,10 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
       local = join(scratch, 'fsh-generated', 'resources');
       staleBuild.push(...compareBuild(local, config.local as string));
     }
-    finish('sushi', built.counts, built.warnings);
+    finish('sushi', built.counts, [
+      ...built.warnings,
+      ...dependencyWarnings(config.fsh, config.igs),
+    ]);
   }
 
   const fetched = await fetchPackages({

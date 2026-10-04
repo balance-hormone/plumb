@@ -31,7 +31,7 @@ const BASE_FILES = [
   'fhir/r4/v2-tables.json',
 ];
 
-type LoadWarningCode = 'version-conflict' | 'unparseable-skipped';
+type LoadWarningCode = 'version-conflict' | 'unparseable-skipped' | 'base-version-mismatch';
 
 type LoadErrorCode =
   | 'profile-not-found'
@@ -376,8 +376,26 @@ class Closure {
     }
     const own = this.own(entry, scope);
     this.deep.add(sd.url);
-    if (sd.baseDefinition) this.structure(sd.baseDefinition, own, sd.url);
+    if (sd.baseDefinition) {
+      if (entry.source === 'local') this.pinnedBase(sd, sd.baseDefinition, own);
+      this.structure(sd.baseDefinition, own, sd.url);
+    }
     for (const element of sd.snapshot?.element ?? []) this.element(element, own, sd.url);
+  }
+
+  /**
+   * A local profile built on a parent version the config does not provide
+   * inherits the provided version's rules instead (design 05).
+   */
+  private pinnedBase(sd: StructureDefinition, base: string, scope: Source[]): void {
+    const pinned = base.split('|')[1];
+    const parent = pinned ? resolve(base, scope) : undefined;
+    if (!parent?.version || parent.version === pinned) return;
+    this.warnings.push({
+      code: 'base-version-mismatch',
+      url: sd.url,
+      message: `${sd.url} was built on ${base}, but the config provides version ${parent.version} from ${parent.source}, so it inherits that version's rules. Select the version it was built on in igs, or rebuild it.`,
+    });
   }
 
   private element(element: ElementDefinition, scope: Source[], from: string): void {

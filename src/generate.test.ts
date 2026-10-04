@@ -122,6 +122,26 @@ describe('generate', () => {
       expect(snapshot(out)).toEqual(snapshot(local.config.out));
     });
 
+    test('warns on the sushi step when sushi-config.yaml and igs disagree on a version', async () => {
+      const p = project();
+      const fsh = sushiProject({ build: true });
+      writeFileSync(
+        join(fsh.root, 'sushi-config.yaml'),
+        'canonical: http://example.org/fhir/plumb-test\ndependencies:\n  example.fhir.other: 0.9.0\n',
+      );
+      const steps: Step[] = [];
+      await generate({
+        ...p,
+        config: { ...p.config, igs: ['example.fhir.other@1.0.0'], fsh: fsh.root },
+        onStep: (s) => steps.push(s),
+      });
+      expect(steps[0]?.warnings).toEqual([
+        expect.stringMatching(
+          /^sushi-config.yaml depends on example.fhir.other 0.9.0, but igs selects 1.0.0/,
+        ),
+      ]);
+    });
+
     /** A SUSHI project generated once, with its build and types as committed. */
     async function generatedFsh() {
       const p = project();
