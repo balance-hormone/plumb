@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { checkRoutes, type PlumbConfig } from './config.js';
 import { printFiles } from './emit/print.js';
 import { routingRows } from './emit/routes.js';
@@ -8,7 +11,7 @@ import { type ProfileModel, transform } from './emit/transform.js';
 import { compareFiles, type Stale, writeFiles } from './emit/write.js';
 import { loadProfiles } from './loader.js';
 import { fetchPackages } from './packages.js';
-import { buildFsh } from './sushi.js';
+import { buildFsh, compareBuild } from './sushi.js';
 
 type StepName = 'sushi' | 'packages' | 'load' | 'emit' | 'routes' | 'write' | 'check';
 
@@ -58,6 +61,17 @@ const ms = (since: number) => Math.round(performance.now() - since);
  * byte. Each step is reported as it finishes.
  */
 export async function generate(options: GenerateOptions): Promise<GenerateResult> {
+  // SUSHI writes to the project, so a check builds the FSH into a scratch folder instead.
+  const scratch =
+    options.check && options.config.fsh ? mkdtempSync(join(tmpdir(), 'plumb-fsh-')) : undefined;
+  try {
+    return await run(options, scratch);
+  } finally {
+    if (scratch) rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+async function run(options: GenerateOptions, scratch: string | undefined): Promise<GenerateResult> {
   const { config, check = false } = options;
   const start = performance.now();
   const result: GenerateResult = {
@@ -82,10 +96,15 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     return result;
   };
 
-  // SUSHI writes to the project, so a check leaves its output as it is.
-  if (config.fsh && !check) {
-    const built = buildFsh(config.fsh);
+  let local = config.local;
+  const staleBuild: Stale[] = [];
+  if (config.fsh) {
+    const built = buildFsh(config.fsh, { out: scratch });
     if (!built.ok) return fail('sushi', built.errors);
+    if (scratch) {
+      local = join(scratch, 'fsh-generated', 'resources');
+      staleBuild.push(...compareBuild(local, config.local as string));
+    }
     finish('sushi', built.counts, built.warnings);
   }
 
@@ -103,7 +122,7 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
   const loaded = loadProfiles({
     packages: fetched.packages,
     igs: config.igs,
-    local: config.local,
+    local,
     profiles: config.profiles,
   });
   if (!loaded.ok) return fail('load', loaded.errors);
@@ -146,9 +165,9 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
   if (check) {
     const compared = compareFiles(config.out, files);
     if (compared.errors.length > 0) return fail('check', compared.errors);
-    result.stale = compared.stale;
+    result.stale = [...staleBuild, ...compared.stale];
     const count = (problem: Stale['problem']) =>
-      compared.stale.filter((s) => s.problem === problem).length;
+      result.stale.filter((s) => s.problem === problem).length;
     finish('check', { stale: count('stale'), missing: count('missing'), extra: count('extra') });
   } else {
     const wrote = writeFiles(config.out, files);
