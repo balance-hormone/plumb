@@ -54,17 +54,18 @@ export async function planProject(
   medplum: MedplumClient,
   options: ProjectOptions = {},
 ): Promise<ProjectPlan> {
-  const current = medplum.getProject();
+  // The login's copy of the project leaves out its links, so it is read whole.
+  const current = await medplum.readResource('Project', medplum.getProject()?.id as string);
   const held: AccessPolicy[] = [];
   // Every policy, not a search by tag: a removed key and an untagged name are found in one read.
   for await (const page of medplum.searchResourcePages('AccessPolicy', { _count: '1000' })) {
-    held.push(...page.filter((p) => p.meta?.project === current?.id));
+    held.push(...page.filter((p) => p.meta?.project === current.id));
   }
   const plan = planPolicies(project, held, options);
   const own = medplum.getProjectMembership()?.accessPolicy?.reference;
   const ownKey = held.find((p) => own === `AccessPolicy/${p.id}`);
   plan.warnings.push(...lockdownWarnings(project, ownKey && tagOf(ownKey)).map((w) => w.message));
-  const links = current?.link?.length ?? 0;
+  const links = current.link?.length ?? 0;
   if (links > 0) plan.warnings.push(`linked projects: ${links}, not managed`);
   return plan;
 }

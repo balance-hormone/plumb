@@ -163,7 +163,8 @@ describe('planProject', () => {
     { link = 0, accessPolicy }: { link?: number; accessPolicy?: string } = {},
   ) =>
     ({
-      getProject: () => ({
+      getProject: () => ({ resourceType: 'Project', id: PROJECT_ID }),
+      readResource: async () => ({
         resourceType: 'Project',
         id: PROJECT_ID,
         link: Array.from({ length: link }, (_, i) => ({ project: { reference: `Project/l${i}` } })),
