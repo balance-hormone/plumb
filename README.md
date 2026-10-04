@@ -165,22 +165,38 @@ checks each cached package against the lock's hashes. In GitHub Actions:
 
 ## Your own profiles in FSH
 
-Plumb reads StructureDefinition JSON with snapshots. For profiles written in
-FSH, follow Medplum's workflow: build them with SUSHI, then point `local` at
-its output:
+Name the folder holding `sushi-config.yaml` in `fsh`, and `generate` runs
+SUSHI first, then types what it built. Plumb uses the project's own SUSHI, so
+install the version your FSH is written for:
 
 ```bash
-sushi . --snapshot
+npm install --save-dev fsh-sushi
 ```
 
 ```ts
 export default defineConfig({
   igs: ['hl7.fhir.us.core@9.0.0'],
   profiles: ['https://example.org/fhir/StructureDefinition/my-patient'],
-  local: './fsh-generated/resources',
+  fsh: '.',
   out: './src/fhir/generated',
 });
 ```
+
+```text
+✔ sushi     1 StructureDefinitions, 0 ValueSets   6.8s
+```
+
+- **Commit `fsh-generated/`** with the FSH. It is the JSON `push` loads into
+  Medplum, and `validateProfiled` reads it without running SUSHI.
+- **`generate --check` in CI** rebuilds the FSH into a temporary folder and
+  fails when the committed `fsh-generated/` or the types differ from it.
+- **SUSHI's errors stop `generate`**, with their FSH file and line. Its
+  warnings are listed under the `sushi` step.
+- **Keep the versions in step:** `generate` warns when `sushi-config.yaml`
+  depends on a package at a version `igs` does not select, and when a
+  profile's pinned parent version differs from the one `igs` provides.
+
+`fsh` replaces `local`: set one or the other.
 
 ## Write each resource to its profile
 
@@ -391,7 +407,7 @@ npx plumb validate --env prod
 plumb validate --env prod
 ✔ load      1 profiles of Patient   1.9s
 ✔ connect   https://api.medplum.com/ (strict mode off)   320ms
-✔ checker   plumb-checker 0.4.0 installed   60ms
+✔ checker   plumb-checker 0.5.0 installed   60ms
 ✔ profiles  1 selected, none shadowed   80ms
 ✖ validate  1 of 1 profiles would fail   38.4s
     Patient: 12400 of 12400 read, 300 of 12360 fail; 40 unstamped; silent stamps: 3 url|version
@@ -444,7 +460,7 @@ npx plumb push --env prod
 plumb push --env prod
 ✔ load      1 profiles of Patient   1.9s
 ✔ connect   https://api.medplum.com/ (strict mode off)   320ms
-✔ checker   plumb-checker 0.4.0 unchanged   90ms
+✔ checker   plumb-checker 0.5.0 unchanged   90ms
 ✔ plan      load us-core-patient 9.0.0 (+7 dependencies)   210ms
 ✔ gate      nothing stored would fail   36.1s
 ✔ apply     8 created, 0 updated   1.4s

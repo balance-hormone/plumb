@@ -10,12 +10,12 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const ROOT = join(import.meta.dirname, '../..');
 
 /** What is installed here, read from the package itself: `npm ls` fails when CI installs @medplum/* outside the dev range. */
-function version(name: string): string {
+export function version(name: string): string {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'node_modules', name, 'package.json'), 'utf8'));
   return (pkg as { version: string }).version;
 }
@@ -59,7 +59,11 @@ export function newProject(name: string, env: Record<string, string> = {}) {
     spawnSync(command, args, { cwd: app, encoding: 'utf8', env: { ...process.env, ...env } });
   return {
     app,
-    write: (file: string, text: string) => writeFileSync(join(app, file), text),
+    npm,
+    write: (file: string, text: string) => {
+      mkdirSync(dirname(join(app, file)), { recursive: true });
+      writeFileSync(join(app, file), text);
+    },
     plumb: (...args: string[]) => exec(join(app, 'node_modules/.bin/plumb'), args),
     tsc: () => exec(join(app, 'node_modules/.bin/tsc'), ['-p', '.']),
     node: (file: string) => exec(process.execPath, [file]),

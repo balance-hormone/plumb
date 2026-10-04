@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.0 (unreleased)
+
+SUSHI in `generate`: one command builds FSH and types it.
+
+- **`fsh`** in the config names the folder holding `sushi-config.yaml`, in
+  place of `local`. Setting both is a config error, as is a folder with no
+  `sushi-config.yaml`.
+- **`generate` runs the project's own SUSHI** (`fsh-sushi` 3 or later) with
+  `--snapshot`, as a first `sushi` step. Its errors stop `generate`, with
+  their FSH file and line; its warnings are listed under the step. SUSHI
+  missing or too old exits 2, naming the install command.
+- **`generate --check`** rebuilds the FSH into a temporary folder and fails
+  when the committed `fsh-generated/resources` differs from it, file by file,
+  as well as when the types do. The project is not touched.
+- **Version warnings:** the `sushi` step warns when `sushi-config.yaml`
+  depends on a package at a version `igs` does not select, and `load` warns
+  (`base-version-mismatch`) when a local profile's pinned parent version
+  differs from the one the config provides.
+
 ## 0.4.0 (unreleased)
 
 Typed reads: reads that return the profile type once its content is checked.

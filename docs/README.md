@@ -92,8 +92,8 @@
 - **Roadmap:** v0.2 is the conformance check
   ([design 02](design/02-conformance-check.md)), v0.3 routing and
   `createProfiled` ([design 03](design/03-routing-and-create.md)), v0.4
-  typed reads ([design 04](design/04-typed-reads.md)). Next: v0.5 runs SUSHI
-  in `generate` ([design 05](design/05-sushi.md)), then v0.6 is
+  typed reads ([design 04](design/04-typed-reads.md)), v0.5 SUSHI in
+  `generate` ([design 05](design/05-sushi.md)). Next: v0.6 is
   project config as code ([design 06](design/06-project-config.md)), which extends v0.2's `push`. Later: Zod schemas, agent
   summaries.
 - **v0.2:** the server tests in [`../test/server`](../test/server/)
@@ -188,6 +188,21 @@
   selective filter, and why a stamp proves conformance only once `validate`
   passes (#73); the e2e quickstart reads its write back with `isProfiled`.
   **v0.4 is complete.**
+- **v0.5:** `fsh` in the config names a SUSHI project in place of `local`
+  (#87). `generate` runs the project's own `fsh-sushi`, resolved from the
+  project root and required to be 3 or later, with `--snapshot`, as a first
+  `sushi` step (#88); SUSHI's errors stop it with their FSH file and line,
+  and SUSHI missing or too old exits 2. Offline tests run a stub SUSHI; a CI
+  test builds Plumb's own FSH fixtures with the real one and matches the
+  committed StructureDefinitions byte for byte, which caught that `-o` names
+  the folder that gets `fsh-generated/`. `generate --check` rebuilds into a
+  temporary folder and compares `fsh-generated/resources` file by file as
+  well as the types (#89). The `sushi` step warns when `sushi-config.yaml`
+  and `igs` select different versions of a package, and `load` warns when a
+  local profile's pinned parent version is not the one the config provides
+  (#90). The README's FSH section uses `fsh`, and an e2e FSH variant installs
+  `fsh-sushi`, generates, type-checks, passes `--check`, and fails it after
+  an FSH edit without a rebuild (#91). **v0.5 is complete.**
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
@@ -207,8 +222,8 @@
   - [04: typed reads](design/04-typed-reads.md) (implemented in v0.4): reads and
     searches that return the profile type, checking the stamp and what the
     type requires
-  - [05: SUSHI in `generate`](design/05-sushi.md) (accepted): one command
-    builds FSH and types it
+  - [05: SUSHI in `generate`](design/05-sushi.md) (implemented in v0.5): one
+    command builds FSH and types it
   - [06: project config as code](design/06-project-config.md) (accepted):
     `push` converges settings, default profiles, access policies and clients
 - [`future/`](future/): parked ideas, each with its design sketch and research.
