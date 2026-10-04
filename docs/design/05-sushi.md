@@ -1,6 +1,6 @@
 # Design 05: SUSHI in `generate`
 
-**Status: accepted** on 2026-10-03, for v0.5. Builds the spec's user story 9:
+**Status: implemented** in v0.5 (accepted on 2026-10-03). Builds the spec's user story 9:
 "As an engineer writing FSH, I want `plumb generate` to run SUSHI for me, so
 that one command covers FSH too." Project config as code moves to
 [design 06](06-project-config.md) and v0.6.

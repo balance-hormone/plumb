@@ -147,29 +147,22 @@ export function dependencyWarnings(project: string, igs: string[]): string[] {
  * this one block.
  */
 function fshDependencies(project: string): Map<string, string> {
-  const yaml = readFileSync(join(project, 'sushi-config.yaml'), 'utf8');
+  const lines = readFileSync(join(project, 'sushi-config.yaml'), 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+#.*$/, ''))
+    .filter((line) => line.trim() && !line.trimStart().startsWith('#'));
+  const start = lines.findIndex((line) => line.startsWith('dependencies:'));
+  const block = start === -1 ? [] : lines.slice(start + 1);
+  const end = block.findIndex((line) => !/^\s/.test(line));
+  const entries = end === -1 ? block : block.slice(0, end);
+  const indent = /^\s*/.exec(entries[0] ?? '')?.[0].length;
   const deps = new Map<string, string>();
-  let inBlock = false;
-  let indent = -1;
   let current = '';
-  for (const raw of yaml.split(/\r?\n/)) {
-    const line = raw.replace(/\s+#.*$/, '');
-    if (!line.trim() || line.trimStart().startsWith('#')) continue;
-    if (!/^\s/.test(line)) {
-      inBlock = line.startsWith('dependencies:');
-      continue;
-    }
-    const entry = /^(\s+)([^\s:]+):\s*(.*)$/.exec(line);
-    if (!inBlock || !entry) continue;
-    const [, space = '', key = '', value = ''] = entry;
+  for (const line of entries) {
+    const [, space = '', key = '', value = ''] = /^(\s+)([^\s:]+):\s*(.*)$/.exec(line) ?? [];
     const bare = value.replace(/^["']|["']$/g, '');
-    if (indent === -1) indent = space.length;
-    if (space.length === indent) {
-      current = key;
-      if (bare) deps.set(key, bare);
-    } else if (key === 'version' && bare) {
-      deps.set(current, bare);
-    }
+    if (space.length === indent) current = key;
+    if (bare && (space.length === indent || key === 'version')) deps.set(current, bare);
   }
   return deps;
 }
