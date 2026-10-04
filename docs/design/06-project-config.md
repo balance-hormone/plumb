@@ -189,6 +189,13 @@ and not by an identifier: AccessPolicy and ClientApplication have none.
   project can come under `push` without recreating its clients.
 - **Two resources with one tag** stop the push, as two StructureDefinitions for
   one URL do: Plumb will not guess which is meant.
+- **Only the target project's own resources.** A project can read what its
+  linked projects hold, but linking is a super-admin field and a linked
+  project's resources are not this one's to write. Every lookup, tagged or by
+  name for `--adopt`, keeps only results whose `meta.project` is the target
+  project, so a linked project's tagged policy is neither planned nor counted
+  as a second resource with that tag. The plan reports the links once
+  (`linked projects: 2, not managed`), as it reports `strictMode`.
 
 ## The plan
 
@@ -273,6 +280,10 @@ Against the Docker Medplum server, in a project of its own per test file:
   `defaultProfile` row updates the tagged resource; its id is unchanged.
 - **Untagged is untouched:** a same-named untagged policy survives a push, and
   `--adopt` tags and converges it.
+- **Linked projects are not managed:** a tagged policy in a linked project is
+  neither planned nor touched, and the plan reports the link. Linking needs a
+  super admin, so this runs where the test server's admin can link projects,
+  and otherwise as a unit test with a stub client.
 - **Removal:** a key removed from the config is planned, kept without
   `--prune`, and deleted with it.
 - **Drift:** an edit made by hand turns `--check` red, naming the field.
@@ -313,8 +324,5 @@ Unit tests cover the config checks (unknown policy key, duplicate keys, a
 - **Installing through `PackageRelease/$install`** once the marketplace's
   manifest and idempotency land.
 - **Secret values** read from a secrets store rather than CI's environment.
-
-## Open questions
-
-- **Linked projects:** policies and profiles can come from a linked project;
-  whether `push` should see them when planning.
+- **Linked projects:** a client or default access policy naming a policy a
+  linked project holds, by a key that project's config owns.
