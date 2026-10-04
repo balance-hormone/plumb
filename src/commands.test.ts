@@ -93,12 +93,12 @@ describe('plumb', () => {
     const lines = stderr.trimEnd().split('\n');
     expect(lines[0]).toBe('plumb generate');
     expect(lines.slice(1, -1)).toEqual([
-      expect.stringMatching(/^✔ packages {2}0 cached, 0 fetched {3}\d+ms$/),
-      expect.stringMatching(/^✔ load {6}2 profiles {3}\d+ms$/),
-      expect.stringMatching(/^✔ emit {6}2 types, 3 slices, 0 code lists {3}\d+ms$/),
-      expect.stringMatching(/^✔ routes {4}2 rows for 2 types {3}\d+ms$/),
+      expect.stringMatching(/^✔ packages {2}0 cached, 0 fetched {3}\d+(ms|\.\ds)$/),
+      expect.stringMatching(/^✔ load {6}2 profiles {3}\d+(ms|\.\ds)$/),
+      expect.stringMatching(/^✔ emit {6}2 types, 3 slices, 0 code lists {3}\d+(ms|\.\ds)$/),
+      expect.stringMatching(/^✔ routes {4}2 rows for 2 types {3}\d+(ms|\.\ds)$/),
       expect.stringMatching(
-        /^✔ write {5}6 written, 0 removed, 0 unchanged → src\/fhir\/generated {3}\d+ms$/,
+        /^✔ write {5}6 written, 0 removed, 0 unchanged → src\/fhir\/generated {3}\d+(ms|\.\ds)$/,
       ),
     ]);
     expect(lines.at(-1)).toMatch(/^Done in \d+(ms|\.\ds)$/);
@@ -201,17 +201,22 @@ describe('plumb', () => {
     },
   );
 
-  // CI builds before it tests; locally this runs once dist/ exists.
-  test.skipIf(!existsSync(BUILT) && !process.env.CI)('the built CLI generates and checks', () => {
-    const cwd = project();
-    const generate = spawnSync(process.execPath, [BUILT, 'generate'], { cwd, encoding: 'utf8' });
-    expect(generate.status, generate.stderr).toBe(0);
-    const check = spawnSync(process.execPath, [BUILT, 'generate', '--check'], {
-      cwd,
-      encoding: 'utf8',
-    });
-    expect(check.status, check.stderr).toBe(0);
-  });
+  // CI builds before it tests; locally this runs once dist/ exists. Two
+  // processes each load the profiles, which can pass 5s alongside other suites.
+  test.skipIf(!existsSync(BUILT) && !process.env.CI)(
+    'the built CLI generates and checks',
+    { timeout: 30_000 },
+    () => {
+      const cwd = project();
+      const generate = spawnSync(process.execPath, [BUILT, 'generate'], { cwd, encoding: 'utf8' });
+      expect(generate.status, generate.stderr).toBe(0);
+      const check = spawnSync(process.execPath, [BUILT, 'generate', '--check'], {
+        cwd,
+        encoding: 'utf8',
+      });
+      expect(check.status, check.stderr).toBe(0);
+    },
+  );
 });
 
 describe('formatStep', () => {
