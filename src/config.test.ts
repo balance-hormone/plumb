@@ -7,8 +7,12 @@ import { dirname, join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
   checkRoutes,
+  defineConfig,
+  environmentSettings,
   type LoadConfigResult,
+  lockdownWarnings,
   type PlumbConfig,
+  type ProjectConfig,
   resolveEnvironment,
 } from './config.js';
 import { loadProfiles } from './loader.js';
@@ -423,6 +427,168 @@ describe('routes and defaultProfile', () => {
         ),
       ).toEqual(['unselected-route']);
     });
+  });
+});
+
+const PROJECT: ProjectConfig = {
+  settings: { supportEmail: 'support@example.org', maxUploadMb: 25, ratio: 0.5, betaForms: false },
+  secrets: { PAYMENT_API_KEY: { env: 'PAYMENT_API_KEY' }, LEGACY_SFTP_KEY: true },
+  accessPolicies: {
+    clinician: {
+      resource: [
+        { resourceType: 'Patient' },
+        { resourceType: 'StructureDefinition', interaction: ['read', 'search'] },
+      ],
+    },
+    'ci-deploy': { name: 'CI deploy', resource: [{ resourceType: 'StructureDefinition' }] },
+  },
+  defaultAccessPolicies: [{ profileType: 'Practitioner', accessPolicy: 'clinician' }],
+  clients: { 'ci-deploy': { accessPolicy: 'ci-deploy', admin: true } },
+};
+
+const withProject = (project: string, environment = '') =>
+  load({
+    'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', project: ${project}, environments: {
+      prod: { baseUrl: 'https://api.example.com/', clientId: { env: 'ID' }, clientSecret: { env: 'SECRET' }${environment} },
+    } };`,
+  });
+
+describe('project', () => {
+  test("types a project block with Medplum's own shapes", () => {
+    const config = defineConfig({ igs: [], profiles: [], out: './out', project: PROJECT });
+    const reader = { resource: [{ resourceType: 'Patient', interaction: ['peek'] }] };
+    // @ts-expect-error An AccessPolicy entry's interactions are Medplum's own.
+    defineConfig({ ...config, project: { accessPolicies: { reader } } });
+    // @ts-expect-error Only a super admin can write strictMode.
+    defineConfig({ ...config, project: { strictMode: true } });
+  });
+
+  test('loads a valid project block, with per-environment settings', () => {
+    const result = withProject(
+      JSON.stringify(PROJECT),
+      `, settings: { supportEmail: 'help@example.com' }`,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.project).toEqual(PROJECT);
+    expect(environmentSettings(result.config, 'prod')).toEqual({
+      ...PROJECT.settings,
+      supportEmail: 'help@example.com',
+    });
+    expect(environmentSettings(result.config, 'staging')).toEqual(PROJECT.settings);
+  });
+
+  test('unknown-access-policy, from a client or a default access policy', () => {
+    const result = withProject(`{
+      accessPolicies: { clinician: {} },
+      defaultAccessPolicies: [{ profileType: 'Practitioner', accessPolicy: 'nurse' }],
+      clients: { ci: { accessPolicy: 'deploy' }, bot: { accessPolicy: 'toString' }, plain: {} },
+    }`);
+    expect(paths(result)).toEqual([
+      ['unknown-access-policy', 'project.defaultAccessPolicies[0].accessPolicy'],
+      ['unknown-access-policy', 'project.clients.ci.accessPolicy'],
+      ['unknown-access-policy', 'project.clients.bot.accessPolicy'],
+    ]);
+    expect(!result.ok && result.errors[1]?.message).toMatch(/"deploy", which is not a key/);
+  });
+
+  test('duplicate-key, for two policies with one name or two defaults for one role', () => {
+    const result = withProject(`{
+      accessPolicies: { clinician: {}, nurse: { name: 'clinician' } },
+      defaultAccessPolicies: [
+        { profileType: 'Practitioner', accessPolicy: 'clinician' },
+        { profileType: 'Practitioner', accessPolicy: 'nurse' },
+      ],
+    }`);
+    expect(paths(result)).toEqual([
+      ['duplicate-key', 'project.accessPolicies.nurse.name'],
+      ['duplicate-key', 'project.defaultAccessPolicies[1].profileType'],
+    ]);
+  });
+
+  test('invalid-setting, for a value that is not a string, boolean or number', () => {
+    const result = withProject(
+      `{ settings: { ok: 'yes', list: ['a'], nested: { a: 1 }, none: null, inf: Infinity } }`,
+      `, settings: { url: { href: 'x' } }`,
+    );
+    expect(paths(result)).toEqual([
+      ['invalid-setting', 'environments.prod.settings.url'],
+      ['invalid-setting', 'project.settings.list'],
+      ['invalid-setting', 'project.settings.nested'],
+      ['invalid-setting', 'project.settings.none'],
+      ['invalid-setting', 'project.settings.inf'],
+    ]);
+  });
+
+  test('super-admin-field, for strictMode or features declared at all', () => {
+    const result = withProject(`{ strictMode: true, features: [], secret: [] }`);
+    expect(paths(result)).toEqual([
+      ['super-admin-field', 'project.strictMode'],
+      ['super-admin-field', 'project.features'],
+      ['unknown-key', 'project.secret'],
+    ]);
+    expect(!result.ok && result.errors[0]?.message).toMatch(/super admin/);
+  });
+
+  test('invalid-type, for malformed secrets, policies, defaults and clients', () => {
+    const result = withProject(`{
+      secrets: { A: 'value', B: { env: '' }, C: false },
+      accessPolicies: { clinician: [] },
+      defaultAccessPolicies: [{ profileType: 'Device', accessPolicy: 'clinician' }],
+      clients: { ci: { admin: 'yes', secret: 'x' } },
+    }`);
+    expect(paths(result)).toEqual([
+      ['invalid-type', 'project.secrets.A'],
+      ['invalid-type', 'project.secrets.B'],
+      ['invalid-type', 'project.secrets.C'],
+      ['invalid-type', 'project.accessPolicies.clinician'],
+      ['invalid-type', 'project.defaultAccessPolicies[0].profileType'],
+      ['unknown-key', 'project.clients.ci.secret'],
+      ['invalid-type', 'project.clients.ci.admin'],
+    ]);
+    expect(!result.ok && result.errors[0]?.message).toMatch(/never holds the value/);
+    expect(paths(withProject(`'prod'`))).toEqual([['invalid-type', 'project']]);
+  });
+});
+
+describe('lockdownWarnings', () => {
+  const warnings = (project: ProjectConfig, ownPolicy?: string) =>
+    lockdownWarnings(project, ownPolicy).map((w) => [w.code, w.path]);
+
+  test('none for a config that follows the lockdown recipe', () => {
+    expect(warnings(PROJECT, 'ci-deploy')).toEqual([]);
+  });
+
+  test('writable-wildcard, for a * entry that is not read-only', () => {
+    expect(
+      warnings({
+        accessPolicies: {
+          open: { resource: [{ resourceType: '*' }] },
+          reads: { resource: [{ resourceType: '*', readonly: true }] },
+          searches: { resource: [{ resourceType: '*', interaction: ['read', 'search'] }] },
+          deletes: { resource: [{ resourceType: '*', interaction: ['read', 'delete'] }] },
+        },
+      }),
+    ).toEqual([
+      ['writable-wildcard', 'project.accessPolicies.open.resource[0]'],
+      ['writable-wildcard', 'project.accessPolicies.deletes.resource[0]'],
+    ]);
+  });
+
+  test('admin-without-policy, for an admin client with no accessPolicy', () => {
+    expect(
+      warnings({
+        accessPolicies: { deploy: {} },
+        clients: { root: { admin: true }, ci: { admin: true, accessPolicy: 'deploy' }, app: {} },
+      }),
+    ).toEqual([['admin-without-policy', 'project.clients.root']]);
+  });
+
+  test("writes-structure-definition, for any policy but push's own", () => {
+    expect(warnings(PROJECT)).toEqual([
+      ['writes-structure-definition', 'project.accessPolicies.ci-deploy.resource[0]'],
+    ]);
+    expect(lockdownWarnings(PROJECT)[0]?.message).toMatch(/bypasses push's profile gate/);
   });
 });
 
