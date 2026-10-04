@@ -121,3 +121,55 @@ export function compareBuild(built: string, committed: string): Stale[] {
   }
   return stale;
 }
+
+/**
+ * SUSHI builds against the versions in `sushi-config.yaml`, and Plumb types
+ * against the versions in `igs`; a package in both at different versions
+ * makes the committed JSON and the types disagree.
+ */
+export function dependencyWarnings(project: string, igs: string[]): string[] {
+  const selected = new Map(igs.map((ig) => ig.split('@') as [string, string]));
+  const warnings: string[] = [];
+  for (const [name, version] of fshDependencies(project)) {
+    const chosen = selected.get(name);
+    if (chosen && chosen !== version) {
+      warnings.push(
+        `sushi-config.yaml depends on ${name} ${version}, but igs selects ${chosen}. SUSHI builds against ${version} and Plumb types against ${chosen}: make them the same.`,
+      );
+    }
+  }
+  return warnings;
+}
+
+/**
+ * Reads the `dependencies:` block, whose entries are `name: version` or
+ * `name:` with an indented `version:`. Plumb takes no YAML dependency for
+ * this one block.
+ */
+function fshDependencies(project: string): Map<string, string> {
+  const yaml = readFileSync(join(project, 'sushi-config.yaml'), 'utf8');
+  const deps = new Map<string, string>();
+  let inBlock = false;
+  let indent = -1;
+  let current = '';
+  for (const raw of yaml.split(/\r?\n/)) {
+    const line = raw.replace(/\s+#.*$/, '');
+    if (!line.trim() || line.trimStart().startsWith('#')) continue;
+    if (!/^\s/.test(line)) {
+      inBlock = line.startsWith('dependencies:');
+      continue;
+    }
+    const entry = /^(\s+)([^\s:]+):\s*(.*)$/.exec(line);
+    if (!inBlock || !entry) continue;
+    const [, space = '', key = '', value = ''] = entry;
+    const bare = value.replace(/^["']|["']$/g, '');
+    if (indent === -1) indent = space.length;
+    if (space.length === indent) {
+      current = key;
+      if (bare) deps.set(key, bare);
+    } else if (key === 'version' && bare) {
+      deps.set(current, bare);
+    }
+  }
+  return deps;
+}

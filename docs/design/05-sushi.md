@@ -116,10 +116,16 @@ Plumb uses. Plumb does not fetch them for it in v0.5:
 - SUSHI's downloads are not hash-checked or locked in `plumb.lock`, as the
   packages Plumb loads are. The JSON it produces is committed and reviewed,
   which is what reaches the server.
-- **A version mismatch is caught at load:** a profile built against US Core
+- **A version mismatch is caught twice.** A profile built against US Core
   6.1.0 whose base the config resolves from 9.0.0 differs in what it
-  inherits. `load` warns when a local profile's `baseDefinition` names a
-  version (`|6.1.0`) other than the one the config selects.
+  inherits, so:
+  - the `sushi` step warns when a package in `sushi-config.yaml`'s
+    `dependencies` is in `igs` at another version. Plumb reads that one
+    block itself rather than take a YAML dependency;
+  - `load` warns (`base-version-mismatch`) when a local profile's
+    `baseDefinition` names a version (`|6.1.0`) other than the one the config
+    provides. SUSHI writes the version only for a pinned `Parent`, so this
+    catches what the first check cannot see.
 
 ## Commands stay plain functions
 
@@ -138,8 +144,9 @@ the CLI only prints.
 - **`--check`** fails after an FSH edit without a rebuild, passes after one,
   and leaves the project's `fsh-generated` untouched.
 - **`fsh` and `local` together** is a config error.
-- **The version mismatch warning** on a local profile whose base names
-  another version.
+- **The version mismatch warnings:** a `sushi-config.yaml` dependency at a
+  version `igs` does not select, and a local profile whose base names another
+  version.
 - **The e2e quickstart** gets an FSH variant: install `fsh-sushi`, write one
   profile in FSH, `generate`, `--check`.
 
@@ -166,9 +173,5 @@ nightly registry run covers the cold path.
 - **A watch mode** that rebuilds on an FSH save.
 - **Instances:** SUSHI also builds example instances, which could become test
   fixtures for `validateProfiled`.
-
-## Open questions
-
-- **SUSHI's `sushi-config.yaml` dependencies and Plumb's `igs`** say the same
-  thing twice. Deriving one from the other needs a YAML parser, or the
-  ImplementationGuide SUSHI writes, which `FSHOnly` projects do not have.
+- **Deriving `igs` from `sushi-config.yaml`,** so the versions are written
+  once. v0.5 compares the two and warns instead.

@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { bareSushiProject, sushiProject } from '../test/sushi-stub.js';
-import { buildFsh } from './sushi.js';
+import { buildFsh, dependencyWarnings } from './sushi.js';
 
 describe('buildFsh', () => {
   test("runs the project's own SUSHI with --snapshot, and counts what it built", () => {
@@ -72,6 +72,41 @@ describe('buildFsh', () => {
     expect(buildFsh(root).errors).toEqual([
       { code: 'sushi-too-old', message: expect.stringContaining('2.10.2') },
     ]);
+  });
+});
+
+describe('dependencyWarnings', () => {
+  const project = (yaml: string) => {
+    const root = mkdtempSync(join(tmpdir(), 'plumb-fsh-'));
+    writeFileSync(join(root, 'sushi-config.yaml'), yaml);
+    return root;
+  };
+  const igs = ['hl7.fhir.us.core@9.0.0', 'hl7.fhir.uv.ips@2.0.0'];
+
+  test('warns for a dependency whose version is not the one igs selects', () => {
+    const root = project(
+      [
+        'canonical: http://example.org/fhir/plumb-test',
+        'dependencies:',
+        '  hl7.fhir.us.core: "6.1.0" # the version the FSH was written for',
+        '  hl7.fhir.uv.ips:',
+        '    id: ips',
+        '    version: 1.1.0',
+        'FSHOnly: true',
+      ].join('\n'),
+    );
+    expect(dependencyWarnings(root, igs)).toEqual([
+      'sushi-config.yaml depends on hl7.fhir.us.core 6.1.0, but igs selects 9.0.0. SUSHI builds against 6.1.0 and Plumb types against 9.0.0: make them the same.',
+      'sushi-config.yaml depends on hl7.fhir.uv.ips 1.1.0, but igs selects 2.0.0. SUSHI builds against 1.1.0 and Plumb types against 2.0.0: make them the same.',
+    ]);
+  });
+
+  test('nothing for matching versions, packages igs does not list, or no dependencies', () => {
+    const matching = project(
+      'dependencies:\n  hl7.fhir.us.core: 9.0.0\n  hl7.terminology.r4: 6.2.0\n',
+    );
+    expect(dependencyWarnings(matching, igs)).toEqual([]);
+    expect(dependencyWarnings(project('canonical: http://example.org\n'), igs)).toEqual([]);
   });
 });
 

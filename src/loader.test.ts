@@ -255,6 +255,43 @@ describe('loadProfiles', () => {
       expect(result.definitions.get(genderUrl)?.resource.version).toBe('8.8.8');
     });
 
+    describe('a local profile whose parent names a version', () => {
+      const parent = read('StructureDefinition-parent-observation.json');
+      const load = (pinned: string) => {
+        const ig = cachedPackage('example.fhir.ig@1.0.0', {}, parent);
+        const child = variant(
+          'StructureDefinition-child-observation.json',
+          `${PLUMB}/child`,
+          (sd) => {
+            sd.baseDefinition = `${parent.url}${pinned}`;
+          },
+        );
+        return loadProfiles({
+          packages: [ig],
+          igs: ['example.fhir.ig@1.0.0'],
+          local: localFolder(child),
+          profiles: [`${PLUMB}/child`],
+        });
+      };
+
+      test('base-version-mismatch, when the config provides another version', () => {
+        const result = load('|0.9.0');
+        expect(codes(result)).toEqual([]);
+        expect(result.warnings).toEqual([
+          {
+            code: 'base-version-mismatch',
+            url: `${PLUMB}/child`,
+            message: `${PLUMB}/child was built on ${parent.url}|0.9.0, but the config provides version ${parent.version} from example.fhir.ig@1.0.0, so it inherits that version's rules. Select the version it was built on in igs, or rebuild it.`,
+          },
+        ]);
+      });
+
+      test('no warning for the version the config provides, or for no version', () => {
+        expect(load(`|${parent.version}`).warnings).toEqual([]);
+        expect(load('').warnings).toEqual([]);
+      });
+    });
+
     test('a pinned version wins over precedence', () => {
       const dep = cachedPackage('example.fhir.terms@1.0.0', {}, newerGender);
       const pinned = variant(
