@@ -122,6 +122,65 @@ describe('generate', () => {
       expect(snapshot(out)).toEqual(snapshot(local.config.out));
     });
 
+    /** A SUSHI project generated once, with its build and types as committed. */
+    async function generatedFsh() {
+      const p = project();
+      const fsh = sushiProject({ build: true });
+      const config = {
+        ...p.config,
+        fsh: fsh.root,
+        local: join(fsh.root, 'fsh-generated', 'resources'),
+        out: join(fsh.root, 'generated'),
+      };
+      expect((await generate({ ...p, config })).ok).toBe(true);
+      return { ...p, config, fsh };
+    }
+
+    test('check rebuilds into a temporary folder, leaving the project as it is', async () => {
+      const p = await generatedFsh();
+      const before = snapshot(p.fsh.root);
+      const result = await generate({ ...p, check: true });
+      expect(codes(result)).toEqual([]);
+      expect(result.ok).toBe(true);
+      expect(result.steps.map((s) => s.name)).toEqual([
+        'sushi',
+        'packages',
+        'load',
+        'emit',
+        'routes',
+        'check',
+      ]);
+      const [, project, , o, out] = p.fsh.argv();
+      expect([project, o]).toEqual([p.fsh.root, '-o']);
+      expect(out).not.toContain(p.fsh.root);
+      expect(existsSync(out as string)).toBe(false);
+      // The stub's argv.json is the one file the run adds.
+      const { 'argv.json': _, ...after } = snapshot(p.fsh.root);
+      const { 'argv.json': __, ...unchanged } = before;
+      expect(after).toEqual(unchanged);
+    });
+
+    test('check fails when the committed build differs from what the FSH builds', async () => {
+      const p = await generatedFsh();
+      const resources = join(p.fsh.root, 'fsh-generated', 'resources');
+      const edited = join(resources, 'StructureDefinition-cardinality-patient.json');
+      writeFileSync(edited, `${readFileSync(edited, 'utf8')}\n`);
+      writeFileSync(join(resources, 'StructureDefinition-removed.json'), '{}');
+      rmSync(join(resources, 'ValueSet-plumb-test-colors-vs.json'));
+      const result = await generate({ ...p, check: true });
+      expect(result.ok).toBe(false);
+      expect(problems(result)).toEqual([
+        ['stale', 'fsh-generated/resources/StructureDefinition-cardinality-patient.json'],
+        ['extra', 'fsh-generated/resources/StructureDefinition-removed.json'],
+        ['missing', 'fsh-generated/resources/ValueSet-plumb-test-colors-vs.json'],
+      ]);
+      expect(result.stale.map((s) => s.cause)).toEqual([
+        'differs from what the FSH builds.',
+        'is committed, but the FSH no longer builds it.',
+        'is built from the FSH, but not committed.',
+      ]);
+    });
+
     test('an FSH error stops generate, with its file and line, and writes nothing', async () => {
       const p = project();
       const fsh = sushiProject({

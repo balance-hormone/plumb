@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import type { Stale } from './emit/write.js';
 
 interface SushiError {
   code: 'sushi-not-installed' | 'sushi-too-old' | 'sushi-error' | 'sushi-failed';
@@ -91,4 +92,32 @@ function parseLog(text: string): { error: string[]; warn: string[] } {
   const of = (level: string) =>
     messages.filter((m) => m.level === level).map((m) => m.lines.join('\n'));
   return { error: of('error'), warn: of('warn') };
+}
+
+/**
+ * Compares SUSHI's output with the committed `fsh-generated/resources`, file
+ * by file and byte for byte, for `generate --check`.
+ */
+export function compareBuild(built: string, committed: string): Stale[] {
+  const list = (dir: string) => (existsSync(dir) ? readdirSync(dir) : []);
+  const fresh = list(built);
+  const kept = list(committed);
+  const stale: Stale[] = [];
+  for (const name of [...new Set([...fresh, ...kept])].sort()) {
+    const file = `fsh-generated/resources/${name}`;
+    if (!kept.includes(name)) {
+      stale.push({ file, problem: 'missing', cause: 'is built from the FSH, but not committed.' });
+    } else if (!fresh.includes(name)) {
+      stale.push({
+        file,
+        problem: 'extra',
+        cause: 'is committed, but the FSH no longer builds it.',
+      });
+    } else if (
+      readFileSync(join(built, name), 'utf8') !== readFileSync(join(committed, name), 'utf8')
+    ) {
+      stale.push({ file, problem: 'stale', cause: 'differs from what the FSH builds.' });
+    }
+  }
+  return stale;
 }
