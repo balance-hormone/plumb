@@ -3,7 +3,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AccessPolicy } from '@medplum/fhirtypes';
+import type { AccessPolicy, ClientApplication } from '@medplum/fhirtypes';
 import { build } from 'esbuild';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
@@ -21,7 +21,8 @@ const CONFIG: ProjectConfig = {
   },
 };
 
-const tagOf = (p: AccessPolicy) => p.meta?.tag?.find((t) => t.system === PLUMB_SYSTEM)?.code;
+const tagOf = (p: AccessPolicy | ClientApplication) =>
+  p.meta?.tag?.find((t) => t.system === PLUMB_SYSTEM)?.code;
 
 // Each test file has a project of its own, so what it holds is only what these tests wrote.
 describe.skipIf(!server)('the project step converges AccessPolicies', { timeout: 60_000 }, () => {

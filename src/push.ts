@@ -173,8 +173,13 @@ async function projectStep(
   const pending = plan.changes.some((c) => !('kept' in c));
   if (blocked || options.dryRun || !pending) return !blocked;
   try {
-    const written = await applyProject(plan, medplum);
-    step.finish('project', `applied ${written} change${written === 1 ? '' : 's'}`);
+    const { written, created } = await applyProject(plan, medplum);
+    // A created client's id is printed; its secret is read in the console.
+    step.finish(
+      'project',
+      `applied ${written} change${written === 1 ? '' : 's'}`,
+      created.map((c) => `ClientApplication ${c.key} created: ${c.id}`),
+    );
   } catch (err) {
     step.fail('project', [{ code: 'project-failed', message: normalizeErrorString(err) }]);
     return false;

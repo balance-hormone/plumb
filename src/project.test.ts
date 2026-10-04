@@ -1,10 +1,18 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import type { MedplumClient } from '@medplum/core';
-import type { AccessPolicy } from '@medplum/fhirtypes';
+import type { AccessPolicy, ProjectMembership } from '@medplum/fhirtypes';
 import { describe, expect, test } from 'vitest';
 import type { ProjectConfig } from './config.js';
-import { describeChange, PLUMB_SYSTEM, planPolicies, planProject, planSummary } from './project.js';
+import {
+  describeChange,
+  type HeldClient,
+  PLUMB_SYSTEM,
+  planClients,
+  planPolicies,
+  planProject,
+  planSummary,
+} from './project.js';
 
 const PROJECT_ID = 'p1';
 const tag = (code: string) => ({ system: PLUMB_SYSTEM, code });
@@ -52,6 +60,7 @@ describe('planPolicies', () => {
       ],
       blocked: [],
       warnings: [],
+      policyIds: {},
     });
     expect(plan.changes.map(describeChange)).toEqual([
       '+ AccessPolicy  clinician',
@@ -125,6 +134,7 @@ describe('planPolicies', () => {
       changes: [],
       blocked: ['AccessPolicy "clinician" exists untagged; adopt it with --adopt.'],
       warnings: [],
+      policyIds: {},
     });
     expect(planSummary(refused)).toBe('refusing: see below');
 
@@ -156,6 +166,112 @@ describe('planPolicies', () => {
   });
 });
 
+describe('planClients', () => {
+  const client = (
+    id: string,
+    name: string,
+    membership: Partial<ProjectMembership>,
+    key?: string,
+  ): HeldClient => ({
+    client: {
+      resourceType: 'ClientApplication',
+      id,
+      name,
+      ...(key ? { meta: { tag: [tag(key)] } } : {}),
+    },
+    membership: {
+      resourceType: 'ProjectMembership',
+      id: `m-${id}`,
+      project: { reference: `Project/${PROJECT_ID}` },
+      user: { reference: `ClientApplication/${id}` },
+      profile: { reference: `ClientApplication/${id}` },
+      ...membership,
+    },
+  });
+  const CLIENTS: ProjectConfig = {
+    clients: { ci: { accessPolicy: 'deploy', admin: true }, app: {} },
+  };
+
+  test('creates each client with its policy key and admin', () => {
+    const plan = planClients(CLIENTS, [], {});
+    expect(plan.changes).toEqual([
+      { kind: '+', type: 'ClientApplication', key: 'ci', accessPolicy: 'deploy', admin: true },
+      { kind: '+', type: 'ClientApplication', key: 'app', admin: false },
+    ]);
+    expect(plan.changes.map(describeChange)).toEqual([
+      '+ ClientApplication  ci',
+      '+ ClientApplication  app',
+    ]);
+  });
+
+  test('plans nothing for clients whose names and memberships match', () => {
+    const held = [
+      client('c', 'ci', { admin: true, accessPolicy: { reference: 'AccessPolicy/p' } }, 'ci'),
+      client('a', 'app', {}, 'app'),
+    ];
+    expect(planClients(CLIENTS, held, { deploy: 'p' })).toEqual({ changes: [], blocked: [] });
+  });
+
+  test("updates a renamed client, and its membership's policy and admin, in place", () => {
+    const held = [
+      client('c', 'renamed', { admin: false }, 'ci'),
+      client('a', 'app', { admin: true }, 'app'),
+    ];
+    const plan = planClients(CLIENTS, held, { deploy: 'p' });
+    expect(plan.changes).toEqual([
+      {
+        kind: '~',
+        type: 'ClientApplication',
+        key: 'ci',
+        id: 'c',
+        membership: 'm-c',
+        fields: ['name', 'accessPolicy', 'admin'],
+        accessPolicy: 'deploy',
+        admin: true,
+      },
+      {
+        kind: '~',
+        type: 'ClientApplication',
+        key: 'app',
+        id: 'a',
+        membership: 'm-a',
+        fields: ['admin'],
+        admin: false,
+      },
+    ]);
+    // A policy this plan creates has no id yet, so the membership is always set.
+    expect(planClients(CLIENTS, [held[0] as HeldClient], {}).changes[0]).toMatchObject({
+      fields: ['name', 'accessPolicy', 'admin'],
+    });
+  });
+
+  test('adopts an untagged client only with adopt, and prunes a removed key with its membership', () => {
+    const untagged = client('u', 'app', {});
+    expect(planClients(CLIENTS, [untagged], {}).blocked).toEqual([
+      'ClientApplication "app" exists untagged; adopt it with --adopt.',
+    ]);
+    expect(planClients(CLIENTS, [untagged], {}, { adopt: true }).changes).toContainEqual(
+      expect.objectContaining({ kind: '~', key: 'app', id: 'u', fields: [], adopt: true }),
+    );
+    const removed = client('r', 'old', {}, 'old');
+    expect(planClients(CLIENTS, [removed], {}).changes).toContainEqual({
+      kind: '-',
+      type: 'ClientApplication',
+      key: 'old',
+      id: 'r',
+      membership: 'm-r',
+      kept: true,
+    });
+    expect(planClients(CLIENTS, [removed], {}, { prune: true }).changes).toContainEqual({
+      kind: '-',
+      type: 'ClientApplication',
+      key: 'old',
+      id: 'r',
+      membership: 'm-r',
+    });
+  });
+});
+
 describe('planProject', () => {
   /** Just what planProject reads of a logged-in client. */
   const client = (
@@ -173,8 +289,8 @@ describe('planProject', () => {
         resourceType: 'ProjectMembership',
         ...(accessPolicy ? { accessPolicy: { reference: `AccessPolicy/${accessPolicy}` } } : {}),
       }),
-      async *searchResourcePages() {
-        yield policies;
+      async *searchResourcePages(type: string) {
+        yield type === 'AccessPolicy' ? policies : [];
       },
     }) as unknown as MedplumClient;
 
