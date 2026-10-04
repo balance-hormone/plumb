@@ -26,7 +26,7 @@ const OLDEST = 3;
 
 /**
  * Builds the SUSHI project in `project` with `--snapshot`, into its own
- * `fsh-generated`, or into `out`.
+ * `fsh-generated`, or into `out/fsh-generated`.
  */
 export function buildFsh(project: string, options: { out?: string } = {}): FshBuild {
   const counts = { structureDefinitions: 0, valueSets: 0 };
@@ -46,7 +46,8 @@ export function buildFsh(project: string, options: { out?: string } = {}): FshBu
     const why = run.error?.message ?? `exited with ${run.status ?? run.signal}`;
     errors.push({ code: 'sushi-failed', message: `SUSHI ${why}.` });
   }
-  const resources = join(options.out ?? join(project, 'fsh-generated'), 'resources');
+  // SUSHI writes to <out>/fsh-generated, and <out> is the project by default.
+  const resources = join(options.out ?? project, 'fsh-generated', 'resources');
   const files = existsSync(resources) ? readdirSync(resources) : [];
   counts.structureDefinitions = files.filter((f) => f.startsWith('StructureDefinition-')).length;
   counts.valueSets = files.filter((f) => f.startsWith('ValueSet-')).length;

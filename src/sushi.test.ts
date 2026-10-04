@@ -86,7 +86,7 @@ test.skipIf(!process.env.CI && !process.env.PLUMB_SUSHI)(
     const result = buildFsh(fixtures, { out });
     expect(result.errors).toEqual([]);
     expect(result.counts).toEqual({ structureDefinitions: 42, valueSets: 5 });
-    const built = join(out, 'resources');
+    const built = join(out, 'fsh-generated', 'resources');
     const committed = join(fixtures, 'fsh-generated', 'resources');
     for (const file of readdirSync(committed).filter((f) => f.startsWith('StructureDefinition-'))) {
       expect(readFileSync(join(built, file), 'utf8'), file).toBe(

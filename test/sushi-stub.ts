@@ -49,8 +49,9 @@ const project = resolve(args[1]);
 const stub = JSON.parse(readFileSync(join(project, 'stub.json'), 'utf8'));
 writeFileSync(join(project, 'argv.json'), JSON.stringify(args));
 const o = args.indexOf('-o');
-const out = o === -1 ? join(project, 'fsh-generated') : resolve(args[o + 1]);
-if (stub.build) cpSync(stub.synthetic, join(out, 'resources'), { recursive: true });
+// As SUSHI does: -o names the folder that gets fsh-generated/, the project by default.
+const out = o === -1 ? project : resolve(args[o + 1]);
+if (stub.build) cpSync(stub.synthetic, join(out, 'fsh-generated', 'resources'), { recursive: true });
 for (const line of stub.log ?? []) console.log(line);
 process.exit(stub.exitCode ?? 0);
 `,
