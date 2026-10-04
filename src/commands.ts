@@ -72,6 +72,7 @@ const time = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}
 export function formatStep(step: Step, out: string): string {
   const c = step.counts;
   const summary = {
+    sushi: `${c.structureDefinitions} StructureDefinitions, ${c.valueSets} ValueSets`,
     packages: `${c.cached} cached, ${c.fetched} fetched`,
     load: `${c.profiles} profiles${c.skipped ? `, ${c.skipped} skipped` : ''}`,
     emit: `${c.types} types, ${c.slices} slices, ${c.codeLists} code lists`,
@@ -151,7 +152,11 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
   report(result, out, problem, bad);
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
   if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
-  return result.ok ? OK : PROBLEMS;
+  // SUSHI missing or too old is set-up, like a config error, not a problem in the profiles.
+  const setup = result.errors.some(
+    (e) => e.code === 'sushi-not-installed' || e.code === 'sushi-too-old',
+  );
+  return result.ok ? OK : setup ? USAGE_ERROR : PROBLEMS;
 }
 
 /** `push` and `validate`: both act on an environment, so both take `--env`. */
