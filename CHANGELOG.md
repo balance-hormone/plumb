@@ -1,12 +1,34 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 (2026-10-05)
 
+- **`plumb check`** reports every `MedplumClient` read or write of a type a
+  selected profile fully holds that goes around `readProfiled`,
+  `searchProfiled`, `createProfiled`, `updateProfiled` or `stampProfiled`,
+  by the types the compiler infers, so an inferred write is found as surely as
+  a literal one. A committed baseline lets a project adopt it with a backlog:
+  only new or grown findings fail. `// plumb-check: <reason>` marks a
+  deliberate exception. It needs the project's TypeScript 5 or 6 (design 07).
+- **`stampProfiled` returns its resource branded** (`T & Stamped`, an optional
+  unique-symbol property), which `check` reads to accept a stamped write
+  through a variable. Callers see no difference.
+- `check` in the config: `tsconfig`, `baseline` and `ignore`.
 - **`validate` counts records on each type's line**, not profile checks: a
   record stamped with a profile and its parent was counted twice, so a type
   could read `334 of 334 read, all 340 passed`. It now reads `all 331
   stamped passed`, and each profile's line still counts its checks (#121).
   The checker reports the new counts, so `push` redeploys it.
+- **`--env-file <path>`** on `validate` and `push` reads credentials and
+  secrets from a dotenv file, as Node's `--env-file` does: repeatable, later
+  files win, and a variable already set wins over every file. Node refuses
+  `--env-file` in `NODE_OPTIONS` and cannot run a package manager's shell
+  shim, so this was the only short way (#120).
+- **The config loads with the project's tsx when it has one installed**, so
+  in a workspace `plumb.config.ts` can import a sibling package that exports
+  TypeScript source, and use `tsconfig` path aliases and `enum`. Without tsx,
+  Node's type stripping loads it as before, and importing TypeScript from
+  `node_modules` is now a named `unsupported-syntax` error suggesting tsx
+  (#114).
 - **`validate` and `push`'s gate read only resources with a selected stamp**
   (`_profile=<selected URLs>`), and count the rest by query, so one narrow
   profile on a large type no longer reads the whole table: selecting one

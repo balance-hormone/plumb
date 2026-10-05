@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
@@ -9,6 +10,7 @@ import type {
   Coding,
   StructureDefinition,
 } from '@medplum/fhirtypes';
+import type * as Tsx from 'tsx/esm/api';
 
 export interface PlumbConfig {
   /** IG packages as `name@version`, with an exact version. */
@@ -47,6 +49,25 @@ export interface PlumbConfig {
   defaultProfile?: Record<string, string[]>;
   /** What `push` writes to each environment's project besides its profiles. */
   project?: ProjectConfig;
+  /** What `plumb check` reads. */
+  check?: CheckConfig;
+}
+
+/** What `plumb check` reads: the project's code, for raw access to profiled types. */
+export interface CheckConfig {
+  /** The TypeScript projects to check, each compiled once; a path or several. */
+  tsconfig: string | string[];
+  /** The committed file of accepted findings; without one, every finding fails. */
+  baseline?: string;
+  /** Globs, relative to the config, of files not to check (tests, stories). */
+  ignore?: string[];
+}
+
+/** A check config as `loadConfig` returns it, with absolute paths. */
+interface ResolvedCheckConfig {
+  tsconfig: string[];
+  baseline?: string;
+  ignore: string[];
 }
 
 /**
@@ -128,7 +149,8 @@ export type ConfigErrorCode =
   | 'invalid-setting'
   | 'super-admin-field'
   | 'unknown-access-policy'
-  | 'duplicate-key';
+  | 'duplicate-key'
+  | 'invalid-check';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -158,6 +180,7 @@ const KEYS = new Set([
   'routes',
   'defaultProfile',
   'project',
+  'check',
 ]);
 const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as const;
 const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
@@ -172,8 +195,9 @@ const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
 const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 
 /**
- * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
- * Node's own type stripping. `local`, `fsh` and `out` come back as absolute
+ * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with the
+ * project's own tsx when it has one, and Node's type stripping otherwise.
+ * `local`, `fsh` and `out` come back as absolute
  * paths, resolved against the config file's folder; with `fsh`, `local` is its
  * SUSHI output.
  */
@@ -187,11 +211,15 @@ export async function loadConfig(options: {
     return fail({ code: 'config-not-found', message: `No config file at ${configPath}.` });
   }
 
+  const tsx = findTsx(configPath);
+  const url = pathToFileURL(configPath).href;
   let module: { default?: unknown };
   try {
-    module = await import(pathToFileURL(configPath).href);
+    module = tsx
+      ? await tsx.tsImport(url, { parentURL: url, tsconfig: nearest(configPath, 'tsconfig.json') })
+      : await import(url);
   } catch (err) {
-    const error = importError(err);
+    const error = importError(err, tsx !== undefined);
     if (error) return fail(error);
     throw err;
   }
@@ -223,28 +251,58 @@ export async function loadConfig(options: {
     config: {
       ...config,
       out: resolve(base, config.out),
+      ...(config.check ? { check: resolveCheck(base, config.check) } : {}),
       ...(fsh ? { fsh } : {}),
       ...(local ? { local } : {}),
     },
   };
 }
 
+// tsx is the project's, never Plumb's dependency: a workspace that imports
+// TypeScript source or uses path aliases already runs its scripts through it.
+function findTsx(configPath: string): typeof Tsx | undefined {
+  const projectRequire = createRequire(configPath);
+  try {
+    projectRequire.resolve('tsx/esm/api');
+  } catch {
+    return undefined;
+  }
+  return projectRequire('tsx/esm/api') as typeof Tsx;
+}
+
+// tsx reads the tsconfig in the working directory unless told, and the config
+// may sit elsewhere.
+function nearest(from: string, name: string): string | undefined {
+  for (let dir = dirname(from); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, name))) return join(dir, name);
+    if (dir === dirname(dir)) return undefined;
+  }
+}
+
 // Node resolves imports itself and only strips types, so these are the limits
-// a config file meets that a bundler-loaded one would not.
-function importError(err: unknown): ConfigError | undefined {
+// a config file meets that a bundler-loaded one would not. tsx lifts them all.
+function importError(err: unknown, tsx: boolean): ConfigError | undefined {
   const code = (err as { code?: unknown } | null)?.code;
   const message = (err instanceof Error ? err.message : String(err)).replace(/\n[\s\S]*/, '');
+  const install = 'Or install tsx in the project, and Plumb loads the config with it.';
   if (code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') {
     return {
       code: 'unsupported-syntax',
-      message: `${message}. Node loads the config by stripping types, so TypeScript-only syntax such as enum or namespace cannot be used.`,
+      message: `${message}. Node loads the config by stripping types, so TypeScript-only syntax such as enum or namespace cannot be used. ${install}`,
+    };
+  }
+  if (code === 'ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING') {
+    return {
+      code: 'unsupported-syntax',
+      message: `${message}. Node does not strip types in files under node_modules, so the config cannot import a package that exports TypeScript source; install tsx in the project, and Plumb loads the config with it.`,
     };
   }
   if (code === 'ERR_MODULE_NOT_FOUND') {
+    if (tsx) return { code: 'unresolved-import', message: `${message} (loaded with tsx).` };
     const hint = message.startsWith('Cannot find package')
       ? 'Node does not read tsconfig paths, so a path alias cannot be used; import the file by its relative path, or install the package.'
       : 'Node resolves imports as written, so a relative import needs its .ts extension.';
-    return { code: 'unresolved-import', message: `${message}. ${hint}` };
+    return { code: 'unresolved-import', message: `${message}. ${hint} ${install}` };
   }
   return undefined;
 }
@@ -278,6 +336,7 @@ function check(config: unknown): ConfigError[] {
     ...checkRouteRows(record),
     ...checkDefaultProfile(record.defaultProfile),
     ...checkProject(record.project),
+    ...checkCheck(record.check),
   );
   for (const key of ['local', 'fsh']) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
@@ -332,6 +391,35 @@ function checkWildcards(record: Record<string, unknown>): ConfigError[] {
         ]
       : [];
   });
+}
+
+function checkCheck(check: unknown): ConfigError[] {
+  if (check === undefined) return [];
+  if (typeof check !== 'object' || check === null || Array.isArray(check)) {
+    return [{ code: 'invalid-type', path: 'check', message: '"check" must be an object.' }];
+  }
+  const errors: ConfigError[] = Object.keys(check)
+    .filter((key) => !['tsconfig', 'baseline', 'ignore'].includes(key))
+    .map((key) => ({
+      code: 'unknown-key',
+      path: `check.${key}`,
+      message: `Unknown config key "check.${key}".`,
+    }));
+  const { tsconfig, baseline, ignore } = check as Record<string, unknown>;
+  const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string');
+  const invalid = (key: string, expected: string): ConfigError => ({
+    code: 'invalid-check',
+    path: `check.${key}`,
+    message: `"check.${key}" must be ${expected}.`,
+  });
+  if (!(typeof tsconfig === 'string' || (strings(tsconfig) && (tsconfig as string[]).length > 0))) {
+    errors.push(invalid('tsconfig', 'a tsconfig path, or a list of them'));
+  }
+  if (baseline !== undefined && typeof baseline !== 'string') {
+    errors.push(invalid('baseline', 'a path'));
+  }
+  if (ignore !== undefined && !strings(ignore)) errors.push(invalid('ignore', 'a list of globs'));
+  return errors;
 }
 
 function checkBindings(bindings: unknown): ConfigError[] {
@@ -790,5 +878,13 @@ export function resolveEnvironment(
       clientId: env[environment.clientId.env] as string,
       clientSecret: env[environment.clientSecret.env] as string,
     },
+  };
+}
+
+function resolveCheck(base: string, check: CheckConfig): ResolvedCheckConfig {
+  return {
+    tsconfig: [check.tsconfig].flat().map((path) => resolve(base, path)),
+    ...(check.baseline ? { baseline: resolve(base, check.baseline) } : {}),
+    ignore: check.ignore ?? [],
   };
 }

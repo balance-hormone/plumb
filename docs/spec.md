@@ -214,7 +214,12 @@ Named after the tools developers already know:
 - **Loaded by Node itself** (built-in type stripping, Node 22.18+), with a plain
   `import()`: no loader dependency. Its limits get clear error messages:
   TypeScript-only syntax such as `enum`, relative imports without a `.ts`
-  extension, and `tsconfig` path aliases, none of which Node resolves.
+  extension, `tsconfig` path aliases, none of which Node resolves, and
+  TypeScript under `node_modules`, which Node will not strip.
+- **With the project's tsx** when it has one installed, so a workspace config
+  can import sibling packages' TypeScript source and use path aliases. tsx
+  stays the project's dependency, never Plumb's, and reads the
+  `tsconfig.json` nearest the config.
 - **Checked with plain code** when loaded: unknown keys, a missing `out`, a
   malformed IG name or version, a bad `bindings.maxCodes`, and a profile URL no
   package provides are each a named error.
@@ -227,7 +232,9 @@ Named after the tools developers already know:
   the committed file holds no secret. A malformed URL or a credential written
   in as a value is a named error when the config loads; an unknown
   environment or an unset variable is one when a command picks the
-  environment.
+  environment. `--env-file <path>` reads variables from a dotenv file with
+  Node's own parser, as `node --env-file` would: repeatable, later files
+  win, and a variable already set wins over every file.
 - **`routes`** (optional) adds routing rows for selected profiles, by URL:
   a first-level element mapped to the codings (or, for a `code` element, the
   strings) that select the profile, or `false` to take it out of routing

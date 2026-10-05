@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
+import { parseArgs, parseEnv } from 'node:util';
+import type * as TS from 'typescript5';
+import { type CheckResult, checkProject } from './check.js';
 import { type ConfigError, loadConfig, resolveEnvironment } from './config.js';
 import {
   type Checked,
@@ -24,11 +26,14 @@ export interface CliIo {
   stderr: (text: string) => void;
   cacheDir?: string;
   fetch?: typeof globalThis.fetch;
+  /** The TypeScript `check` compiles with; the project's own by default. */
+  typescript?: typeof TS;
 }
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
-       plumb validate --env <name> [--full] [--resume] [--config <path>]
-       plumb push --env <name> [--dry-run | --check] [--prune] [--adopt] [--config <path>]
+       plumb validate --env <name> [--env-file <path>] [--full] [--resume] [--config <path>]
+       plumb push --env <name> [--env-file <path>] [--dry-run | --check] [--prune] [--adopt] [--config <path>]
+       plumb check [--update-baseline [--allow-growth]] [--config <path>]
 
 generate  Generate TypeScript types that narrow @medplum/fhirtypes from the
           FHIR profiles plumb.config.ts selects.
@@ -37,17 +42,24 @@ validate  Count the stored resources that would fail each selected profile,
 push      Install the checker, then load the selected profiles into a Medplum
           project, refusing while stored resources would fail them, then
           converge the project's own configuration.
+check     Find MedplumClient reads and writes of profiled types that go
+          around readProfiled, searchProfiled, createProfiled and stampProfiled,
+          by the types the compiler infers, against a committed baseline.
 
 Options:
   --check          generate: compare with the committed output instead of writing; fail if stale
                    push: plan and fail if push would write anything, writing nothing
   --env <name>     the environment in plumb.config.ts to act on
+  --env-file <path>  variables to read credentials and secrets from, as Node's
+                   --env-file does; repeatable, later files win, the environment over all
   --resume         continue an interrupted validate from its last page
   --full           validate: read every stored resource, not only those with a selected
                    stamp, to break down silent stamps and other profiles' stamps
   --dry-run        push: stop after the gate and the project plan, writing nothing
   --prune          push: delete what Plumb manages that the config no longer has
   --adopt          push: tag and converge an untagged resource with a key's name
+  --update-baseline  check: rewrite the baseline from what is found; refuses growth
+  --allow-growth     check: let --update-baseline accept new findings
   --config <path>  the config file (default: plumb.config.ts)
   --json           print the report as JSON on stdout
   --quiet          print only problems
@@ -122,8 +134,9 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
   const command = positionals.length === 1 ? positionals[0] : undefined;
   if (command === 'generate') return generateCommand(values, io);
   if (command === 'push' || command === 'validate') return envCommand(command, values, io);
+  if (command === 'check') return checkCommand(values, io);
   const got = positionals.length === 0 ? 'no command' : `"${positionals.join(' ')}"`;
-  io.stderr(`plumb: expected generate, validate or push, got ${got}\n\n${USAGE}`);
+  io.stderr(`plumb: expected generate, validate, push or check, got ${got}\n\n${USAGE}`);
   return USAGE_ERROR;
 }
 
@@ -174,6 +187,47 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
   return result.ok ? OK : setup ? USAGE_ERROR : PROBLEMS;
 }
 
+async function checkCommand(values: Values, io: CliIo): Promise<number> {
+  const quiet = values.quiet ?? false;
+  const { say, problem } = printer(io, quiet);
+  const config = await loadConfig({ cwd: io.cwd, configPath: values.config });
+  if (!config.ok) return configErrors(config.errors, values, io);
+  say('plumb check');
+  const started = Date.now();
+  const result = await checkProject({
+    config: config.config,
+    configPath: config.configPath,
+    ...(io.typescript ? { ts: io.typescript } : {}),
+    ...(io.cacheDir ? { cacheDir: io.cacheDir } : {}),
+    updateBaseline: values['update-baseline'] ?? false,
+    allowGrowth: values['allow-growth'] ?? false,
+  });
+  printCheck(result, Date.now() - started, printer(io, quiet));
+  (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(Date.now() - started)}`);
+  if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.ok) return OK;
+  const setup = result.errors.some((e) => e.code !== 'baseline-growth');
+  return setup ? USAGE_ERROR : PROBLEMS;
+}
+
+/** The check step's line, each new finding, and what to run next. */
+function printCheck(result: CheckResult, ms: number, p: ReturnType<typeof printer>) {
+  const { ok, bad, say, problem } = p;
+  for (const e of result.errors) problem(`${bad} check     ${e.message}`);
+  const { fresh, accepted, fixed } = result.comparison;
+  if (result.files > 0) {
+    const summary = `${fresh.length} new, ${accepted} in the baseline${fixed ? `, ${fixed} fixed` : ''}, in ${result.files} files`;
+    (fresh.length ? problem : say)(`${fresh.length ? bad : ok} check     ${summary}   ${time(ms)}`);
+    for (const f of fresh) {
+      problem(
+        `    ${f.file}:${f.line}:${f.column}  ${f.method} ${f.resourceTypes.join(' | ')}  → ${f.instead}`,
+      );
+    }
+    if (result.baselineWritten) say('    Baseline written.');
+    else if (fixed > 0) say('    Run plumb check --update-baseline to record the fixes.');
+  }
+}
+
 /** `push` and `validate`: both act on an environment, so both take `--env`. */
 async function envCommand(command: 'push' | 'validate', values: Values, io: CliIo) {
   const quiet = values.quiet ?? false;
@@ -183,7 +237,7 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
   say(
     `plumb ${command} --env ${values.env}${command === 'push' && values.check ? ' --check' : ''}`,
   );
-  const { root, ...shared } = options;
+  const { root, env, ...shared } = options;
   const reportPath = join(root, '.plumb', `validate-${values.env}.json`);
   const result =
     command === 'push'
@@ -194,7 +248,7 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
           check: values.check,
           prune: values.prune,
           adopt: values.adopt,
-          env: io.env,
+          env,
         })
       : await validateEnvironment({
           ...shared,
@@ -218,13 +272,16 @@ async function envOptions(command: string, values: Values, io: CliIo) {
     io.stderr(`plumb: ${command} needs --env <name>\n\n${USAGE}`);
     return USAGE_ERROR;
   }
+  const env = envFiles(values['env-file'] ?? [], io);
+  if (typeof env === 'number') return env;
   const config = await loadConfig({ cwd: io.cwd, configPath: values.config });
   if (!config.ok) return configErrors(config.errors, values, io);
-  const environment = resolveEnvironment(config.config, values.env, io.env);
+  const environment = resolveEnvironment(config.config, values.env, env);
   if (!environment.ok) return configErrors(environment.errors, values, io);
   const root = dirname(config.configPath);
   return {
     root,
+    env,
     config: config.config,
     environment: environment.environment,
     lockPath: join(root, 'plumb.lock'),
@@ -243,6 +300,24 @@ async function envOptions(command: string, values: Values, io: CliIo) {
 }
 
 const count = (n: number) => n.toLocaleString('en-US');
+
+/**
+ * The environment with each env file's variables under it. Node refuses
+ * --env-file in NODE_OPTIONS and package managers' .bin shims are shell
+ * scripts, so the CLI reads them itself.
+ */
+function envFiles(paths: string[], io: CliIo): CliIo['env'] | number {
+  const files: CliIo['env'][] = [];
+  for (const path of paths) {
+    const file = resolve(io.cwd, path);
+    if (!existsSync(file)) {
+      io.stderr(`plumb: no env file at ${file}\n`);
+      return USAGE_ERROR;
+    }
+    files.push(parseEnv(readFileSync(file, 'utf8')));
+  }
+  return Object.assign({}, ...files, io.env);
+}
 
 /** A step's line, then its warnings: a failed step's always print, as problems do. */
 function printStep(step: EnvStep<string>, p: ReturnType<typeof printer>, quiet: boolean) {
@@ -335,11 +410,14 @@ function parse(argv: string[]) {
       check: { type: 'boolean' },
       config: { type: 'string' },
       env: { type: 'string' },
+      'env-file': { type: 'string', multiple: true },
       resume: { type: 'boolean' },
       full: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       prune: { type: 'boolean' },
       adopt: { type: 'boolean' },
+      'update-baseline': { type: 'boolean' },
+      'allow-growth': { type: 'boolean' },
       json: { type: 'boolean' },
       quiet: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },

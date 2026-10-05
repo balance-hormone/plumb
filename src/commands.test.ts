@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import * as ts from 'typescript5';
+import { afterEach, describe, expect, test } from 'vitest';
 import { bareSushiProject } from '../test/sushi-stub.js';
 import { formatStep, formatValidation, run } from './commands.js';
 import type { TypeReport, ValidateEnvResult } from './conformance.js';
@@ -213,6 +214,26 @@ describe('plumb', () => {
     },
   );
 
+  test.skipIf(!existsSync(CHECKER) && !process.env.CI).each(['push', 'validate'])(
+    '%s reads credentials from each --env-file, the environment winning',
+    async (command) => {
+      const { cwd } = await cli(['generate']);
+      writeFileSync(join(cwd, '.env'), 'PROD_CLIENT_ID=from-file\n');
+      writeFileSync(join(cwd, '.env.local'), '# local\nPROD_CLIENT_SECRET="secret"\n');
+      const argv = [command, '--env', 'prod', '--env-file', '.env', '--env-file', '.env.local'];
+      const { code, stderr } = await cli(argv, cwd, { PROD_CLIENT_ID: 'id' });
+      expect(code).toBe(2);
+      expect(stderr).not.toContain('is not set');
+      expect(stderr).toMatch(/✖ connect {3}Could not log in/);
+    },
+  );
+
+  test('a missing --env-file exits 2, naming it', async () => {
+    const { code, stderr } = await cli(['validate', '--env', 'prod', '--env-file', '.env.missing']);
+    expect(code).toBe(2);
+    expect(stderr).toMatch(/plumb: no env file at .*\.env\.missing/);
+  });
+
   // CI builds before it tests; locally this runs once dist/ exists. Two
   // processes each load the profiles, which can pass 5s alongside other suites.
   test.skipIf(!existsSync(BUILT) && !process.env.CI)(
@@ -338,5 +359,63 @@ describe('formatValidation', () => {
       "    Questionnaire: 0 of 4 readable: check plumb-checker's AccessPolicy",
       '    Basic: none stored',
     ]);
+  });
+});
+
+describe('plumb check', () => {
+  const FIXTURE = join(import.meta.dirname, '../test/fixtures/check');
+  const BASELINE = join(FIXTURE, 'baseline.json');
+  const check = async (...argv: string[]) => {
+    let stderr = '';
+    const code = await run(['check', ...argv], {
+      cwd: FIXTURE,
+      env: {},
+      isTTY: false,
+      typescript: ts,
+      stdout: () => {},
+      stderr: (text) => {
+        stderr += text;
+      },
+    });
+    return { code, stderr };
+  };
+  afterEach(() => rmSync(BASELINE, { force: true }));
+
+  test('names each raw access to a profiled type, and exits 1', { timeout: 30_000 }, async () => {
+    const { code, stderr } = await check();
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/✖ check {5}2 new, 0 in the baseline, in 3 files/);
+    expect(stderr).toContain('src/reads.ts:7:9  readResource Patient  → readProfiled');
+    expect(stderr).toContain('src/reads.ts:12:9  searchOne Patient  → searchProfiled');
+  });
+
+  test('a baseline accepts them; it refuses to grow without --allow-growth', {
+    timeout: 30_000,
+  }, async () => {
+    expect((await check('--update-baseline')).code).toBe(1);
+    expect(existsSync(BASELINE)).toBe(false);
+    expect((await check('--update-baseline', '--allow-growth')).code).toBe(0);
+    expect(JSON.parse(readFileSync(BASELINE, 'utf8'))).toEqual({
+      'src/reads.ts|readResource|Patient': 1,
+      'src/reads.ts|searchOne|Patient': 1,
+    });
+    const { code, stderr } = await check();
+    expect(code).toBe(0);
+    expect(stderr).toMatch(/✔ check {5}0 new, 2 in the baseline, in 3 files/);
+  });
+
+  test("exits 2 when the project's TypeScript has no compiler API", async () => {
+    let stderr = '';
+    const code = await run(['check'], {
+      cwd: FIXTURE,
+      env: {},
+      isTTY: false,
+      stdout: () => {},
+      stderr: (text) => {
+        stderr += text;
+      },
+    });
+    expect(code).toBe(2);
+    expect(stderr).toContain('needs TypeScript 5 or 6');
   });
 });

@@ -403,6 +403,15 @@ export async function createProfiled(
   return medplum.createResource(stamped(resource, options.profile ?? route(resource)));
 }
 
+declare const plumbStamped: unique symbol;
+
+/**
+ * What stampProfiled returns carries this, so \`plumb check\` can tell a stamped
+ * write from a raw one, through a variable too. Optional, so it asks nothing of
+ * a caller and changes nothing it can assign.
+ */
+type Stamped = { readonly [plumbStamped]?: true };
+
 /**
  * The copy createProfiled would write, stamped and not written, for the writes
  * it cannot make: a conditional create, an upsert, a batch or transaction
@@ -411,8 +420,11 @@ export async function createProfiled(
 export function stampProfiled<U extends ProfileUrl>(
   resource: ProfileTypes[U],
   options: { profile: U },
-): ProfileTypes[U];
-export function stampProfiled<T extends Resource>(resource: T, options?: { profile: false }): T;
+): ProfileTypes[U] & Stamped;
+export function stampProfiled<T extends Resource>(
+  resource: T,
+  options?: { profile: false },
+): T & Stamped;
 export function stampProfiled(
   resource: Resource,
   options: { profile?: ProfileUrl | false } = {},

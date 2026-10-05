@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, test } from 'vitest';
@@ -18,12 +19,22 @@ import {
 import { loadProfiles } from './loader.js';
 
 const CONFIG_MODULE = join(import.meta.dirname, 'config.ts');
+const TSX = dirname(createRequire(import.meta.url).resolve('tsx/package.json'));
 
 // Vitest transforms TypeScript itself, so loading runs in a plain Node process
-// to exercise Node's own type stripping, as the CLI will.
-function load(files: Record<string, string>, configPath?: string): LoadConfigResult {
+// to exercise Node's own type stripping, as the CLI will. With `tsx`, the
+// project has tsx installed.
+function load(
+  files: Record<string, string>,
+  configPath?: string,
+  options: { tsx?: boolean } = {},
+): LoadConfigResult {
   const cwd = mkdtempSync(join(tmpdir(), 'plumb-config-'));
   writeFileSync(join(cwd, 'package.json'), '{ "type": "module" }');
+  if (options.tsx) {
+    mkdirSync(join(cwd, 'node_modules'));
+    symlinkSync(TSX, join(cwd, 'node_modules', 'tsx'), 'dir');
+  }
   for (const [file, text] of Object.entries(files)) {
     mkdirSync(dirname(join(cwd, file)), { recursive: true });
     writeFileSync(join(cwd, file), text);
@@ -144,6 +155,49 @@ describe('loadConfig', () => {
     expect(!result.ok && result.errors[0]?.message).toMatch(/alias/);
   });
 
+  // A workspace package that exports its TypeScript source, as written for a
+  // bundler: extensionless imports, and installed under node_modules.
+  const WORKSPACE = {
+    'node_modules/@acme/policies/package.json': `{ "name": "@acme/policies", "type": "module", "exports": "./src/index.ts" }`,
+    'node_modules/@acme/policies/src/index.ts': `import { dir } from './dir';
+      export const out: string = dir;`,
+    'node_modules/@acme/policies/src/dir.ts': `export const dir = './out';`,
+    'tsconfig.json': `{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }`,
+    'src/suffix.ts': `export const suffix = '/generated';`,
+    'plumb.config.ts': `import { out } from '@acme/policies';
+      import { suffix } from '@/suffix';
+      enum Dir { Out = 'types' }
+      export default { igs: [], profiles: [], out: out + suffix + '/' + Dir.Out };`,
+  };
+
+  test('with tsx installed, loads workspace TypeScript, path aliases and enums', () => {
+    const result = load(WORKSPACE, undefined, { tsx: true });
+    expect(result.ok && result.config.out).toMatch(/[/\\]out[/\\]generated[/\\]types$/);
+  });
+
+  test('unsupported-syntax, for TypeScript under node_modules without tsx', () => {
+    const result = load({
+      ...WORKSPACE,
+      'plumb.config.ts': `import { out } from '@acme/policies';
+        export default { igs: [], profiles: [], out };`,
+    });
+    expect(codes(result)).toEqual(['unsupported-syntax']);
+    expect(!result.ok && result.errors[0]?.message).toMatch(/node_modules.*tsx/);
+  });
+
+  test('unresolved-import with tsx installed, naming the import', () => {
+    const result = load(
+      {
+        'plumb.config.ts': `import out from './missing';
+          export default { igs: [], profiles: [], out };`,
+      },
+      undefined,
+      { tsx: true },
+    );
+    expect(codes(result)).toEqual(['unresolved-import']);
+    expect(!result.ok && result.errors[0]?.message).toMatch(/missing/);
+  });
+
   test('no-default-export', () => {
     expect(codes(load({ 'plumb.config.ts': `export const out = './out';` }))).toEqual([
       'no-default-export',
@@ -223,6 +277,34 @@ describe('loadConfig', () => {
     });
     expect(codes(result)).toEqual([code]);
     expect(!result.ok && result.errors[0]?.path).toBe(path);
+  });
+
+  test('check: tsconfig and baseline resolve against the config, ignore stays relative', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', check: { tsconfig: 'tsconfig.json', baseline: './plumb-check-baseline.json', ignore: ['**/*.test.ts'] } };`,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const base = dirname(result.configPath);
+    expect(result.config.check).toEqual({
+      tsconfig: [join(base, 'tsconfig.json')],
+      baseline: join(base, 'plumb-check-baseline.json'),
+      ignore: ['**/*.test.ts'],
+    });
+  });
+
+  test.each([
+    ['5', 'invalid-type', 'check'],
+    ['{}', 'invalid-check', 'check.tsconfig'],
+    ['{ tsconfig: [] }', 'invalid-check', 'check.tsconfig'],
+    ["{ tsconfig: 'a.json', baseline: 5 }", 'invalid-check', 'check.baseline'],
+    ["{ tsconfig: 'a.json', ignore: '*.ts' }", 'invalid-check', 'check.ignore'],
+    ["{ tsconfig: 'a.json', tsc: 'b' }", 'unknown-key', 'check.tsc'],
+  ])('check: %s', (value, code, path) => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', check: ${value} };`,
+    });
+    expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([[code, path]]);
   });
 
   test('unknown-key inside bindings, and bindings that is not an object', () => {
