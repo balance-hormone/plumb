@@ -41,7 +41,10 @@ export type USCorePatient = Omit<Patient, 'identifier' | 'telecom' | 'name'> & {
   /** An identifier for this patient. */
   identifier: Require<Identifier, 'system' | 'value'>[];
   name: HumanName[];
-  /** A contact detail (e.g. */
+  /**
+   * A contact detail (e.g. a telephone number or an email address) by which the individual may be
+   * contacted.
+   */
   telecom?: Require<ContactPoint, 'system' | 'value'>[];
 };
 

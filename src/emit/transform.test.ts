@@ -551,6 +551,16 @@ describe('transform', () => {
     });
   });
 
+  test("a field's doc is its first sentence, not cut at an abbreviation", () => {
+    const patient = fromPackage(
+      'hl7.fhir.us.core@9.0.0',
+      'http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient',
+    );
+    expect(field(decl(patient), 'telecom').doc).toBe(
+      'A contact detail (e.g. a telephone number or an email address) by which the individual may be contacted.',
+    );
+  });
+
   test('lists invariants the type cannot check in the doc comment', () => {
     expect(model('nesting-patient').doc.join('\n')).toContain('plumb-name-part');
   });
