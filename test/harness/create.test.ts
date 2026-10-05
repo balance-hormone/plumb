@@ -140,6 +140,12 @@ export const routed: Promise<Observation> = createProfiled(medplum, observation)
 export const chosen: Promise<ChildObservation> = createProfiled(medplum, ${child}, { profile: '${CHILD}' });
 export const updated: Promise<Observation> = updateProfiled(medplum, observation, { profile: false });
 export const stamped: ChildObservation = stampProfiled(${child}, { profile: '${CHILD}' });
+// The brand plumb check reads: present on what stampProfiled returns, and nothing a caller must supply.
+declare const plain: Observation;
+const routedStamp = stampProfiled(plain, { profile: false });
+type BrandKeys = Exclude<keyof typeof routedStamp, keyof Observation>;
+export const brand: [BrandKeys] extends [never] ? 'missing' : 'present' = 'present';
+export const assignable: Observation = routedStamp;
 // @ts-expect-error stamping as a profile needs what its type requires
 export const unstampable = stampProfiled(observation, { profile: '${CHILD}' });
 // @ts-expect-error the chosen profile needs a subject, an effective time and a value

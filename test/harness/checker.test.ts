@@ -129,12 +129,29 @@ describe('a page', () => {
     const { result } = await run(input('Patient'), [page]);
     expect(result).toMatchObject({
       read: 5,
+      stamped: 1,
+      failing: 0,
       unstamped: 1,
       silent: { versioned: 1, empty: 1 },
       otherStamps: { 'http://example.org/fhir/StructureDefinition/other': 1 },
       profiles: { [PATIENT]: { checked: 1, failing: [], reasons: [] } },
     });
     expect(result.core).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  test('counts each record once, however many selected profiles it is checked against', async () => {
+    const naming = PATIENT.replace('cardinality-patient', 'naming-patient-a');
+    const missing = { resourceType: 'Patient', name: [{ family: 'T' }] };
+    const page = [
+      stamped(valid as Resource, 'a', [PATIENT, naming]),
+      stamped(missing as Resource, 'b', [PATIENT, naming]),
+      stamped(valid as Resource, 'c', [PATIENT]),
+    ];
+    const { result } = await run(input('Patient'), [page]);
+    expect(result.profiles[PATIENT]?.checked).toBe(3);
+    expect(result.profiles[naming]?.checked).toBe(2);
+    const failing = new Set(Object.values(result.profiles).flatMap((p) => p.failing));
+    expect(result).toMatchObject({ stamped: 3, failing: failing.size });
   });
 
   test('groups failure reasons by path and message, without array indexes', async () => {

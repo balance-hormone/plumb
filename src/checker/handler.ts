@@ -54,6 +54,10 @@ export interface PageResult {
   /** The `@medplum/core` version validating, bundled into the bot. */
   core: string;
   read: number;
+  /** Resources stamped with at least one selected profile, each counted once. */
+  stamped: number;
+  /** Of those, the ones failing any of their selected profiles. */
+  failing: number;
   /** Resources with no `meta.profile`: routing's job, not validated. */
   unstamped: number;
   /** Stamps that validate against nothing: `url|version`, and `meta.profile: []`. */
@@ -127,27 +131,33 @@ function checkPage(
   const result: Omit<PageResult, 'next'> = {
     core: MEDPLUM_VERSION,
     read: resources.length,
+    stamped: 0,
+    failing: 0,
     unstamped: 0,
     silent: { versioned: 0, empty: 0 },
     otherStamps: {},
     profiles: {},
   };
   const tallies = new Map<string, Tally>();
-  const stamp = (url: string, resource: Resource) => {
+  // Whether the resource was checked, and whether it passed every check.
+  const stamp = (url: string, resource: Resource): { checked: boolean; passed: boolean } => {
     const profile = selected.get(url);
     if (url.includes('|')) result.silent.versioned++;
     else if (!profile) result.otherStamps[url] = (result.otherStamps[url] ?? 0) + 1;
     else {
       const tally = tallies.get(url) ?? new Tally();
       tallies.set(url, tally);
-      tally.add(resource, profile);
+      return { checked: true, passed: tally.add(resource, profile) };
     }
+    return { checked: false, passed: true };
   };
   for (const resource of resources) {
     const stamps = resource.meta?.profile;
     if (stamps === undefined) result.unstamped++;
     else if (stamps.length === 0) result.silent.empty++;
-    for (const url of stamps ?? []) stamp(url, resource);
+    const checks = (stamps ?? []).map((url) => stamp(url, resource));
+    if (checks.some((c) => c.checked)) result.stamped++;
+    if (checks.some((c) => !c.passed)) result.failing++;
   }
   for (const [url, tally] of tallies) result.profiles[url] = tally.result();
   return result;
@@ -159,7 +169,8 @@ class Tally {
   private readonly failing: string[] = [];
   private readonly reasons = new Map<string, Reason>();
 
-  add(resource: Resource, profile: StructureDefinition): void {
+  /** Checks the resource, returning whether it passed. */
+  add(resource: Resource, profile: StructureDefinition): boolean {
     this.checked++;
     const failures = errors(resource, profile);
     if (failures.length > 0) this.failing.push(resource.id ?? '');
@@ -173,6 +184,7 @@ class Tally {
       reason.count++;
       this.reasons.set(key, reason);
     }
+    return failures.length === 0;
   }
 
   result(): ProfileResult {

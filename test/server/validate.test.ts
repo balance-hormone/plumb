@@ -139,6 +139,8 @@ describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
     expect(full.types.Patient).toEqual({
       exists: CONFORMING + 5,
       read: CONFORMING + 5,
+      stamped: CONFORMING + 1,
+      failing: 1,
       unstamped: 1,
       silent: { unknown: 1, versioned: 1, empty: 0 },
       otherProfiles: { [NAMING]: 1 },

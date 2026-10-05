@@ -225,6 +225,34 @@ describe('loadConfig', () => {
     expect(!result.ok && result.errors[0]?.path).toBe(path);
   });
 
+  test('check: tsconfig and baseline resolve against the config, ignore stays relative', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', check: { tsconfig: 'tsconfig.json', baseline: './plumb-check-baseline.json', ignore: ['**/*.test.ts'] } };`,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const base = dirname(result.configPath);
+    expect(result.config.check).toEqual({
+      tsconfig: [join(base, 'tsconfig.json')],
+      baseline: join(base, 'plumb-check-baseline.json'),
+      ignore: ['**/*.test.ts'],
+    });
+  });
+
+  test.each([
+    ['5', 'invalid-type', 'check'],
+    ['{}', 'invalid-check', 'check.tsconfig'],
+    ['{ tsconfig: [] }', 'invalid-check', 'check.tsconfig'],
+    ["{ tsconfig: 'a.json', baseline: 5 }", 'invalid-check', 'check.baseline'],
+    ["{ tsconfig: 'a.json', ignore: '*.ts' }", 'invalid-check', 'check.ignore'],
+    ["{ tsconfig: 'a.json', tsc: 'b' }", 'unknown-key', 'check.tsc'],
+  ])('check: %s', (value, code, path) => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', check: ${value} };`,
+    });
+    expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([[code, path]]);
+  });
+
   test('unknown-key inside bindings, and bindings that is not an object', () => {
     const unknown = load({
       'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', bindings: { max: 5 } };`,

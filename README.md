@@ -379,6 +379,61 @@ read would refuse. History is not offered typed: an old version may predate
 its stamp, so read it with `medplum.readHistory` and `asProfiled` it if you
 must.
 
+## Find code that goes around Plumb
+
+The profiled reads and writes only help where they are called. `plumb check`
+reads your code the way the compiler does and reports every `MedplumClient`
+read or write of a profiled type that does not go through them, including a
+write whose type is only inferred:
+
+```ts
+export default defineConfig({
+  // …igs, profiles, out
+  check: {
+    tsconfig: ['apps/web/tsconfig.json'],
+    baseline: './plumb-check-baseline.json',
+    ignore: ['**/*.test.ts', '**/*.stories.tsx'],
+  },
+});
+```
+
+```bash
+npx plumb check
+```
+
+```text
+plumb check
+✖ check     2 new, 248 in the baseline, in 2767 files   6.2s
+    apps/web/src/lib/goals/goal.ts:41:10  readResource Goal  → readProfiled
+    apps/web/src/lib/coverage/save.ts:90:5  createResource Coverage  → createProfiled, updateProfiled or stampProfiled
+Failed in 6.2s
+```
+
+- **What it reports:** `readResource`, `searchResources`, `searchOne`,
+  `searchResourcePages`, `createResource`, `updateResource`, `upsertResource`
+  and `createResourceIfNoneExist` on a `MedplumClient` (or a class deriving
+  from it), for a type every resource of which a selected profile holds: one
+  with a profile that routes on no keys, or a `defaultProfile`. A type whose
+  profiles are keyed on content (one code of Observation) is not reported, and
+  neither is `string` or `ResourceType`.
+- **A stamped write passes,** through a variable too: `stampProfiled` returns
+  its resource branded, and `check` reads the brand from the type.
+- **A deliberate exception** takes a comment with a reason on the line before:
+  `// plumb-check: the backfill reads unstamped records to stamp them`.
+- **The baseline** is a committed count per file, method and type. `check`
+  fails only when a count grows or a new one appears, so new raw access is
+  refused at once while the backlog shrinks. `--update-baseline` records
+  fixes; it refuses growth unless `--allow-growth` is given.
+- **Paths** in the output, the baseline and `ignore` are relative to the
+  deepest folder holding the config and every tsconfig, so a monorepo's config
+  in one package checks code in another.
+- **TypeScript:** `check` compiles with your project's own `typescript`, which
+  needs its compiler API: TypeScript 5 or 6. TypeScript 7's native package has
+  none yet, and `check` exits 2 on it.
+
+Exit codes: 0 when nothing is new, 1 when something is (or the baseline would
+grow), 2 for usage, config and set-up errors.
+
 ## Check stored data, then load profiles
 
 Medplum validates a resource when it is written, and never again. Tightening a
@@ -457,6 +512,9 @@ Failed in 40.8s
   read against how many exist, so "all passed", "none carries a selected
   profile", "none stored" and "0 of N readable" (an AccessPolicy that hides
   them) read differently.
+- **A type counts records; a profile counts checks.** A record stamped with a
+  profile and its parent is checked against each, so it appears once on the
+  type's line (`all 331 stamped passed`) and once under each profile.
 - **Shadowed profiles** fail the check: more than one StructureDefinition for
   a selected URL, of which Medplum enforces the one whose version sorts last
   as text, so `1.9.0` beats `1.10.0`.
