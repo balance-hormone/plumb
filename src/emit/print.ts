@@ -404,6 +404,23 @@ export async function createProfiled(
 }
 
 /**
+ * The copy createProfiled would write, stamped and not written, for the writes
+ * it cannot make: a conditional create, an upsert, a batch or transaction
+ * entry. Options and errors as createProfiled; a RoutingError is thrown.
+ */
+export function stampProfiled<U extends ProfileUrl>(
+  resource: ProfileTypes[U],
+  options: { profile: U },
+): ProfileTypes[U];
+export function stampProfiled<T extends Resource>(resource: T, options?: { profile: false }): T;
+export function stampProfiled(
+  resource: Resource,
+  options: { profile?: ProfileUrl | false } = {},
+): Resource {
+  return stamped(resource, options.profile ?? route(resource));
+}
+
+/**
  * Updates the resource held to the profile its new content selects: the
  * stamps Plumb manages are replaced, and any other URL in \`meta.profile\` is
  * kept. Options and errors as createProfiled.
@@ -783,7 +800,7 @@ export function printFiles(
   index.appendNoWrap(`${MARKER}. Do not edit.`);
   index.appendNoWrap("export type { Require } from './_plumb.js';");
   index.appendNoWrap(
-    "export { createProfiled, type ProfiledClient, type ProfileTypes, type ProfileUrl, RoutingError, route, updateProfiled } from './_routes.js';",
+    "export { createProfiled, type ProfiledClient, type ProfileTypes, type ProfileUrl, RoutingError, route, stampProfiled, updateProfiled } from './_routes.js';",
   );
   index.appendNoWrap(
     "export { asProfiled, isProfiled, pickProfiled, type ProfiledQuery, type ProfiledReader, ProfileReadError, type ProfileReadFailure, readProfiled, searchProfiled } from './_reads.js';",

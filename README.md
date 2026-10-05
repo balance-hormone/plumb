@@ -185,8 +185,11 @@ export default defineConfig({
 ✔ sushi     1 StructureDefinitions, 0 ValueSets   6.8s
 ```
 
-- **Commit `fsh-generated/`** with the FSH. It is the JSON `push` loads into
-  Medplum, and `validateProfiled` reads it without running SUSHI.
+- **Commit `fsh-generated/resources/`** with the FSH. It is the JSON `push`
+  loads into Medplum, and `validateProfiled` reads it without running SUSHI.
+  SUSHI's own `fsh-index.txt` and `data/` are bookkeeping no command reads:
+  gitignore them. Marking the generated folders `linguist-generated` in
+  `.gitattributes` collapses them in review diffs.
 - **`generate --check` in CI** rebuilds the FSH into a temporary folder and
   fails when the committed `fsh-generated/` or the types differ from it.
 - **SUSHI's errors stop `generate`**, with their FSH file and line. Its
@@ -240,6 +243,22 @@ const saved = await createProfiled(medplum, bp); // stamped, then medplum.create
 - They take any client with `createResource` and `updateResource`, such as
   a `MedplumClient`, so the generated code needs nothing from Plumb at run
   time.
+- **`stampProfiled(resource, options?)`** returns the copy `createProfiled`
+  would write, stamped and not written, for the writes it cannot make: a
+  conditional create, an upsert, a batch or transaction entry. It takes the
+  same options and throws the same `RoutingError`:
+
+  ```ts
+  await medplum.createResourceIfNoneExist(
+    stampProfiled(coverage, { profile: USCoreCoverageProfileUrl }),
+    `identifier=${system}|${value}`,
+  );
+  ```
+
+- **Moving an edit path to `updateProfiled` stamps records that were
+  unstamped**, so the server starts holding them to the profile: an edit of a
+  stored record that does not meet it is refused from then on. Run
+  `plumb validate` and fix what fails before moving edit paths.
 
 **Keys come from each profile:** every fixed or pattern value on a required
 first-level element (a pinned `code`), and every required slice's
