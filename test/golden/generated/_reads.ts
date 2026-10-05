@@ -7,7 +7,7 @@ import type { ProfileTypes, ProfileUrl } from './_routes.js';
  * The paths each selected profile's type requires beyond @medplum/fhirtypes.
  * A row lists alternatives, any one of which meets it (`missing` in _plumb.ts).
  */
-export const required: Record<ProfileUrl, readonly (readonly string[])[]> = {
+const required: Record<ProfileUrl, readonly (readonly string[])[]> = {
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure': [
     ['category'],
     ['subject'],
@@ -189,7 +189,7 @@ export function pickProfiled<U extends ProfileUrl>(resources: readonly Resource[
 }
 
 /** A resource as the server returns it, with its id. The same as `WithId` in @medplum/core. */
-export type WithId<T> = T & { id: string };
+type WithId<T> = T & { id: string };
 
 /**
  * The part of a `MedplumClient` the reads use, so the generated code needs no

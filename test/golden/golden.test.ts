@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { printFiles } from '../../src/emit/print.js';
@@ -53,4 +53,34 @@ test('generated output matches the committed goldens', () => {
   const { stale, errors: folder } = compareFiles(OUT, files);
   expect(folder).toEqual([]);
   expect(stale).toEqual([]);
+});
+
+// An export nothing imports is reported by unused-export tools (knip) in
+// every project that generates, so each one is the index's or a sibling's.
+test('every generated export is re-exported by the index or imported by a sibling', () => {
+  const files = readdirSync(OUT).filter((f) => f.endsWith('.ts'));
+  const source = (f: string) => readFileSync(join(OUT, f), 'utf8');
+  const used = new Set<string>();
+  for (const f of files) {
+    for (const [, names, from] of source(f).matchAll(
+      /(?:import|export) \{([^}]*)\} from '\.\/(.+?)\.js'/g,
+    )) {
+      for (const name of (names as string).split(',')) {
+        used.add(`${from}:${name.replace(/\btype\b/, '').trim()}`);
+      }
+    }
+    for (const [, from] of source(f).matchAll(/export \* from '\.\/(.+?)\.js'/g))
+      used.add(`${from}:*`);
+  }
+  const unused = files.flatMap((f) => {
+    const module = f.replace(/\.ts$/, '');
+    if (f === 'index.ts' || used.has(`${module}:*`)) return [];
+    return [
+      ...source(f).matchAll(/^export (?:async )?(?:const|function|class|type|interface) (\w+)/gm),
+    ]
+      .map(([, name]) => name as string)
+      .filter((name) => !used.has(`${module}:${name}`))
+      .map((name) => `${f}: ${name}`);
+  });
+  expect(unused).toEqual([]);
 });

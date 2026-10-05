@@ -459,7 +459,7 @@ function printRoutes(routing: RoutingTable, typeNames: Map<string, string>): str
     ' * The content that selects each profile: a row matches a resource when, for',
     ' * every key, the element holds one of its patterns (`matches` in _plumb.ts).',
     ' */',
-    'export const routes = {',
+    'const routes = {',
     ...Object.keys(routing.routes)
       .sort()
       .flatMap((type) => printRows(type, routing.routes[type] ?? [])),
@@ -607,7 +607,7 @@ export function pickProfiled<U extends ProfileUrl>(resources: readonly Resource[
 }
 
 /** A resource as the server returns it, with its id. The same as \`WithId\` in @medplum/core. */
-export type WithId<T> = T & { id: string };
+type WithId<T> = T & { id: string };
 
 /**
  * The part of a \`MedplumClient\` the reads use, so the generated code needs no
@@ -719,7 +719,7 @@ function printReads(models: ProfileModel[], routing: RoutingTable): string {
       'required',
       'Record<ProfileUrl, readonly (readonly string[])[]>',
       selected.map((m) => [m.url, m.required]),
-    ).map((line, i) => (i === 0 ? `export ${line}` : line)),
+    ),
     '',
     '/** The stamps a read accepts as each profile: its own URL, and each selected profile deriving from it. */',
     ...printTable(
