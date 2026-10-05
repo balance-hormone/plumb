@@ -241,6 +241,14 @@
   `MedplumClient` access to fully profiled types by inferred type, against a
   committed baseline; `stampProfiled`'s result is branded so a stamped write
   passes. On the first adopter it compiled 2,767 files in about 6 seconds.
+- **v0.9:** the config loads with the project's tsx when installed, so a
+  workspace config can import sibling packages' TypeScript and use path
+  aliases (#114); `--env-file` on `validate` and `push` (#120). `validate`
+  counts records, not checks, on each type's line (#121); it and `push`'s
+  gate read only resources carrying a selected stamp, counting the rest by
+  query, with `--full` for the old full pass and progress on long runs
+  (#127); and `--unstamped` forecasts what would fail once unstamped records
+  are stamped, routed as the generated `route` does (#123).
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.

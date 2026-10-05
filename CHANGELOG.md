@@ -1,23 +1,14 @@
 # Changelog
 
-## 0.8.0 (2026-10-05)
+## 0.9.0 (2026-10-05)
 
-- **`plumb check`** reports every `MedplumClient` read or write of a type a
-  selected profile fully holds that goes around `readProfiled`,
-  `searchProfiled`, `createProfiled`, `updateProfiled` or `stampProfiled`,
-  by the types the compiler infers, so an inferred write is found as surely as
-  a literal one. A committed baseline lets a project adopt it with a backlog:
-  only new or grown findings fail. `// plumb-check: <reason>` marks a
-  deliberate exception. It needs the project's TypeScript 5 or 6 (design 07).
-- **`stampProfiled` returns its resource branded** (`T & Stamped`, an optional
-  unique-symbol property), which `check` reads to accept a stamped write
-  through a variable. Callers see no difference.
-- `check` in the config: `tsconfig`, `baseline` and `ignore`.
+Faster and more useful `validate`, and config and credentials that fit a
+monorepo. The checker changes, so the next `push` redeploys it.
+
 - **`validate` counts records on each type's line**, not profile checks: a
   record stamped with a profile and its parent was counted twice, so a type
   could read `334 of 334 read, all 340 passed`. It now reads `all 331
   stamped passed`, and each profile's line still counts its checks (#121).
-  The checker reports the new counts, so `push` redeploys it.
 - **`--env-file <path>`** on `validate` and `push` reads credentials and
   secrets from a dotenv file, as Node's `--env-file` does: repeatable, later
   files win, and a variable already set wins over every file. Node refuses
@@ -44,6 +35,19 @@
   several, are counted by reason. The forecast is reported beside the
   results and never fails the run (#123).
 
+## 0.8.0 (2026-10-05)
+
+- **`plumb check`** reports every `MedplumClient` read or write of a type a
+  selected profile fully holds that goes around `readProfiled`,
+  `searchProfiled`, `createProfiled`, `updateProfiled` or `stampProfiled`,
+  by the types the compiler infers, so an inferred write is found as surely as
+  a literal one. A committed baseline lets a project adopt it with a backlog:
+  only new or grown findings fail. `// plumb-check: <reason>` marks a
+  deliberate exception. It needs the project's TypeScript 5 or 6 (design 07).
+- **`stampProfiled` returns its resource branded** (`T & Stamped`, an optional
+  unique-symbol property), which `check` reads to accept a stamped write
+  through a variable. Callers see no difference.
+- `check` in the config: `tsconfig`, `baseline` and `ignore`.
 ## 0.7.0 (2026-10-05)
 
 - **`stampProfiled(resource, options?)`** returns the copy `createProfiled`
