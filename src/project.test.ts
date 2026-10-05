@@ -389,15 +389,11 @@ describe('planProject', () => {
     { link = 0, accessPolicy }: { link?: number; accessPolicy?: string } = {},
   ) =>
     ({
-      getProject: () => ({
-        resourceType: 'Project',
-        id: PROJECT_ID,
-        strictMode: true,
-        features: ['bots'],
-      }),
+      getProject: () => ({ resourceType: 'Project', id: PROJECT_ID, strictMode: true }),
       readResource: async () => ({
         resourceType: 'Project',
         id: PROJECT_ID,
+        features: ['bots'],
         link: Array.from({ length: link }, (_, i) => ({ project: { reference: `Project/l${i}` } })),
       }),
       getProjectMembership: () => ({

@@ -159,10 +159,11 @@ export async function planProject(
     ...plan.changes.filter(removal),
   ];
   plan.blocked.push(...planned.blocked, ...fields.blocked);
-  // Only a super admin can change these, so they are reported from the login, never written.
-  const login = medplum.getProject();
+  // Only a super admin can change these, so they are reported, never written. A Project read
+  // hides strictMode from an admin, and the login's copy leaves out features.
+  const strict = medplum.getProject()?.strictMode;
   plan.warnings.push(
-    `strictMode ${login?.strictMode ? 'on' : 'off; only a super admin can turn it on'}, features: ${login?.features?.join(', ') || 'none'}`,
+    `strictMode ${strict ? 'on' : 'off; only a super admin can turn it on'}, features: ${current.features?.join(', ') || 'none'}`,
   );
   const own = medplum.getProjectMembership()?.accessPolicy?.reference;
   const ownKey = held.find((p) => own === `AccessPolicy/${p.id}`);
