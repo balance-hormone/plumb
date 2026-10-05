@@ -9,6 +9,7 @@ import {
   checkerFilename,
   installChecker,
 } from './checker/install.js';
+import { environmentSettings } from './config.js';
 import { type Checked, checkStored, judge, type ValidateEnvOptions } from './conformance.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
@@ -90,7 +91,9 @@ export async function push(options: PushOptions): Promise<PushResult> {
   step.finish('checker', `plumb-checker ${previous ? `${previous} → ` : ''}${version} ${status}`);
 
   const finish = async (ok: boolean) => {
-    const project = options.config.project && (await projectStep(medplum, options, result, step));
+    const { project: declared, defaultProfile } = options.config;
+    const project =
+      (declared || defaultProfile) && (await projectStep(medplum, options, result, step));
     result.ok = ok && project !== false;
     return step.done();
   };
@@ -157,7 +160,13 @@ async function projectStep(
 ): Promise<boolean> {
   let plan: ProjectPlan;
   try {
-    plan = await planProject(options.config.project ?? {}, medplum, options);
+    const { config, environment } = options;
+    const target = {
+      ...config.project,
+      settings: environmentSettings(config, environment.name),
+      ...(config.defaultProfile ? { defaultProfile: config.defaultProfile } : {}),
+    };
+    plan = await planProject(target, medplum, options);
   } catch (err) {
     step.fail('project', [{ code: 'project-failed', message: normalizeErrorString(err) }]);
     return false;
@@ -173,7 +182,7 @@ async function projectStep(
   const pending = plan.changes.some((c) => !('kept' in c));
   if (blocked || options.dryRun || !pending) return !blocked;
   try {
-    const { written, created } = await applyProject(plan, medplum);
+    const { written, created } = await applyProject(plan, medplum, options.env);
     // A created client's id is printed; its secret is read in the console.
     step.finish(
       'project',

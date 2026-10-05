@@ -1,14 +1,16 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import type { MedplumClient } from '@medplum/core';
-import type { AccessPolicy, ProjectMembership } from '@medplum/fhirtypes';
+import type { AccessPolicy, Project, ProjectMembership } from '@medplum/fhirtypes';
 import { describe, expect, test } from 'vitest';
 import type { ProjectConfig } from './config.js';
 import {
   describeChange,
   type HeldClient,
   PLUMB_SYSTEM,
+  type ProjectTarget,
   planClients,
+  planFields,
   planPolicies,
   planProject,
   planSummary,
@@ -272,6 +274,114 @@ describe('planClients', () => {
   });
 });
 
+describe('planFields', () => {
+  const PROJECT: Project = {
+    resourceType: 'Project',
+    id: PROJECT_ID,
+    setting: [{ name: 'kept', valueString: 'set by hand' }],
+    secret: [
+      { name: 'API_KEY', valueString: 'old' },
+      { name: 'BY_HAND', valueString: 'x' },
+    ],
+  };
+  const fields = (target: ProjectTarget, env: Record<string, string> = {}, ids = {}) =>
+    planFields(target, PROJECT, ids, env);
+
+  test('types each setting by its value, and leaves settings it does not name', () => {
+    const plan = fields({ settings: { email: 'a@example.org', beta: false, max: 25, ratio: 0.5 } });
+    expect(plan.changes).toEqual([
+      {
+        kind: '~',
+        type: 'Project',
+        key: 'project',
+        id: PROJECT_ID,
+        fields: [
+          'setting email (valueString)',
+          'setting beta (valueBoolean)',
+          'setting max (valueInteger)',
+          'setting ratio (valueDecimal)',
+        ],
+        write: {
+          setting: [
+            { name: 'email', valueString: 'a@example.org' },
+            { name: 'beta', valueBoolean: false },
+            { name: 'max', valueInteger: 25 },
+            { name: 'ratio', valueDecimal: 0.5 },
+          ],
+        },
+      },
+    ]);
+    expect(fields({ settings: { kept: 'set by hand' } }).changes).toEqual([]);
+  });
+
+  test('sets an { env } secret that differs, naming the variable and never the value', () => {
+    const plan = fields({ secrets: { API_KEY: { env: 'API_KEY_VAR' } } }, { API_KEY_VAR: 'new' });
+    expect(plan.changes).toMatchObject([
+      {
+        fields: ['secret API_KEY (value changed)'],
+        write: { secret: [{ name: 'API_KEY', env: 'API_KEY_VAR' }] },
+      },
+    ]);
+    expect(JSON.stringify(plan)).not.toContain('new"');
+    expect(fields({ secrets: { API_KEY: { env: 'V' } } }, { V: 'old' }).changes).toEqual([]);
+  });
+
+  test('blocks on an unset variable or a missing true secret, and never changes a true one', () => {
+    const plan = fields({ secrets: { API_KEY: { env: 'UNSET' }, BY_HAND: true, MISSING: true } });
+    expect(plan).toEqual({
+      changes: [],
+      blocked: [
+        'UNSET is not set: it holds secret API_KEY.',
+        'secret MISSING is not in the project: set it in the console.',
+      ],
+    });
+  });
+
+  test('writes defaultProfile and defaultAccessPolicies whole, naming what changed', () => {
+    const plan = fields(
+      {
+        defaultProfile: { Patient: ['http://example.org/p'] },
+        defaultAccessPolicies: [
+          { profileType: 'Practitioner', accessPolicy: 'clinician' },
+          { profileType: 'Patient', accessPolicy: 'portal' },
+        ],
+      },
+      {},
+      { clinician: 'a' },
+    );
+    expect(plan.changes[0]).toMatchObject({
+      fields: ['defaultProfile Patient', 'defaultAccessPolicies Practitioner, Patient'],
+      write: { defaultProfile: [{ resourceType: 'Patient', profile: ['http://example.org/p'] }] },
+    });
+    const current = {
+      ...PROJECT,
+      defaultProfile: [{ resourceType: 'Patient' as const, profile: ['http://example.org/p'] }],
+      defaultAccessPolicies: [
+        { profileType: 'Practitioner' as const, accessPolicy: { reference: 'AccessPolicy/a' } },
+      ],
+    };
+    const same = planFields(
+      {
+        defaultProfile: { Patient: ['http://example.org/p'] },
+        defaultAccessPolicies: [{ profileType: 'Practitioner', accessPolicy: 'clinician' }],
+      },
+      current,
+      { clinician: 'a' },
+      {},
+    );
+    expect(same.changes).toEqual([]);
+    // A policy this plan creates has no id yet.
+    expect(
+      planFields(
+        { defaultAccessPolicies: [{ profileType: 'Practitioner', accessPolicy: 'clinician' }] },
+        current,
+        {},
+        {},
+      ).changes[0],
+    ).toMatchObject({ fields: ['defaultAccessPolicies Practitioner'] });
+  });
+});
+
 describe('planProject', () => {
   /** Just what planProject reads of a logged-in client. */
   const client = (
@@ -279,10 +389,11 @@ describe('planProject', () => {
     { link = 0, accessPolicy }: { link?: number; accessPolicy?: string } = {},
   ) =>
     ({
-      getProject: () => ({ resourceType: 'Project', id: PROJECT_ID }),
+      getProject: () => ({ resourceType: 'Project', id: PROJECT_ID, strictMode: true }),
       readResource: async () => ({
         resourceType: 'Project',
         id: PROJECT_ID,
+        features: ['bots'],
         link: Array.from({ length: link }, (_, i) => ({ project: { reference: `Project/l${i}` } })),
       }),
       getProjectMembership: () => ({
@@ -300,6 +411,7 @@ describe('planProject', () => {
     const plan = await planProject(CONFIG, client([CLINICIAN, CI_DEPLOY, linked], { link: 2 }));
     expect(plan.changes).toEqual([]);
     expect(plan.warnings).toEqual([
+      'strictMode on, features: bots',
       '"ci-deploy" writes StructureDefinition, which bypasses push\'s profile gate.',
       'linked projects: 2, not managed',
     ]);
@@ -307,6 +419,6 @@ describe('planProject', () => {
 
   test("does not warn that push's own policy writes StructureDefinition", async () => {
     const plan = await planProject(CONFIG, client([CLINICIAN, CI_DEPLOY], { accessPolicy: 'b' }));
-    expect(plan.warnings).toEqual([]);
+    expect(plan.warnings).toEqual(['strictMode on, features: bots']);
   });
 });

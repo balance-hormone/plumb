@@ -8,12 +8,10 @@ import type {
   Bot,
   ProjectMembership,
 } from '@medplum/fhirtypes';
+import { PLUMB_SYSTEM } from '../project.js';
 
 /** How `push` finds its checker bot again, whatever it is named. */
-export const CHECKER_IDENTIFIER = {
-  system: 'https://github.com/balance-hormone/plumb',
-  value: 'checker',
-};
+export const CHECKER_IDENTIFIER = { system: PLUMB_SYSTEM, value: 'checker' };
 
 export const findChecker = (medplum: MedplumClient) =>
   medplum.searchOne('Bot', {

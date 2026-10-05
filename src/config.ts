@@ -661,7 +661,6 @@ function checkClients(clients: unknown, checkPolicyKey: CheckPolicyKey): ConfigE
 /**
  * An environment's settings merged over `project.settings`, the values `push`
  * writes there.
- * @public `push` calls it once it writes Project fields (#100); the tag keeps knip quiet until then.
  */
 export function environmentSettings(config: PlumbConfig, name: string): Settings {
   return { ...config.project?.settings, ...config.environments?.[name]?.settings };
