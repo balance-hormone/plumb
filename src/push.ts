@@ -91,8 +91,8 @@ export async function push(options: PushOptions): Promise<PushResult> {
 
   const finish = async (ok: boolean) => {
     const project =
-      declaresProject(options.config) && (await projectStep(medplum, options, result, step));
-    result.ok = ok && project !== false;
+      !declaresProject(options.config) || (await projectStep(medplum, options, result, step));
+    result.ok = ok && project;
     return step.done();
   };
 
