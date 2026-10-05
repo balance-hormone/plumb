@@ -28,20 +28,23 @@ export interface CliIo {
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
        plumb validate --env <name> [--resume] [--config <path>]
-       plumb push --env <name> [--dry-run] [--config <path>]
+       plumb push --env <name> [--dry-run] [--prune] [--adopt] [--config <path>]
 
 generate  Generate TypeScript types that narrow @medplum/fhirtypes from the
           FHIR profiles plumb.config.ts selects.
 validate  Count the stored resources that would fail each selected profile,
           and why, with Plumb's checker bot inside the project.
 push      Install the checker, then load the selected profiles into a Medplum
-          project, refusing while stored resources would fail them.
+          project, refusing while stored resources would fail them, then
+          converge the project's own configuration.
 
 Options:
   --check          compare with the committed output instead of writing; fail if stale
   --env <name>     the environment in plumb.config.ts to act on
   --resume         continue an interrupted validate from its last page
-  --dry-run        push: stop after the gate, loading nothing
+  --dry-run        push: stop after the gate and the project plan, writing nothing
+  --prune          push: delete what Plumb manages that the config no longer has
+  --adopt          push: tag and converge an untagged resource with a key's name
   --config <path>  the config file (default: plumb.config.ts)
   --json           print the report as JSON on stdout
   --quiet          print only problems
@@ -170,7 +173,13 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
   const reportPath = join(root, '.plumb', `validate-${values.env}.json`);
   const result =
     command === 'push'
-      ? await push({ ...shared, reportPath, dryRun: values['dry-run'] })
+      ? await push({
+          ...shared,
+          reportPath,
+          dryRun: values['dry-run'],
+          prune: values.prune,
+          adopt: values.adopt,
+        })
       : await validateEnvironment({ ...shared, reportPath, resume: values.resume });
   printValidation(result, relative(io.cwd, result.reportPath ?? ''), say, problem);
   for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
@@ -298,6 +307,8 @@ function parse(argv: string[]) {
       env: { type: 'string' },
       resume: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
+      prune: { type: 'boolean' },
+      adopt: { type: 'boolean' },
       json: { type: 'boolean' },
       quiet: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },

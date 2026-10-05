@@ -667,7 +667,6 @@ export function environmentSettings(config: PlumbConfig, name: string): Settings
   return { ...config.project?.settings, ...config.environments?.[name]?.settings };
 }
 
-/** @public With `lockdownWarnings`, until `push` reports them (#98). */
 export interface ConfigWarning {
   code: 'writable-wildcard' | 'admin-without-policy' | 'writes-structure-definition';
   path: string;
@@ -682,7 +681,6 @@ const writes = (entry: AccessPolicyResource) =>
  * Where the project config departs from the lockdown recipe: warnings, since a
  * project may need the access. `ownPolicy` is the key of the policy `push`
  * itself runs under, which has to write StructureDefinition.
- * @public `push` reports these once it plans AccessPolicies (#98); the tag keeps knip quiet until then.
  */
 export function lockdownWarnings(project: ProjectConfig, ownPolicy?: string): ConfigWarning[] {
   const warnings: ConfigWarning[] = [];
