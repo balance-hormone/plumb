@@ -14,12 +14,12 @@ monorepo. The checker changes, so the next `push` redeploys it.
   files win, and a variable already set wins over every file. Node refuses
   `--env-file` in `NODE_OPTIONS` and cannot run a package manager's shell
   shim, so this was the only short way (#120).
-- **The config loads with the project's tsx when it has one installed**, so
-  in a workspace `plumb.config.ts` can import a sibling package that exports
-  TypeScript source, and use `tsconfig` path aliases and `enum`. Without tsx,
-  Node's type stripping loads it as before, and importing TypeScript from
-  `node_modules` is now a named `unsupported-syntax` error suggesting tsx
-  (#114).
+- **A config Node cannot load loads with the project's tsx** when it has one
+  installed, so in a workspace `plumb.config.ts` can import a sibling package
+  that exports TypeScript source, and use `tsconfig` path aliases and `enum`.
+  Node still loads every config it can, so tsx is never loaded for one that
+  worked before. Without tsx, importing TypeScript from `node_modules` is now
+  a named `unsupported-syntax` error suggesting tsx (#114).
 - **`validate` and `push`'s gate read only resources with a selected stamp**
   (`_profile=<selected URLs>`), and count the rest by query, so one narrow
   profile on a large type no longer reads the whole table: selecting one

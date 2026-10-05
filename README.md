@@ -60,9 +60,9 @@ export default defineConfig({
 The config is loaded by Node itself, which strips the types, so TypeScript-only
 syntax such as `enum`, relative imports without `.ts`, `tsconfig` path aliases
 and packages that export TypeScript source are not available in it. When the
-project has `tsx` installed, Plumb loads the config with it instead, and all
-of these work: a workspace can import its access policies from the package
-that defines them.
+project has `tsx` installed, Plumb loads with it whatever Node cannot, and
+all of these work: a workspace can import its access policies from the
+package that defines them.
 
 **3. Generate:**
 

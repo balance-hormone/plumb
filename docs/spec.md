@@ -216,10 +216,12 @@ Named after the tools developers already know:
   TypeScript-only syntax such as `enum`, relative imports without a `.ts`
   extension, `tsconfig` path aliases, none of which Node resolves, and
   TypeScript under `node_modules`, which Node will not strip.
-- **With the project's tsx** when it has one installed, so a workspace config
-  can import sibling packages' TypeScript source and use path aliases. tsx
-  stays the project's dependency, never Plumb's, and reads the
-  `tsconfig.json` nearest the config.
+- **With the project's tsx** when it has one installed and Node cannot load
+  the config, so a workspace config can import sibling packages' TypeScript
+  source and use path aliases. A config Node loads never loads tsx, whose
+  esbuild breaks in some environments, such as a jsdom test. tsx stays the
+  project's dependency, never Plumb's, and reads the `tsconfig.json` nearest
+  the config.
 - **Checked with plain code** when loaded: unknown keys, a missing `out`, a
   malformed IG name or version, a bad `bindings.maxCodes`, and a profile URL no
   package provides are each a named error.
