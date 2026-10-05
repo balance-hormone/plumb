@@ -86,9 +86,9 @@
   FHIR registry, opening an issue when it fails (#42). The npm package is
   `plumb-fhir` (`plumb` was taken); its command stays `plumb`.
 - **Release prep:** version 0.1.0, a changelog, and a contributing guide with
-  the DCO sign-off and release steps. The package stays `private` until the
-  copyright holder signs off; publishing is then the steps in
-  [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
+  the DCO sign-off and release steps, in
+  [`../CONTRIBUTING.md`](../CONTRIBUTING.md). 0.6.0 is the first published
+  release.
 - **Roadmap:** v0.2 is the conformance check
   ([design 02](design/02-conformance-check.md)), v0.3 routing and
   `createProfiled` ([design 03](design/03-routing-and-create.md)), v0.4
