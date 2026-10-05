@@ -18,6 +18,11 @@
   could read `334 of 334 read, all 340 passed`. It now reads `all 331
   stamped passed`, and each profile's line still counts its checks (#121).
   The checker reports the new counts, so `push` redeploys it.
+- **`--env-file <path>`** on `validate` and `push` reads credentials and
+  secrets from a dotenv file, as Node's `--env-file` does: repeatable, later
+  files win, and a variable already set wins over every file. Node refuses
+  `--env-file` in `NODE_OPTIONS` and cannot run a package manager's shell
+  shim, so this was the only short way (#120).
 
 ## 0.7.0 (2026-10-05)
 

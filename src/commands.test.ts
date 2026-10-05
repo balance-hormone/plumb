@@ -214,6 +214,26 @@ describe('plumb', () => {
     },
   );
 
+  test.skipIf(!existsSync(CHECKER) && !process.env.CI).each(['push', 'validate'])(
+    '%s reads credentials from each --env-file, the environment winning',
+    async (command) => {
+      const { cwd } = await cli(['generate']);
+      writeFileSync(join(cwd, '.env'), 'PROD_CLIENT_ID=from-file\n');
+      writeFileSync(join(cwd, '.env.local'), '# local\nPROD_CLIENT_SECRET="secret"\n');
+      const argv = [command, '--env', 'prod', '--env-file', '.env', '--env-file', '.env.local'];
+      const { code, stderr } = await cli(argv, cwd, { PROD_CLIENT_ID: 'id' });
+      expect(code).toBe(2);
+      expect(stderr).not.toContain('is not set');
+      expect(stderr).toMatch(/✖ connect {3}Could not log in/);
+    },
+  );
+
+  test('a missing --env-file exits 2, naming it', async () => {
+    const { code, stderr } = await cli(['validate', '--env', 'prod', '--env-file', '.env.missing']);
+    expect(code).toBe(2);
+    expect(stderr).toMatch(/plumb: no env file at .*\.env\.missing/);
+  });
+
   // CI builds before it tests; locally this runs once dist/ exists. Two
   // processes each load the profiles, which can pass 5s alongside other suites.
   test.skipIf(!existsSync(BUILT) && !process.env.CI)(
