@@ -233,6 +233,14 @@
   when `push` would write anything; a real-server test turns it red with a
   hand edit. The README configures a project, catches drift nightly, and
   gives the lockdown recipe (#102). **v0.6 is complete.**
+- **After v0.6:** 0.6.1 and 0.6.2 fixed what the first adoption found
+  (installed-CLI paths, the checker on Medplum's `awslambda` runtime, generated
+  code that needed the DOM lib); 0.7.0 added `stampProfiled` for conditional
+  creates, upserts and batches.
+- **v0.8:** `plumb check` ([design 07](design/07-check.md)) finds raw
+  `MedplumClient` access to fully profiled types by inferred type, against a
+  committed baseline; `stampProfiled`'s result is branded so a stamped write
+  passes. On the first adopter it compiled 2,767 files in about 6 seconds.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
@@ -257,6 +265,8 @@
   - [06: project config as code](design/06-project-config.md) (implemented
     in v0.6): `push` converges settings, default profiles, access policies and
     clients
+  - [07: `plumb check`](design/07-check.md) (implemented in v0.8): raw
+    access found by type, against a baseline
 - [`future/`](future/): parked ideas, each with its design sketch and research.
   - [Conformance check](future/conformance-check.md): the later stages, the
     baseline and adopting late; stages 1 and 2 are design 02.

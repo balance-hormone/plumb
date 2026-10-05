@@ -47,6 +47,25 @@ export interface PlumbConfig {
   defaultProfile?: Record<string, string[]>;
   /** What `push` writes to each environment's project besides its profiles. */
   project?: ProjectConfig;
+  /** What `plumb check` reads. */
+  check?: CheckConfig;
+}
+
+/** What `plumb check` reads: the project's code, for raw access to profiled types. */
+export interface CheckConfig {
+  /** The TypeScript projects to check, each compiled once; a path or several. */
+  tsconfig: string | string[];
+  /** The committed file of accepted findings; without one, every finding fails. */
+  baseline?: string;
+  /** Globs, relative to the config, of files not to check (tests, stories). */
+  ignore?: string[];
+}
+
+/** A check config as `loadConfig` returns it, with absolute paths. */
+interface ResolvedCheckConfig {
+  tsconfig: string[];
+  baseline?: string;
+  ignore: string[];
 }
 
 /**
@@ -128,7 +147,8 @@ export type ConfigErrorCode =
   | 'invalid-setting'
   | 'super-admin-field'
   | 'unknown-access-policy'
-  | 'duplicate-key';
+  | 'duplicate-key'
+  | 'invalid-check';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -158,6 +178,7 @@ const KEYS = new Set([
   'routes',
   'defaultProfile',
   'project',
+  'check',
 ]);
 const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as const;
 const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
@@ -223,6 +244,7 @@ export async function loadConfig(options: {
     config: {
       ...config,
       out: resolve(base, config.out),
+      ...(config.check ? { check: resolveCheck(base, config.check) } : {}),
       ...(fsh ? { fsh } : {}),
       ...(local ? { local } : {}),
     },
@@ -278,6 +300,7 @@ function check(config: unknown): ConfigError[] {
     ...checkRouteRows(record),
     ...checkDefaultProfile(record.defaultProfile),
     ...checkProject(record.project),
+    ...checkCheck(record.check),
   );
   for (const key of ['local', 'fsh']) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
@@ -332,6 +355,35 @@ function checkWildcards(record: Record<string, unknown>): ConfigError[] {
         ]
       : [];
   });
+}
+
+function checkCheck(check: unknown): ConfigError[] {
+  if (check === undefined) return [];
+  if (typeof check !== 'object' || check === null || Array.isArray(check)) {
+    return [{ code: 'invalid-type', path: 'check', message: '"check" must be an object.' }];
+  }
+  const errors: ConfigError[] = Object.keys(check)
+    .filter((key) => !['tsconfig', 'baseline', 'ignore'].includes(key))
+    .map((key) => ({
+      code: 'unknown-key',
+      path: `check.${key}`,
+      message: `Unknown config key "check.${key}".`,
+    }));
+  const { tsconfig, baseline, ignore } = check as Record<string, unknown>;
+  const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string');
+  const invalid = (key: string, expected: string): ConfigError => ({
+    code: 'invalid-check',
+    path: `check.${key}`,
+    message: `"check.${key}" must be ${expected}.`,
+  });
+  if (!(typeof tsconfig === 'string' || (strings(tsconfig) && (tsconfig as string[]).length > 0))) {
+    errors.push(invalid('tsconfig', 'a tsconfig path, or a list of them'));
+  }
+  if (baseline !== undefined && typeof baseline !== 'string') {
+    errors.push(invalid('baseline', 'a path'));
+  }
+  if (ignore !== undefined && !strings(ignore)) errors.push(invalid('ignore', 'a list of globs'));
+  return errors;
 }
 
 function checkBindings(bindings: unknown): ConfigError[] {
@@ -790,5 +842,13 @@ export function resolveEnvironment(
       clientId: env[environment.clientId.env] as string,
       clientSecret: env[environment.clientSecret.env] as string,
     },
+  };
+}
+
+function resolveCheck(base: string, check: CheckConfig): ResolvedCheckConfig {
+  return {
+    tsconfig: [check.tsconfig].flat().map((path) => resolve(base, path)),
+    ...(check.baseline ? { baseline: resolve(base, check.baseline) } : {}),
+    ignore: check.ignore ?? [],
   };
 }

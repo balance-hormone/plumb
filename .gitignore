@@ -5,3 +5,6 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Written by the plumb check CLI tests.
+test/fixtures/check/baseline.json
