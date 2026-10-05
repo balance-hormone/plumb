@@ -3,7 +3,12 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Coding, StructureDefinition } from '@medplum/fhirtypes';
+import type {
+  AccessPolicy,
+  AccessPolicyResource,
+  Coding,
+  StructureDefinition,
+} from '@medplum/fhirtypes';
 
 export interface PlumbConfig {
   /** IG packages as `name@version`, with an exact version. */
@@ -40,7 +45,36 @@ export interface PlumbConfig {
    * `createProfiled` stamps these too.
    */
   defaultProfile?: Record<string, string[]>;
+  /** What `push` writes to each environment's project besides its profiles. */
+  project?: ProjectConfig;
 }
+
+/**
+ * A project's configuration, as a project admin can write it. Policies and
+ * clients are named by a key, never an id, since ids differ per environment.
+ */
+export interface ProjectConfig {
+  /** `Project.setting`; a value's type picks the setting's type. */
+  settings?: Settings;
+  /**
+   * `Project.secret` by name: `{ env }` names the variable holding its value,
+   * since the config is committed; `true` means it is set by hand and must exist.
+   */
+  secrets?: Record<string, { env: string } | true>;
+  /** AccessPolicies by key; `name` is the key unless given. */
+  accessPolicies?: Record<string, AccessPolicyConfig>;
+  /** `Project.defaultAccessPolicies`, naming each policy by its key. */
+  defaultAccessPolicies?: {
+    profileType: (typeof PROFILE_TYPES)[number];
+    accessPolicy: string;
+  }[];
+  /** Client applications by key, with their membership's policy key and `admin`. */
+  clients?: Record<string, { accessPolicy?: string; admin?: boolean }>;
+}
+
+export type Settings = Record<string, string | boolean | number>;
+
+export type AccessPolicyConfig = Omit<AccessPolicy, 'resourceType' | 'id' | 'meta'>;
 
 /**
  * A first-level element, such as `code` or `category`, mapped to the values
@@ -57,6 +91,8 @@ export interface Environment {
   baseUrl: string;
   clientId: { env: string };
   clientSecret: { env: string };
+  /** Settings for this environment, merged over `project.settings`. */
+  settings?: Settings;
 }
 
 /** An environment with its credentials read from the environment variables. */
@@ -88,7 +124,11 @@ export type ConfigErrorCode =
   | 'invalid-default-profile'
   | 'versioned-url'
   | 'fsh-and-local'
-  | 'no-sushi-config';
+  | 'no-sushi-config'
+  | 'invalid-setting'
+  | 'super-admin-field'
+  | 'unknown-access-policy'
+  | 'duplicate-key';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -117,8 +157,14 @@ const KEYS = new Set([
   'environments',
   'routes',
   'defaultProfile',
+  'project',
 ]);
-const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret'] as const;
+const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as const;
+const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
+// A project admin's write to these is silently restored, so declaring one would never take.
+const SUPER_ADMIN_FIELDS = ['strictMode', 'features', 'link', 'systemSetting'];
+// Medplum's member roles; @medplum/fhirtypes 5.1 has no type for them yet.
+const PROFILE_TYPES = ['Patient', 'Practitioner', 'RelatedPerson', 'Admin'] as const;
 // FHIR package names are lowercase dotted segments; versions are exact, never ranges.
 const NAME = '[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+';
 const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
@@ -231,6 +277,7 @@ function check(config: unknown): ConfigError[] {
     ...checkEnvironments(record.environments),
     ...checkRouteRows(record),
     ...checkDefaultProfile(record.defaultProfile),
+    ...checkProject(record.project),
   );
   for (const key of ['local', 'fsh']) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
@@ -350,6 +397,7 @@ function checkEnvironments(environments: unknown): ConfigError[] {
         });
       }
     }
+    errors.push(...checkSettings(environment.settings, `${at}.settings`));
     return errors;
   });
 }
@@ -436,6 +484,237 @@ function checkDefaultProfile(defaults: unknown): ConfigError[] {
     }
     return (urls as string[]).flatMap((url, i) => checkUrl(url, `${at}[${i}]`));
   });
+}
+
+function checkSettings(settings: unknown, at: string): ConfigError[] {
+  if (settings === undefined) return [];
+  if (!isObject(settings)) {
+    return [{ code: 'invalid-type', path: at, message: `"${at}" must be an object.` }];
+  }
+  return Object.entries(settings)
+    .filter(([, value]) =>
+      typeof value === 'number'
+        ? !Number.isFinite(value)
+        : !['string', 'boolean'].includes(typeof value),
+    )
+    .map(([name]) => ({
+      code: 'invalid-setting' as const,
+      path: `${at}.${name}`,
+      message: `"${at}.${name}" must be a string, boolean or number, the types a ProjectSetting holds.`,
+    }));
+}
+
+function checkProject(project: unknown): ConfigError[] {
+  if (project === undefined) return [];
+  if (!isObject(project)) return [notObject('project')];
+  const errors: ConfigError[] = Object.keys(project)
+    .filter((key) => !PROJECT_KEYS.includes(key))
+    .map((key) =>
+      SUPER_ADMIN_FIELDS.includes(key)
+        ? {
+            code: 'super-admin-field',
+            path: `project.${key}`,
+            message: `"project.${key}" can only be written by a super admin, so push cannot set it; push reports its live value instead.`,
+          }
+        : {
+            code: 'unknown-key',
+            path: `project.${key}`,
+            message: `Unknown config key "project.${key}".`,
+          },
+    );
+  const policies = isObject(project.accessPolicies) ? project.accessPolicies : {};
+  const checkPolicyKey = (key: unknown, path: string): ConfigError[] =>
+    typeof key === 'string' && Object.hasOwn(policies, key)
+      ? []
+      : [
+          {
+            code: 'unknown-access-policy',
+            path,
+            message: `"${path}" names ${JSON.stringify(key)}, which is not a key in project.accessPolicies.`,
+          },
+        ];
+  return [
+    ...errors,
+    ...checkSettings(project.settings, 'project.settings'),
+    ...checkSecrets(project.secrets),
+    ...checkAccessPolicies(project.accessPolicies),
+    ...checkDefaultAccessPolicies(project.defaultAccessPolicies, checkPolicyKey),
+    ...checkClients(project.clients, checkPolicyKey),
+  ];
+}
+
+const notObject = (path: string): ConfigError => ({
+  code: 'invalid-type',
+  path,
+  message: `"${path}" must be an object.`,
+});
+
+type CheckPolicyKey = (key: unknown, path: string) => ConfigError[];
+
+function checkSecrets(secrets: unknown): ConfigError[] {
+  if (secrets === undefined) return [];
+  if (!isObject(secrets)) return [notObject('project.secrets')];
+  return Object.entries(secrets)
+    .filter(
+      ([, secret]) =>
+        secret !== true &&
+        !(isObject(secret) && typeof secret.env === 'string' && secret.env !== ''),
+    )
+    .map(([name]) => ({
+      code: 'invalid-type' as const,
+      path: `project.secrets.${name}`,
+      message: `"project.secrets.${name}" must be { env: 'VAR' }, naming the variable that holds its value, or true for one set by hand: the config is committed, so it never holds the value.`,
+    }));
+}
+
+function checkAccessPolicies(accessPolicies: unknown): ConfigError[] {
+  if (accessPolicies === undefined) return [];
+  if (!isObject(accessPolicies)) return [notObject('project.accessPolicies')];
+  const errors: ConfigError[] = [];
+  // push adopts an untagged policy by its name, so two policies cannot share one.
+  const names = new Map<string, string>();
+  for (const [key, policy] of Object.entries(accessPolicies)) {
+    const at = `project.accessPolicies.${key}`;
+    if (!isObject(policy)) {
+      errors.push(notObject(at));
+      continue;
+    }
+    const name = typeof policy.name === 'string' ? policy.name : key;
+    const other = names.get(name);
+    if (other !== undefined) {
+      errors.push({
+        code: 'duplicate-key',
+        path: `${at}.name`,
+        message: `"${key}" and "${other}" are both named "${name}".`,
+      });
+    }
+    names.set(name, key);
+  }
+  return errors;
+}
+
+function checkDefaultAccessPolicies(rows: unknown, checkPolicyKey: CheckPolicyKey): ConfigError[] {
+  if (rows === undefined) return [];
+  if (!Array.isArray(rows)) {
+    return [
+      {
+        code: 'invalid-type',
+        path: 'project.defaultAccessPolicies',
+        message: '"project.defaultAccessPolicies" must be a list.',
+      },
+    ];
+  }
+  const seen = new Set<unknown>();
+  return rows.flatMap((row: unknown, i): ConfigError[] => {
+    const at = `project.defaultAccessPolicies[${i}]`;
+    if (!isObject(row)) return [notObject(at)];
+    const errors = checkPolicyKey(row.accessPolicy, `${at}.accessPolicy`);
+    const { profileType } = row;
+    if (
+      typeof profileType !== 'string' ||
+      !(PROFILE_TYPES as readonly string[]).includes(profileType)
+    ) {
+      errors.unshift({
+        code: 'invalid-type',
+        path: `${at}.profileType`,
+        message: `"${at}.profileType" must be one of ${PROFILE_TYPES.join(', ')}.`,
+      });
+    } else if (seen.has(profileType)) {
+      errors.unshift({
+        code: 'duplicate-key',
+        path: `${at}.profileType`,
+        message: `"${profileType}" has more than one default access policy.`,
+      });
+    }
+    seen.add(profileType);
+    return errors;
+  });
+}
+
+function checkClients(clients: unknown, checkPolicyKey: CheckPolicyKey): ConfigError[] {
+  if (clients === undefined) return [];
+  if (!isObject(clients)) return [notObject('project.clients')];
+  return Object.entries(clients).flatMap(([key, client]): ConfigError[] => {
+    const at = `project.clients.${key}`;
+    if (!isObject(client)) return [notObject(at)];
+    const errors: ConfigError[] = Object.keys(client)
+      .filter((field) => field !== 'accessPolicy' && field !== 'admin')
+      .map((field) => ({
+        code: 'unknown-key',
+        path: `${at}.${field}`,
+        message: `Unknown config key "${at}.${field}".`,
+      }));
+    if (client.accessPolicy !== undefined) {
+      errors.push(...checkPolicyKey(client.accessPolicy, `${at}.accessPolicy`));
+    }
+    if (client.admin !== undefined && typeof client.admin !== 'boolean') {
+      errors.push({
+        code: 'invalid-type',
+        path: `${at}.admin`,
+        message: `"${at}.admin" must be a boolean.`,
+      });
+    }
+    return errors;
+  });
+}
+
+/**
+ * An environment's settings merged over `project.settings`, the values `push`
+ * writes there.
+ * @public `push` calls it once it writes Project fields (#100); the tag keeps knip quiet until then.
+ */
+export function environmentSettings(config: PlumbConfig, name: string): Settings {
+  return { ...config.project?.settings, ...config.environments?.[name]?.settings };
+}
+
+/** @public With `lockdownWarnings`, until `push` reports them (#98). */
+export interface ConfigWarning {
+  code: 'writable-wildcard' | 'admin-without-policy' | 'writes-structure-definition';
+  path: string;
+  message: string;
+}
+
+const WRITES = ['create', 'update', 'delete'];
+const writes = (entry: AccessPolicyResource) =>
+  !entry.readonly && (entry.interaction ?? WRITES).some((i) => WRITES.includes(i));
+
+/**
+ * Where the project config departs from the lockdown recipe: warnings, since a
+ * project may need the access. `ownPolicy` is the key of the policy `push`
+ * itself runs under, which has to write StructureDefinition.
+ * @public `push` reports these once it plans AccessPolicies (#98); the tag keeps knip quiet until then.
+ */
+export function lockdownWarnings(project: ProjectConfig, ownPolicy?: string): ConfigWarning[] {
+  const warnings: ConfigWarning[] = [];
+  for (const [key, policy] of Object.entries(project.accessPolicies ?? {})) {
+    (policy.resource ?? []).forEach((entry, i) => {
+      const path = `project.accessPolicies.${key}.resource[${i}]`;
+      if (!writes(entry)) return;
+      if (entry.resourceType === '*') {
+        warnings.push({
+          code: 'writable-wildcard',
+          path,
+          message: `"${key}" has a writable * entry: entries are a union, so it re-opens every type.`,
+        });
+      } else if (entry.resourceType === 'StructureDefinition' && key !== ownPolicy) {
+        warnings.push({
+          code: 'writes-structure-definition',
+          path,
+          message: `"${key}" writes StructureDefinition, which bypasses push's profile gate.`,
+        });
+      }
+    });
+  }
+  for (const [key, client] of Object.entries(project.clients ?? {})) {
+    if (client.admin === true && client.accessPolicy === undefined) {
+      warnings.push({
+        code: 'admin-without-policy',
+        path: `project.clients.${key}`,
+        message: `"${key}" is an admin with no accessPolicy, which gives it full access.`,
+      });
+    }
+  }
+  return warnings;
 }
 
 /**
