@@ -7,6 +7,14 @@
   could read `334 of 334 read, all 340 passed`. It now reads `all 331
   stamped passed`, and each profile's line still counts its checks (#121).
   The checker reports the new counts, so `push` redeploys it.
+- **`validate` and `push`'s gate read only resources with a selected stamp**
+  (`_profile=<selected URLs>`), and count the rest by query, so one narrow
+  profile on a large type no longer reads the whole table: selecting one
+  Observation profile read every stored Observation, 100 per async job.
+  Resources stamped only with other profiles are counted together; `plumb
+  validate --full` reads everything to break them down into silent stamps
+  and profiles not selected, as every run did before. A type of more than one
+  page prints its progress (#127).
 
 ## 0.7.0 (2026-10-05)
 

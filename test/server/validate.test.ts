@@ -56,7 +56,7 @@ describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
   let medplum: MedplumClient;
   let options: ValidateEnvOptions;
   let failingId: string;
-  let full: Awaited<ReturnType<typeof validateEnvironment>>;
+  let report: Awaited<ReturnType<typeof validateEnvironment>>;
 
   beforeAll(async () => {
     project = await newProject();
@@ -123,48 +123,72 @@ describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
   });
 
   test('reports failures, reasons, stamps, shadowing and the kinds of empty', async () => {
-    full = await validateEnvironment(options);
-    expect(full.errors).toEqual([]);
-    expect(full.ok).toBe(false);
-    expect(full.steps.map((s) => [s.name, s.failed ?? false])).toEqual([
+    report = await validateEnvironment(options);
+    expect(report.errors).toEqual([]);
+    expect(report.ok).toBe(false);
+    expect(report.steps.map((s) => [s.name, s.failed ?? false])).toEqual([
       ['load', false],
       ['connect', false],
       ['checker', false],
       ['profiles', true],
       ['validate', true],
     ]);
-    expect(full.shadowed).toEqual([
+    expect(report.shadowed).toEqual([
       { url: PATIENT, versions: ['1.10.0', '1.9.0'], picked: '1.9.0' },
     ]);
-    expect(full.types.Patient).toEqual({
+    expect(report.types.Patient).toEqual({
       exists: CONFORMING + 5,
       read: CONFORMING + 5,
       stamped: CONFORMING + 1,
       failing: 1,
       unstamped: 1,
-      silent: { unknown: 1, versioned: 1, empty: 0 },
-      otherProfiles: { [NAMING]: 1 },
+      // Read only with full: a url|version stamp, an unknown URL, and a profile not selected.
+      silent: { unknown: 0, versioned: 0, empty: 0 },
+      otherProfiles: {},
+      stampedOther: 3,
     });
-    expect(full.profiles[PATIENT]).toEqual({
+    expect(report.profiles[PATIENT]).toEqual({
       resourceType: 'Patient',
       checked: CONFORMING + 1,
       failing: 1,
       reasons: [expect.objectContaining({ path: 'Patient.birthDate', count: 1 })],
     });
     // All passed, and none carries a selected profile.
-    expect(full.types.Encounter).toMatchObject({ exists: 2, read: 2, unstamped: 0 });
-    expect(full.profiles[ENCOUNTER]).toMatchObject({ checked: 2, failing: 0 });
-    expect(full.types.Observation).toMatchObject({ exists: 1, read: 1, unstamped: 1 });
-    expect(full.profiles[OBSERVATION]).toMatchObject({ checked: 0, failing: 0 });
+    expect(report.types.Encounter).toMatchObject({ exists: 2, read: 2, unstamped: 0 });
+    expect(report.profiles[ENCOUNTER]).toMatchObject({ checked: 2, failing: 0 });
+    expect(report.types.Observation).toMatchObject({ exists: 1, read: 1, unstamped: 1 });
+    expect(report.profiles[OBSERVATION]).toMatchObject({ checked: 0, failing: 0 });
 
     // Failing ids go to the gitignored file only.
-    expect(JSON.stringify(full)).not.toContain(failingId);
+    expect(JSON.stringify(report)).not.toContain(failingId);
     const saved = json<{ complete: boolean; profiles: Record<string, { failing: string[] }> }>(
       options.reportPath,
     );
     expect(saved.complete).toBe(true);
     expect(saved.profiles[PATIENT]?.failing).toEqual([failingId]);
     expect(readFileSync(join(options.reportPath, '../.gitignore'), 'utf8')).toBe('*\n');
+  });
+
+  test('full reads every resource, breaking down the stamps naming no selected profile', async () => {
+    const progress: { read: number; of: number }[] = [];
+    const everything = await validateEnvironment({
+      ...options,
+      full: true,
+      onPage: (type, _pages, p) => {
+        if (type === 'Patient') progress.push(p);
+      },
+    });
+    expect(everything.types.Patient).toEqual({
+      ...report.types.Patient,
+      silent: { unknown: 1, versioned: 1, empty: 0 },
+      otherProfiles: { [NAMING]: 1 },
+      stampedOther: 0,
+    });
+    expect(everything.profiles).toEqual(report.profiles);
+    expect(progress).toEqual([
+      { read: 100, of: CONFORMING + 5 },
+      { read: CONFORMING + 5, of: CONFORMING + 5 },
+    ]);
   });
 
   test('an interrupted run resumes from its last cursor', async () => {
@@ -180,15 +204,17 @@ describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
     const resumed = await validateEnvironment({
       ...options,
       resume: true,
-      onPage: (type) => {
+      onPage: (type, _pages, progress) => {
         pages.push(type);
+        // Only the Patients with a selected stamp are read.
+        expect(progress).toEqual({ read: CONFORMING + 1, of: CONFORMING + 1 });
       },
     });
     // Encounter, Observation and the first Patient page were saved; only the second runs.
     expect(resumed.resumed).toBe(3);
     expect(pages).toEqual(['Patient']);
-    expect(resumed.types).toEqual(full.types);
-    expect(resumed.profiles).toEqual(full.profiles);
+    expect(resumed.types).toEqual(report.types);
+    expect(resumed.profiles).toEqual(report.profiles);
   });
 
   test('nothing readable is told apart from nothing stored', async () => {

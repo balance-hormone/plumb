@@ -111,7 +111,8 @@ describe.skipIf(!server)('push installs the checker bot', { timeout: 60_000 }, (
     const loaded = loadProfiles({ packages: [], igs: [], local: SYNTHETIC, profiles: [PATIENT] });
     const job = await medplum.post<AsyncJob>(
       medplum.fhirUrl('Bot', bot.id as string, '$execute'),
-      checkerInput(loaded, 'Patient'),
+      // full, so the bot reads the unstamped Patient.
+      { ...checkerInput(loaded, 'Patient'), full: true },
       ContentType.JSON,
       { headers: { Prefer: 'respond-async' }, pollStatusOnAccepted: true },
     );

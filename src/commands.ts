@@ -27,7 +27,7 @@ export interface CliIo {
 }
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
-       plumb validate --env <name> [--resume] [--config <path>]
+       plumb validate --env <name> [--full] [--resume] [--config <path>]
        plumb push --env <name> [--dry-run | --check] [--prune] [--adopt] [--config <path>]
 
 generate  Generate TypeScript types that narrow @medplum/fhirtypes from the
@@ -43,6 +43,8 @@ Options:
                    push: plan and fail if push would write anything, writing nothing
   --env <name>     the environment in plumb.config.ts to act on
   --resume         continue an interrupted validate from its last page
+  --full           validate: read every stored resource, not only those with a selected
+                   stamp, to break down silent stamps and other profiles' stamps
   --dry-run        push: stop after the gate and the project plan, writing nothing
   --prune          push: delete what Plumb manages that the config no longer has
   --adopt          push: tag and converge an untagged resource with a key's name
@@ -194,7 +196,12 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
           adopt: values.adopt,
           env: io.env,
         })
-      : await validateEnvironment({ ...shared, reportPath, resume: values.resume });
+      : await validateEnvironment({
+          ...shared,
+          reportPath,
+          resume: values.resume,
+          full: values.full,
+        });
   printValidation(result, relative(io.cwd, result.reportPath ?? ''), say, problem);
   for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
@@ -228,8 +235,14 @@ async function envOptions(command: string, values: Values, io: CliIo) {
     cacheDir: io.cacheDir,
     fetch: io.fetch,
     onStep: (step: EnvStep<string>) => printStep(step, printer(io, quiet), quiet),
+    // A type of many pages could otherwise print nothing for minutes.
+    onPage: (type: string, _pages: number, { read, of }: { read: number; of: number }) => {
+      if (read < of) printer(io, quiet).say(`    ${type}: ${count(read)} of ${count(of)} read`);
+    },
   };
 }
+
+const count = (n: number) => n.toLocaleString('en-US');
 
 /** A step's line, then its warnings: a failed step's always print, as problems do. */
 function printStep(step: EnvStep<string>, p: ReturnType<typeof printer>, quiet: boolean) {
@@ -301,6 +314,8 @@ function typeExtras(t: TypeReport): string[] {
     t.unstamped > 0 && `${t.unstamped} unstamped`,
     silent.length > 0 && `silent stamps: ${silent.join(', ')}`,
     others > 0 && `${others} stamped with profiles not selected`,
+    t.stampedOther > 0 &&
+      `${t.stampedOther} stamped only with profiles not selected (--full breaks them down)`,
   ].filter((x) => typeof x === 'string');
 }
 
@@ -321,6 +336,7 @@ function parse(argv: string[]) {
       config: { type: 'string' },
       env: { type: 'string' },
       resume: { type: 'boolean' },
+      full: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       prune: { type: 'boolean' },
       adopt: { type: 'boolean' },

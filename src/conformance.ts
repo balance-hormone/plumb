@@ -22,6 +22,7 @@ type ValidateStepName = 'load' | 'connect' | 'checker' | 'profiles' | 'validate'
 export interface TypeReport {
   /** How many the CLI's client counts, to tell "nothing readable" from "nothing stored". */
   exists: number;
+  /** How many the checker's AccessPolicy lets it read. */
   read: number;
   /** Resources stamped with at least one selected profile, each counted once. */
   stamped: number;
@@ -33,6 +34,11 @@ export interface TypeReport {
   silent: { unknown: number; versioned: number; empty: number };
   /** Stamps naming a profile the project holds but the config does not select. */
   otherProfiles: Record<string, number>;
+  /**
+   * Resources stamped, but with no selected profile, when the run read only
+   * the selected stamps: `full` sorts them into silent stamps and other profiles.
+   */
+  stampedOther: number;
 }
 
 interface ProfileReport {
@@ -61,8 +67,20 @@ export interface ValidateEnvOptions extends EnvOptions {
   reportPath: string;
   /** Continue an interrupted run from its last cursor. */
   resume?: boolean;
-  /** Called after each page is saved, with the resource type and the pages done so far. */
-  onPage?: (resourceType: string, pages: number) => void | Promise<void>;
+  /**
+   * Read every resource of each type, to break down stamps naming no selected
+   * profile; otherwise only resources with a selected stamp are read.
+   */
+  full?: boolean;
+  /**
+   * Called after each page is saved, with the resource type, the pages done
+   * so far, and how many of the type's resources to read have been.
+   */
+  onPage?: (
+    resourceType: string,
+    pages: number,
+    progress: { read: number; of: number },
+  ) => void | Promise<void>;
 }
 
 /** What the report file holds: the run so far, with failing ids, and where to resume it. */
@@ -70,7 +88,8 @@ interface Saved {
   key: string;
   complete: boolean;
   pages: number;
-  types: Record<string, TypeReport & { cursor?: string; done: boolean }>;
+  /** `of`: how many resources the run will read, for progress. */
+  types: Record<string, TypeReport & { cursor?: string; done: boolean; of?: number }>;
   profiles: Record<string, Omit<ProfileReport, 'failing'> & { failing: string[] }>;
 }
 
@@ -155,19 +174,23 @@ export async function checkStored(
   medplum: MedplumClient,
   loaded: Pick<LoadProfilesResult, 'profiles' | 'definitions'>,
   botId: string,
-  options: Pick<ValidateEnvOptions, 'reportPath' | 'resume' | 'onPage'> & { filename: string },
+  options: Pick<ValidateEnvOptions, 'reportPath' | 'resume' | 'full' | 'onPage'> & {
+    filename: string;
+  },
 ): Promise<Checked> {
+  const profiles = loaded.profiles.map((p) => [p.url, p.sd.version]).sort();
   const key = createHash('sha256')
-    .update(
-      JSON.stringify([options.filename, loaded.profiles.map((p) => [p.url, p.sd.version]).sort()]),
-    )
+    .update(JSON.stringify([options.filename, profiles, options.full ?? false]))
     .digest('hex');
   const { saved, warnings } = start(options, key);
   const resumed = saved.pages;
   let core: string | undefined;
   const resourceTypes = [...new Set(loaded.profiles.map((p) => p.sd.type))].sort();
   for (const resourceType of resourceTypes) {
-    const input = checkerInput(loaded, resourceType as ResourceType);
+    const input = {
+      ...checkerInput(loaded, resourceType as ResourceType),
+      ...(options.full ? { full: true } : {}),
+    };
     await checkType(medplum, saved, options, botId, input, (c) => {
       core = c;
     });
@@ -188,7 +211,7 @@ export async function checkStored(
     warnings,
     ...(core ? { core } : {}),
   };
-  for (const [type, { cursor: _cursor, done: _done, ...report }] of Object.entries(saved.types)) {
+  for (const [type, { cursor: _c, done: _d, of: _o, ...report }] of Object.entries(saved.types)) {
     checked.types[type] = report;
   }
   for (const [url, p] of Object.entries(saved.profiles)) {
@@ -279,6 +302,7 @@ async function checkType(
       unstamped: 0,
       silent: { unknown: 0, versioned: 0, empty: 0 },
       otherProfiles: {},
+      stampedOther: 0,
       done: false,
     };
     saved.types[resourceType] = type;
@@ -294,7 +318,11 @@ async function checkType(
     type.done = !page.next;
     saved.pages++;
     write(options.reportPath, saved);
-    await options.onPage?.(resourceType, saved.pages);
+    // Without full, every resource read carries a selected stamp.
+    const progress = input.full
+      ? { read: type.read, of: type.exists }
+      : { read: type.stamped, of: type.of ?? 0 };
+    await options.onPage?.(resourceType, saved.pages, progress);
   } while (!type.done);
 }
 
@@ -335,10 +363,20 @@ export async function runPage(
 }
 
 function merge(saved: Saved, type: Saved['types'][string], page: PageResult): void {
-  type.read += page.read;
+  if (page.totals) {
+    type.read = page.totals.readable;
+    type.unstamped = page.totals.unstamped;
+    type.of = page.totals.stamped;
+  } else if (type.of === undefined) {
+    type.read += page.read;
+    type.unstamped += page.unstamped;
+  }
   type.stamped += page.stamped;
   type.failing += page.failing;
-  type.unstamped += page.unstamped;
+  // The query counts; the pages read may see a write made in between.
+  if (type.of !== undefined && !page.next) {
+    type.stampedOther = Math.max(0, type.read - type.unstamped - type.stamped);
+  }
   type.silent.versioned += page.silent.versioned;
   type.silent.empty += page.silent.empty;
   for (const [url, n] of Object.entries(page.otherStamps)) {

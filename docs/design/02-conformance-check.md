@@ -100,6 +100,15 @@ that type, page by page:
    should carry is routing's job ([design 03](03-routing-and-create.md),
    planned).
 
+The bot reads only resources carrying a selected stamp (`_profile=<selected
+URLs>`), and counts unstamped resources (`_profile:missing=true`) and the
+readable total by query, so a narrow profile on a large type reads only what
+carries it. Medplum matches stamps exactly, so no query finds a `url|version`
+stamp or every unknown URL: the resources stamped only with other profiles are
+counted together, and `validate --full` reads every resource to sort them into
+the silent stamps above and profiles not selected. Medplum stores an empty
+`meta.profile` as none, so a stored resource carrying one counts as unstamped.
+
 And, from the CLI, which reads no clinical data:
 
 4. **Profile shadowing:** more than one StructureDefinition for a selected URL
