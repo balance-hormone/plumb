@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 (2026-10-05)
+
+- **`plumb check`** reports every `MedplumClient` read or write of a type a
+  selected profile fully holds that goes around `readProfiled`,
+  `searchProfiled`, `createProfiled`, `updateProfiled` or `stampProfiled`,
+  by the types the compiler infers, so an inferred write is found as surely as
+  a literal one. A committed baseline lets a project adopt it with a backlog:
+  only new or grown findings fail. `// plumb-check: <reason>` marks a
+  deliberate exception. It needs the project's TypeScript 5 or 6 (design 07).
+- **`stampProfiled` returns its resource branded** (`T & Stamped`, an optional
+  unique-symbol property), which `check` reads to accept a stamped write
+  through a variable. Callers see no difference.
+- `check` in the config: `tsconfig`, `baseline` and `ignore`.
+
 ## 0.7.0 (2026-10-05)
 
 - **`stampProfiled(resource, options?)`** returns the copy `createProfiled`
