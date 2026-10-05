@@ -214,7 +214,12 @@ Named after the tools developers already know:
 - **Loaded by Node itself** (built-in type stripping, Node 22.18+), with a plain
   `import()`: no loader dependency. Its limits get clear error messages:
   TypeScript-only syntax such as `enum`, relative imports without a `.ts`
-  extension, and `tsconfig` path aliases, none of which Node resolves.
+  extension, `tsconfig` path aliases, none of which Node resolves, and
+  TypeScript under `node_modules`, which Node will not strip.
+- **With the project's tsx** when it has one installed, so a workspace config
+  can import sibling packages' TypeScript source and use path aliases. tsx
+  stays the project's dependency, never Plumb's, and reads the
+  `tsconfig.json` nearest the config.
 - **Checked with plain code** when loaded: unknown keys, a missing `out`, a
   malformed IG name or version, a bad `bindings.maxCodes`, and a profile URL no
   package provides are each a named error.

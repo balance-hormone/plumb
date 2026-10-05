@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
@@ -9,6 +10,7 @@ import type {
   Coding,
   StructureDefinition,
 } from '@medplum/fhirtypes';
+import type * as Tsx from 'tsx/esm/api';
 
 export interface PlumbConfig {
   /** IG packages as `name@version`, with an exact version. */
@@ -172,8 +174,9 @@ const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
 const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 
 /**
- * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
- * Node's own type stripping. `local`, `fsh` and `out` come back as absolute
+ * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with the
+ * project's own tsx when it has one, and Node's type stripping otherwise.
+ * `local`, `fsh` and `out` come back as absolute
  * paths, resolved against the config file's folder; with `fsh`, `local` is its
  * SUSHI output.
  */
@@ -187,11 +190,15 @@ export async function loadConfig(options: {
     return fail({ code: 'config-not-found', message: `No config file at ${configPath}.` });
   }
 
+  const tsx = findTsx(configPath);
+  const url = pathToFileURL(configPath).href;
   let module: { default?: unknown };
   try {
-    module = await import(pathToFileURL(configPath).href);
+    module = tsx
+      ? await tsx.tsImport(url, { parentURL: url, tsconfig: nearest(configPath, 'tsconfig.json') })
+      : await import(url);
   } catch (err) {
-    const error = importError(err);
+    const error = importError(err, tsx !== undefined);
     if (error) return fail(error);
     throw err;
   }
@@ -229,22 +236,51 @@ export async function loadConfig(options: {
   };
 }
 
+// tsx is the project's, never Plumb's dependency: a workspace that imports
+// TypeScript source or uses path aliases already runs its scripts through it.
+function findTsx(configPath: string): typeof Tsx | undefined {
+  const projectRequire = createRequire(configPath);
+  try {
+    projectRequire.resolve('tsx/esm/api');
+  } catch {
+    return undefined;
+  }
+  return projectRequire('tsx/esm/api') as typeof Tsx;
+}
+
+// tsx reads the tsconfig in the working directory unless told, and the config
+// may sit elsewhere.
+function nearest(from: string, name: string): string | undefined {
+  for (let dir = dirname(from); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, name))) return join(dir, name);
+    if (dir === dirname(dir)) return undefined;
+  }
+}
+
 // Node resolves imports itself and only strips types, so these are the limits
-// a config file meets that a bundler-loaded one would not.
-function importError(err: unknown): ConfigError | undefined {
+// a config file meets that a bundler-loaded one would not. tsx lifts them all.
+function importError(err: unknown, tsx: boolean): ConfigError | undefined {
   const code = (err as { code?: unknown } | null)?.code;
   const message = (err instanceof Error ? err.message : String(err)).replace(/\n[\s\S]*/, '');
+  const install = 'Or install tsx in the project, and Plumb loads the config with it.';
   if (code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') {
     return {
       code: 'unsupported-syntax',
-      message: `${message}. Node loads the config by stripping types, so TypeScript-only syntax such as enum or namespace cannot be used.`,
+      message: `${message}. Node loads the config by stripping types, so TypeScript-only syntax such as enum or namespace cannot be used. ${install}`,
+    };
+  }
+  if (code === 'ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING') {
+    return {
+      code: 'unsupported-syntax',
+      message: `${message}. Node does not strip types in files under node_modules, so the config cannot import a package that exports TypeScript source; install tsx in the project, and Plumb loads the config with it.`,
     };
   }
   if (code === 'ERR_MODULE_NOT_FOUND') {
+    if (tsx) return { code: 'unresolved-import', message: `${message} (loaded with tsx).` };
     const hint = message.startsWith('Cannot find package')
       ? 'Node does not read tsconfig paths, so a path alias cannot be used; import the file by its relative path, or install the package.'
       : 'Node resolves imports as written, so a relative import needs its .ts extension.';
-    return { code: 'unresolved-import', message: `${message}. ${hint}` };
+    return { code: 'unresolved-import', message: `${message}. ${hint} ${install}` };
   }
   return undefined;
 }

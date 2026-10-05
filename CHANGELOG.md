@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **The config loads with the project's tsx when it has one installed**, so
+  in a workspace `plumb.config.ts` can import a sibling package that exports
+  TypeScript source, and use `tsconfig` path aliases and `enum`. Without tsx,
+  Node's type stripping loads it as before, and importing TypeScript from
+  `node_modules` is now a named `unsupported-syntax` error suggesting tsx
+  (#114).
+
 ## 0.7.0 (2026-10-05)
 
 - **`stampProfiled(resource, options?)`** returns the copy `createProfiled`
