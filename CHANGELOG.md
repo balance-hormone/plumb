@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.6.0 (unreleased)
+## 0.6.0 (2026-10-05)
+
+The first published release; it includes everything in 0.1.0 to 0.5.0, which were not published.
 
 Project config as code: `push` converges what a project admin can write.
 
@@ -32,7 +34,7 @@ Project config as code: `push` converges what a project admin can write.
   `https://www.npmjs.com/package/plumb-fhir`, as is Plumb's tag system, so a
   checker installed by 0.5 is installed again.
 
-## 0.5.0 (unreleased)
+## 0.5.0 (not published)
 
 SUSHI in `generate`: one command builds FSH and types it.
 
@@ -51,7 +53,7 @@ SUSHI in `generate`: one command builds FSH and types it.
   (`base-version-mismatch`) when a local profile's pinned parent version
   differs from the one the config provides.
 
-## 0.4.0 (unreleased)
+## 0.4.0 (not published)
 
 Typed reads: reads that return the profile type once its content is checked.
 
@@ -71,7 +73,7 @@ Typed reads: reads that return the profile type once its content is checked.
 - A choice narrowed to `Reference` keeps the base element's targets instead of
   widening them to any resource.
 
-## 0.3.0 (unreleased)
+## 0.3.0 (not published)
 
 Routing: each write held to the profile its content selects.
 
@@ -86,7 +88,7 @@ Routing: each write held to the profile its content selects.
   `false` to take one out; **`defaultProfile`** names the defaults stamped
   with each write. `generate` warns for profiles one resource could match.
 
-## 0.2.0 (unreleased)
+## 0.2.0 (not published)
 
 The conformance check: what stored data would fail a profile, before it loads.
 
@@ -102,7 +104,7 @@ The conformance check: what stored data would fail a profile, before it loads.
   fail them, and re-checks once they are loaded. `--dry-run` stops after the
   gate. Strict mode is reported, never set.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (not published)
 
 The first release: profile-aware types for Medplum.
 
