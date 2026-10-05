@@ -503,6 +503,31 @@ variables:
     MEDPLUM_PROD_CLIENT_SECRET: ${{ secrets.MEDPLUM_PROD_CLIENT_SECRET }}
 ```
 
+To catch a change made by hand in the console, run `push --check` on a
+schedule. It plans as `push` does, with the same `--prune`, but installs
+nothing and writes nothing, and exits 1 when `push` would change anything,
+naming what drifted:
+
+```yaml
+name: Drift
+on:
+  schedule:
+    - cron: '17 6 * * *'
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx plumb push --env prod --check
+        env:
+          MEDPLUM_PROD_CLIENT_ID: ${{ secrets.MEDPLUM_PROD_CLIENT_ID }}
+          MEDPLUM_PROD_CLIENT_SECRET: ${{ secrets.MEDPLUM_PROD_CLIENT_SECRET }}
+```
+
 ## Keep `@medplum/*` in step with your server
 
 The types and `validateProfiled` use the `@medplum/*` packages you install.

@@ -289,3 +289,65 @@ describe.skipIf(!server)(
     });
   },
 );
+
+describe.skipIf(!server)('push --check finds drift', { timeout: 60_000 }, () => {
+  test('a converged project passes; a hand edit fails it, naming the field, and nothing is written', async () => {
+    const project = await newProject();
+    const options = await pushOptions(project, {
+      igs: [],
+      profiles: [PATIENT],
+      local: SYNTHETIC,
+      out: '',
+      project: { ...CONFIG, settings: { email: 'support@example.org' } },
+    });
+    // Before the first push, everything is drift: the profile and the project.
+    const before = await push({ ...options, check: true });
+    expect(before.ok).toBe(false);
+    expect(before.steps.map((s) => s.name)).toEqual([
+      'load',
+      'connect',
+      'plan',
+      'project',
+      'check',
+    ]);
+    expect(before.steps.at(-1)).toMatchObject({
+      summary: 'drift: 1 profile, 3 project changes',
+      failed: true,
+    });
+
+    expect((await push(options)).ok).toBe(true);
+    const converged = await push({ ...options, check: true });
+    expect(converged.ok).toBe(true);
+    expect(converged.steps.at(-1)).toMatchObject({ name: 'check', summary: 'no drift' });
+
+    // Edits made by hand in the console.
+    const medplum = await connect(project);
+    const policies = await medplum.searchResources('AccessPolicy', { _count: '100' });
+    const clinician = policies.find((p) => tagOf(p) === 'clinician') as AccessPolicy;
+    await medplum.updateResource({ ...clinician, resource: [{ resourceType: '*' }] });
+    const stored = await medplum.readResource('Project', project.projectId);
+    await medplum.updateResource({
+      ...stored,
+      setting: [{ name: 'email', valueString: 'someone@example.org' }],
+    });
+
+    const drifted = await push({ ...options, check: true });
+    expect(drifted.ok).toBe(false);
+    expect(drifted.steps.find((s) => s.name === 'project')?.warnings).toEqual(
+      expect.arrayContaining([
+        '~ AccessPolicy  clinician (resource)',
+        '~ Project  setting email (valueString)',
+      ]),
+    );
+    expect(drifted.steps.at(-1)).toMatchObject({
+      summary: 'drift: 2 project changes',
+      warnings: ['Run plumb push --env test to converge.'],
+      failed: true,
+    });
+    const after = await (await connect(project)).readResource(
+      'AccessPolicy',
+      clinician.id as string,
+    );
+    expect(after.resource).toEqual([{ resourceType: '*' }]);
+  });
+});

@@ -28,7 +28,7 @@ export interface CliIo {
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
        plumb validate --env <name> [--resume] [--config <path>]
-       plumb push --env <name> [--dry-run] [--prune] [--adopt] [--config <path>]
+       plumb push --env <name> [--dry-run | --check] [--prune] [--adopt] [--config <path>]
 
 generate  Generate TypeScript types that narrow @medplum/fhirtypes from the
           FHIR profiles plumb.config.ts selects.
@@ -39,7 +39,8 @@ push      Install the checker, then load the selected profiles into a Medplum
           converge the project's own configuration.
 
 Options:
-  --check          compare with the committed output instead of writing; fail if stale
+  --check          generate: compare with the committed output instead of writing; fail if stale
+                   push: plan and fail if push would write anything, writing nothing
   --env <name>     the environment in plumb.config.ts to act on
   --resume         continue an interrupted validate from its last page
   --dry-run        push: stop after the gate and the project plan, writing nothing
@@ -168,7 +169,9 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
   const { bad, say, problem } = printer(io, quiet);
   const options = await envOptions(command, values, io);
   if (typeof options === 'number') return options;
-  say(`plumb ${command} --env ${values.env}`);
+  say(
+    `plumb ${command} --env ${values.env}${command === 'push' && values.check ? ' --check' : ''}`,
+  );
   const { root, ...shared } = options;
   const reportPath = join(root, '.plumb', `validate-${values.env}.json`);
   const result =
@@ -177,6 +180,7 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
           ...shared,
           reportPath,
           dryRun: values['dry-run'],
+          check: values.check,
           prune: values.prune,
           adopt: values.adopt,
           env: io.env,
