@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 export type {
   AccessPolicyConfig,
+  CheckConfig,
   ConfigError,
   ConfigErrorCode,
   Environment,

@@ -232,7 +232,9 @@ Named after the tools developers already know:
   the committed file holds no secret. A malformed URL or a credential written
   in as a value is a named error when the config loads; an unknown
   environment or an unset variable is one when a command picks the
-  environment.
+  environment. `--env-file <path>` reads variables from a dotenv file with
+  Node's own parser, as `node --env-file` would: repeatable, later files
+  win, and a variable already set wins over every file.
 - **`routes`** (optional) adds routing rows for selected profiles, by URL:
   a first-level element mapped to the codings (or, for a `code` element, the
   strings) that select the profile, or `false` to take it out of routing
