@@ -13,6 +13,11 @@
   unique-symbol property), which `check` reads to accept a stamped write
   through a variable. Callers see no difference.
 - `check` in the config: `tsconfig`, `baseline` and `ignore`.
+- **`validate` counts records on each type's line**, not profile checks: a
+  record stamped with a profile and its parent was counted twice, so a type
+  could read `334 of 334 read, all 340 passed`. It now reads `all 331
+  stamped passed`, and each profile's line still counts its checks (#121).
+  The checker reports the new counts, so `push` redeploys it.
 
 ## 0.7.0 (2026-10-05)
 

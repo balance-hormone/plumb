@@ -317,9 +317,7 @@ export function formatValidation(result: Found): string[] {
   const lines: string[] = [];
   for (const [type, t] of Object.entries(result.types)) {
     const profiles = Object.entries(result.profiles).filter(([, p]) => p.resourceType === type);
-    const checked = profiles.reduce((n, [, p]) => n + p.checked, 0);
-    const failing = profiles.reduce((n, [, p]) => n + p.failing, 0);
-    const status = typeStatus(t, checked, failing);
+    const status = typeStatus(t);
     lines.push(`    ${type}: ${[status, ...typeExtras(t)].join('; ')}`);
     for (const [url, p] of profiles) {
       const name = url.slice(url.lastIndexOf('/') + 1);
@@ -330,14 +328,17 @@ export function formatValidation(result: Found): string[] {
   return lines;
 }
 
-/** The three kinds of empty told apart, then what failed. */
-function typeStatus(t: TypeReport, checked: number, failing: number): string {
+/**
+ * The three kinds of empty told apart, then what failed, in records: one
+ * stamped with a profile and its parent is checked twice, counted once.
+ */
+function typeStatus(t: TypeReport): string {
   const read = `${t.read} of ${t.exists} read`;
   if (t.exists === 0) return 'none stored';
   if (t.read === 0) return `0 of ${t.exists} readable: check plumb-checker's AccessPolicy`;
-  if (checked === 0) return `${read}, none carries a selected profile`;
-  if (failing === 0) return `${read}, all ${checked} passed`;
-  return `${read}, ${failing} of ${checked} fail`;
+  if (t.stamped === 0) return `${read}, none carries a selected profile`;
+  if (t.failing === 0) return `${read}, all ${t.stamped} stamped passed`;
+  return `${read}, ${t.failing} of ${t.stamped} stamped fail`;
 }
 
 /** What was not validated: unstamped resources, silent stamps, and other profiles' stamps. */

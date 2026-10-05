@@ -508,6 +508,9 @@ Failed in 40.8s
   read against how many exist, so "all passed", "none carries a selected
   profile", "none stored" and "0 of N readable" (an AccessPolicy that hides
   them) read differently.
+- **A type counts records; a profile counts checks.** A record stamped with a
+  profile and its parent is checked against each, so it appears once on the
+  type's line (`all 331 stamped passed`) and once under each profile.
 - **Shadowed profiles** fail the check: more than one StructureDefinition for
   a selected URL, of which Medplum enforces the one whose version sorts last
   as text, so `1.9.0` beats `1.10.0`.
