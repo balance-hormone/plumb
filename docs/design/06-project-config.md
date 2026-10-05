@@ -1,7 +1,7 @@
 # Design 06: Project Config as Code
 
-**Status: accepted** on 2026-10-03, for v0.6 (after [design 05](05-sushi.md)'s
-SUSHI integration in v0.5). Picks up the parked
+**Status: implemented** in v0.6 (accepted on 2026-10-03, after
+[design 05](05-sushi.md)'s SUSHI integration in v0.5). Picks up the parked
 [project config as code](../future/project-config-as-code.md) idea, and the
 "`defaultProfile`, and the rest of project config, through `push`" stage that
 [design 02](02-conformance-check.md) left for later. Read design 02 first:

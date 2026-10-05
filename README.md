@@ -274,8 +274,10 @@ export default defineConfig({
 - **`defaultProfile`** has the shape of Medplum's `Project.defaultProfile`.
   `createProfiled` stamps it alongside the routed profile, less any default
   the routed profile derives from, since a stamp replaces the server's
-  default. Plumb does not set the server's `defaultProfile` yet: keep the
-  two in step by hand.
+  default. `push` writes the same `defaultProfile` to the server (see
+  [Configure the project](#configure-the-project)), so the stamps
+  `createProfiled` writes and the defaults the server applies come from one
+  place.
 
 ## Read each resource as its profile
 
@@ -407,7 +409,7 @@ npx plumb validate --env prod
 plumb validate --env prod
 ✔ load      1 profiles of Patient   1.9s
 ✔ connect   https://api.medplum.com/ (strict mode off)   320ms
-✔ checker   plumb-checker 0.5.0 installed   60ms
+✔ checker   plumb-checker 0.6.0 installed   60ms
 ✔ profiles  1 selected, none shadowed   80ms
 ✖ validate  1 of 1 profiles would fail   38.4s
     Patient: 12400 of 12400 read, 300 of 12360 fail; 40 unstamped; silent stamps: 3 url|version
@@ -460,7 +462,7 @@ npx plumb push --env prod
 plumb push --env prod
 ✔ load      1 profiles of Patient   1.9s
 ✔ connect   https://api.medplum.com/ (strict mode off)   320ms
-✔ checker   plumb-checker 0.5.0 unchanged   90ms
+✔ checker   plumb-checker 0.6.0 unchanged   90ms
 ✔ plan      load us-core-patient 9.0.0 (+7 dependencies)   210ms
 ✔ gate      nothing stored would fail   36.1s
 ✔ apply     8 created, 0 updated   1.4s
@@ -503,10 +505,143 @@ variables:
     MEDPLUM_PROD_CLIENT_SECRET: ${{ secrets.MEDPLUM_PROD_CLIENT_SECRET }}
 ```
 
-To catch a change made by hand in the console, run `push --check` on a
-schedule. It plans as `push` does, with the same `--prune`, but installs
-nothing and writes nothing, and exits 1 when `push` would change anything,
-naming what drifted:
+## Configure the project
+
+`push` also converges the rest of what a project admin can write, from the
+same config: settings, secrets, default profiles, AccessPolicies, default
+access policies and client applications. None of it is set by hand in the
+console any more, so it is reviewed, and a second environment is rebuilt from
+the same file.
+
+```ts
+import { defineConfig } from 'plumb-fhir';
+
+export default defineConfig({
+  igs: ['hl7.fhir.us.core@9.0.0'],
+  profiles: ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient'],
+  out: './src/fhir/generated',
+  // Stamped by createProfiled, and now written to Project.defaultProfile too.
+  defaultProfile: {
+    Patient: ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient'],
+  },
+  project: {
+    settings: { supportEmail: 'support@example.org', maxUploadMb: 25 },
+    secrets: {
+      LAB_API_KEY: { env: 'LAB_API_KEY' }, // set from CI's environment
+      SFTP_KEY: true, // must exist; set by hand in the console
+    },
+    accessPolicies: {
+      clinician: {
+        resource: [
+          { resourceType: 'Patient' },
+          { resourceType: 'Observation' },
+          { resourceType: 'StructureDefinition', readonly: true },
+        ],
+      },
+      lab: {
+        resource: [{ resourceType: 'Observation' }, { resourceType: 'Patient', readonly: true }],
+      },
+    },
+    defaultAccessPolicies: [{ profileType: 'Practitioner', accessPolicy: 'clinician' }],
+    clients: { 'lab-integration': { accessPolicy: 'lab' } },
+  },
+  environments: {
+    prod: {
+      baseUrl: 'https://api.medplum.com/',
+      clientId: { env: 'MEDPLUM_PROD_CLIENT_ID' },
+      clientSecret: { env: 'MEDPLUM_PROD_CLIENT_SECRET' },
+      settings: { supportEmail: 'support@example.com' },
+    },
+  },
+});
+```
+
+- **Keys, not ids.** Policies and clients are named by a key, and a client or
+  default access policy names its policy by key. Ids differ per environment
+  and never appear in the config.
+- **An AccessPolicy is Medplum's own shape,** less `id` and `meta`, typed from
+  `@medplum/fhirtypes`; its `name` is the key unless given.
+- **A setting's type follows its value:** a string is `valueString`, a boolean
+  `valueBoolean`, a whole number `valueInteger`, any other number
+  `valueDecimal`. An environment's `settings` merge over `project.settings`.
+- **Secrets never sit in the config.** `{ env: 'NAME' }` reads the value from
+  that variable and sets the secret when it differs; `true` means the secret
+  must already exist, and `push` never changes it. No plan, `--json` output
+  or error ever holds a secret's value.
+- **Only a project admin's fields.** `strictMode`, `features`, `link` and
+  `systemSetting` are a super admin's: declaring one is a config error, and
+  `push` reports `strictMode` and `features` instead.
+
+`push` runs a `project` step once the profile gate has passed, and prints its
+plan, then what it wrote:
+
+```text
+plumb push --env prod
+✔ load      1 profiles of Patient   1.9s
+✔ connect   https://api.medplum.com/ (strict mode on)   320ms
+✔ checker   plumb-checker 0.6.0 unchanged   90ms
+✔ plan      8 up to date, nothing to load   180ms
+✔ project   plan: 3 to create, 1 to update, 0 to remove   240ms
+    + AccessPolicy  clinician
+    + AccessPolicy  lab
+    + ClientApplication  lab-integration
+    ~ Project  setting supportEmail (valueString), setting maxUploadMb (valueInteger), secret LAB_API_KEY (value changed), defaultProfile Patient, defaultAccessPolicies Practitioner
+    strictMode on, features: bots
+✔ project   applied 4 changes   410ms
+    ClientApplication lab-integration created: 8c1f2b4e-5a6d-4e7f-9a0b-1c2d3e4f5a6b
+Done in 3.2s
+```
+
+- **Found again by a tag,** never by name or id. Each AccessPolicy and client
+  Plumb manages carries a `meta.tag` with system
+  `https://www.npmjs.com/package/plumb-fhir` and its key as code. A second
+  push with no config change plans nothing and writes nothing.
+- **Untagged is untouched.** A policy or client made by hand with a key's name
+  stops the plan, naming it; `--adopt` tags it and converges it in place, so
+  an existing project comes under `push` without recreating its clients.
+- **Removal needs `--prune`.** A tagged policy or client whose key left the
+  config is listed, and deleted only with `--prune`, a client with its
+  membership. Settings and secrets the config does not name are left alone,
+  even with `--prune`: they carry no tag.
+- **A client's secret is never printed or stored.** A created client's id is
+  printed; read its secret in the console, and keep it in your secrets store.
+- **Only this project's own resources.** A linked project's policies are never
+  planned, even when they carry Plumb's tag; the plan reports the links.
+- **The Project is one update.** Settings, secrets, `defaultProfile` and
+  `defaultAccessPolicies` are read, merged and written together, after the
+  profiles they name are loaded. Fields `push` does not manage stay as read.
+- `--dry-run` stops after the plan.
+
+In CI, pass the variables the secrets name as well:
+
+```yaml
+- run: npx plumb push --env prod
+  env:
+    MEDPLUM_PROD_CLIENT_ID: ${{ secrets.MEDPLUM_PROD_CLIENT_ID }}
+    MEDPLUM_PROD_CLIENT_SECRET: ${{ secrets.MEDPLUM_PROD_CLIENT_SECRET }}
+    LAB_API_KEY: ${{ secrets.LAB_API_KEY }}
+```
+
+### Catch drift
+
+A change made by hand in the console is drift. `push --check` plans as `push`
+does, with the same `--prune`, but installs nothing and writes nothing, and
+exits 1 when `push` would change anything, naming what drifted:
+
+```text
+plumb push --env prod --check
+✔ load      1 profiles of Patient   1.9s
+✔ connect   https://api.medplum.com/ (strict mode on)   320ms
+✔ plan      8 up to date, nothing to load   180ms
+✔ project   plan: 0 to create, 1 to update, 0 to remove   240ms
+    ~ AccessPolicy  clinician (resource)
+    strictMode on, features: bots
+✖ check     drift: 1 project change   0ms
+    Run plumb push --env prod to converge.
+Failed in 2.6s
+```
+
+Run it on a schedule:
 
 ```yaml
 name: Drift
@@ -526,7 +661,32 @@ jobs:
         env:
           MEDPLUM_PROD_CLIENT_ID: ${{ secrets.MEDPLUM_PROD_CLIENT_ID }}
           MEDPLUM_PROD_CLIENT_SECRET: ${{ secrets.MEDPLUM_PROD_CLIENT_SECRET }}
+          LAB_API_KEY: ${{ secrets.LAB_API_KEY }}
 ```
+
+### Lock the project down
+
+An AccessPolicy's entries are a union: an interaction is allowed if any entry
+allows it, so a read-only entry does not restrict a writable `*` entry. And
+`admin: true` does not bypass a policy, but a membership with no policy has
+full access. So:
+
+- **People** get `admin: false`, and a policy with no writable `*` entry. List
+  the clinical types they may write; give the configuration types
+  (ClientApplication, Bot, Subscription, OperationDefinition,
+  StructureDefinition, SearchParameter, AccessPolicy) read-only entries, or
+  none.
+- **The CI client** `push` runs as gets `admin: true` and an explicit policy
+  that writes the configuration types.
+- **A super admin** is the break-glass, and the only way to change
+  `strictMode` and `features`.
+
+`push` warns, without refusing, where the config departs from this:
+
+- a policy with a `*` entry that is not read-only;
+- a client with `admin: true` and no `accessPolicy`;
+- a policy other than the one `push` runs under that writes
+  StructureDefinition, since that bypasses the profile gate.
 
 ## Keep `@medplum/*` in step with your server
 
@@ -580,11 +740,12 @@ the rest. Each generated type's doc comment lists the rules it cannot check.
 - **Typed reads check presence, not values.** A stamped record whose code no
   longer matches its profile reads typed; `validate` finds it.
   `searchProfiled` reads one page, as `searchResources` does.
-- **Plumb never sets strict mode** or `defaultProfile`; a super admin turns
-  strict mode on.
-- **Nothing yet stops another writer** loading StructureDefinitions around
-  `push`, and every failure blocks it: a baseline of accepted failures and
-  the AccessPolicy lockdown come later.
+- **Plumb never sets strict mode** or `features`; a super admin does.
+- **Every failure blocks `push`:** a baseline of accepted failures comes
+  later. Another writer can still load StructureDefinitions around `push`
+  unless the [lockdown](#lock-the-project-down) keeps them read-only.
+- **Bots other than Plumb's checker are not declared** in `project`;
+  Medplum's CLI deploys them and their code.
 - **The checker is tested on Medplum's `vmcontext` bot runtime.** Hosted
   Medplum runs bots on AWS Lambda, which the tests cannot run.
 
