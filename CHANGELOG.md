@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.1 (2026-10-05)
+
+Fixes from the first adoption of 0.6.0 in a Medplum monorepo. Regenerate to
+pick them up: `plumb generate --check` reports the generated files as stale.
+
+- **Doc comments** are no longer cut at an abbreviation or inside
+  parentheses: US Core's `telecom` read `A contact detail (e.g.` (#111).
+- **The generated reads compile without the DOM lib or `@types/node`.**
+  `searchProfiled` takes a string, a record, or any list of pairs (a
+  `URLSearchParams` is one) and passes `searchResources` plain pairs, so
+  `ProfiledReader.searchResources` now takes `string[][]`; a `MedplumClient`
+  still fits (#112).
+- **Generated files export only what the index or a sibling uses**, so
+  unused-export tools such as knip report nothing in them: `routes`,
+  `required` and `WithId` are no longer exported (#113).
+- `npm pkg fix` on `bin`, and the README's cache action at v6 (#115).
+
 ## 0.6.0 (2026-10-05)
 
 The first published release; it includes everything in 0.1.0 to 0.5.0, which were not published.
