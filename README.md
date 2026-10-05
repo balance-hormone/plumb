@@ -408,6 +408,10 @@ export default defineConfig({
 });
 ```
 
+Set the variables in the shell, or keep them in a gitignored dotenv file and
+pass it with `--env-file .env` (repeatable; later files win, and a variable
+already set wins over every file).
+
 **2. Give Plumb a client.** Create a ClientApplication in the project for CI,
 and make its project membership an admin: `push` creates Plumb's checker bot
 through Medplum's admin endpoint, reads bot memberships, and writes Bot,
