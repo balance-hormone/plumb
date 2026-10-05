@@ -292,25 +292,40 @@ async function checkType(
   } while (!type.done);
 }
 
+// On Medplum's awslambda runtime, AWS holds a function just deployed or
+// redeployed in a state that refuses invocations for a few seconds.
+const NOT_READY = /currently in the following state: Pending|An update is in progress for resource/;
+const READY_WAIT_MS = 2_000;
+const READY_TIMEOUT_MS = 60_000;
+
 /** One page, as an async job: a page can outlast an HTTP request, not the bot's timeout. */
-async function runPage(
+export async function runPage(
   medplum: MedplumClient,
   botId: string,
   input: ReturnType<typeof checkerInput>,
+  wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
 ): Promise<PageResult> {
-  const job = await medplum.post<AsyncJob>(
-    medplum.fhirUrl('Bot', botId, '$execute'),
-    input,
-    ContentType.JSON,
-    { headers: { Prefer: 'respond-async' }, pollStatusOnAccepted: true },
-  );
-  const output = job.output?.parameter ?? [];
-  const body = output.find((p) => p.name === 'responseBody')?.valueString;
-  if (job.status !== 'completed' || body === undefined) {
-    const outcome = output.find((p) => p.resource)?.resource;
-    throw new Error(`The checker's job ended ${job.status}: ${normalizeErrorString(outcome)}`);
+  for (let waited = 0; ; waited += READY_WAIT_MS) {
+    const job = await medplum.post<AsyncJob>(
+      medplum.fhirUrl('Bot', botId, '$execute'),
+      input,
+      ContentType.JSON,
+      { headers: { Prefer: 'respond-async' }, pollStatusOnAccepted: true },
+    );
+    const output = job.output?.parameter ?? [];
+    const body = output.find((p) => p.name === 'responseBody')?.valueString;
+    if (job.status === 'completed' && body !== undefined) return JSON.parse(body) as PageResult;
+    const reason = normalizeErrorString(output.find((p) => p.resource)?.resource);
+    if (!NOT_READY.test(reason)) {
+      throw new Error(`The checker's job ended ${job.status}: ${reason}`);
+    }
+    if (waited >= READY_TIMEOUT_MS) {
+      throw new Error(
+        `The checker bot is still not ready after ${READY_TIMEOUT_MS / 1000}s: ${reason}`,
+      );
+    }
+    await wait(READY_WAIT_MS);
   }
-  return JSON.parse(body) as PageResult;
 }
 
 function merge(saved: Saved, type: Saved['types'][string], page: PageResult): void {

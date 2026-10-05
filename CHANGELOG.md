@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.2 (2026-10-05)
+
+`validate` and `push` from an installed Plumb, and on Medplum's `awslambda`
+bot runtime, where the checker now has its first verified run.
+
+- **The installed CLI finds its own package.** It stopped at
+  `dist/esm/package.json`, so `validate` and `push` failed reading
+  `dist/esm/dist/checker.cjs`, and `--version` printed `undefined` (#117,
+  #118). `./package.json` is exported.
+- **On the `awslambda` runtime, a page waits while the checker's function is
+  not ready** (`Pending` after an install, an update in progress after a
+  redeploy), for up to a minute, instead of failing the first gate (#119).
+
 ## 0.6.1 (2026-10-05)
 
 Fixes from the first adoption of 0.6.0 in a Medplum monorepo. Regenerate to
