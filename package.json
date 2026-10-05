@@ -34,7 +34,7 @@
   "module": "dist/esm/index.mjs",
   "types": "dist/esm/index.d.ts",
   "bin": {
-    "plumb": "./dist/esm/cli.mjs"
+    "plumb": "dist/esm/cli.mjs"
   },
   "files": [
     "dist/cjs",

@@ -155,7 +155,7 @@ and its dependencies), so cache the shared package cache, keyed on
 checks each cached package against the lock's hashes. In GitHub Actions:
 
 ```yaml
-- uses: actions/cache@v4
+- uses: actions/cache@v6
   with:
     path: ~/.fhir/packages
     key: fhir-packages-${{ hashFiles('plumb.lock') }}
