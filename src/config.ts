@@ -211,26 +211,9 @@ export async function loadConfig(options: {
     return fail({ code: 'config-not-found', message: `No config file at ${configPath}.` });
   }
 
-  const url = pathToFileURL(configPath).href;
-  let module: { default?: unknown };
-  try {
-    module = await import(url);
-  } catch (err) {
-    const error = importError(err, false);
-    if (!error) throw err;
-    // Only for what Node cannot load: tsx's esbuild breaks in some
-    // environments that load the config, such as a jsdom test.
-    const tsx = findTsx(configPath);
-    if (!tsx) return fail(error);
-    try {
-      const tsconfig = nearest(configPath, 'tsconfig.json');
-      module = await tsx.tsImport(url, { parentURL: url, ...(tsconfig ? { tsconfig } : {}) });
-    } catch (err) {
-      const error = importError(err, true);
-      if (error) return fail(error);
-      throw err;
-    }
-  }
+  const imported = await importConfig(configPath);
+  if ('error' in imported) return fail(imported.error);
+  const { module } = imported;
   if (module.default === undefined) {
     return fail({
       code: 'no-default-export',
@@ -264,6 +247,35 @@ export async function loadConfig(options: {
       ...(local ? { local } : {}),
     },
   };
+}
+
+/**
+ * Imports the config with Node, or with the project's tsx for what Node
+ * cannot load: tsx's esbuild breaks in some environments that load the
+ * config, such as a jsdom test. Errors Plumb can name come back; others throw.
+ */
+async function importConfig(
+  configPath: string,
+): Promise<{ module: { default?: unknown } } | { error: ConfigError }> {
+  const url = pathToFileURL(configPath).href;
+  try {
+    return { module: await import(url) };
+  } catch (err) {
+    const error = importError(err, false);
+    if (!error) throw err;
+    const tsx = findTsx(configPath);
+    if (!tsx) return { error };
+    const tsconfig = nearest(configPath, 'tsconfig.json');
+    try {
+      return {
+        module: await tsx.tsImport(url, { parentURL: url, ...(tsconfig ? { tsconfig } : {}) }),
+      };
+    } catch (err) {
+      const error = importError(err, true);
+      if (error) return { error };
+      throw err;
+    }
+  }
 }
 
 // tsx is the project's, never Plumb's dependency: a workspace that imports
