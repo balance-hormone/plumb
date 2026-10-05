@@ -14,6 +14,7 @@ import type { PageResult, Reason } from './checker/handler.js';
 import { checkerInput } from './checker/input.js';
 import { checkerFilename, deployedVersion, findChecker } from './checker/install.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
+import { type Routing, routingRows } from './emit/routes.js';
 import type { LoadProfilesResult } from './loader.js';
 
 type ValidateStepName = 'load' | 'connect' | 'checker' | 'profiles' | 'validate';
@@ -48,6 +49,24 @@ interface ProfileReport {
   reasons: Reason[];
 }
 
+/** One type's unstamped resources, as if stamped as `createProfiled` would stamp them. */
+interface ForecastType {
+  read: number;
+  /** Routed to one profile and checked against its stamps; then those failing any. */
+  routed: number;
+  failing: number;
+  /** Routed to no profile, or to several unrelated ones, so not checked. */
+  unrouted: { none: number; ambiguous: number };
+}
+
+/** What would fail if the unstamped resources were stamped: reported, never failing the run. */
+interface Forecast {
+  types: Record<string, ForecastType>;
+  profiles: Record<string, ProfileReport>;
+}
+
+type SavedProfiles = Record<string, Omit<ProfileReport, 'failing'> & { failing: string[] }>;
+
 export interface ValidateEnvResult extends EnvResult<ValidateStepName> {
   checker?: { version: string; core?: string };
   /** Selected URLs the project holds more than one StructureDefinition for. */
@@ -58,6 +77,8 @@ export interface ValidateEnvResult extends EnvResult<ValidateStepName> {
   reportPath?: string;
   /** Pages carried over from an interrupted run. */
   resumed: number;
+  /** With `unstamped`. */
+  forecast?: Forecast;
 }
 
 export interface ValidateEnvOptions extends EnvOptions {
@@ -72,6 +93,8 @@ export interface ValidateEnvOptions extends EnvOptions {
    * profile; otherwise only resources with a selected stamp are read.
    */
   full?: boolean;
+  /** Also forecast what would fail if each type's unstamped resources were stamped. */
+  unstamped?: boolean;
   /**
    * Called after each page is saved, with the resource type, the pages done
    * so far, and how many of the type's resources to read have been.
@@ -90,7 +113,11 @@ interface Saved {
   pages: number;
   /** `of`: how many resources the run will read, for progress. */
   types: Record<string, TypeReport & { cursor?: string; done: boolean; of?: number }>;
-  profiles: Record<string, Omit<ProfileReport, 'failing'> & { failing: string[] }>;
+  profiles: SavedProfiles;
+  forecast?: {
+    types: Record<string, ForecastType & { cursor?: string; done: boolean }>;
+    profiles: SavedProfiles;
+  };
 }
 
 /**
@@ -138,7 +165,12 @@ export async function validateEnvironment(options: ValidateEnvOptions): Promise<
 
   let checked: Checked;
   try {
-    checked = await checkStored(medplum, loaded, bot.id as string, { ...options, filename });
+    const forecast = options.unstamped ? routingRows(loaded, options.config) : undefined;
+    checked = await checkStored(medplum, loaded, bot.id as string, {
+      ...options,
+      filename,
+      ...(forecast ? { forecast } : {}),
+    });
   } catch (err) {
     return step.fail('validate', [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
   }
@@ -146,6 +178,7 @@ export async function validateEnvironment(options: ValidateEnvOptions): Promise<
     types: checked.types,
     profiles: checked.profiles,
     resumed: checked.resumed,
+    ...(checked.forecast ? { forecast: checked.forecast } : {}),
     reportPath: options.reportPath,
     checker: { version: options.checker.version, ...(checked.core ? { core: checked.core } : {}) },
   });
@@ -163,6 +196,7 @@ export interface Checked {
   core?: string;
   resumed: number;
   warnings: string[];
+  forecast?: Forecast;
 }
 
 /**
@@ -176,11 +210,14 @@ export async function checkStored(
   botId: string,
   options: Pick<ValidateEnvOptions, 'reportPath' | 'resume' | 'full' | 'onPage'> & {
     filename: string;
+    /** The routing `forecast` checks unstamped resources with. */
+    forecast?: Pick<Routing, 'routes' | 'stamps'>;
   },
 ): Promise<Checked> {
   const profiles = loaded.profiles.map((p) => [p.url, p.sd.version]).sort();
+  const modes = [options.full ?? false, options.forecast !== undefined];
   const key = createHash('sha256')
-    .update(JSON.stringify([options.filename, profiles, options.full ?? false]))
+    .update(JSON.stringify([options.filename, profiles, ...modes]))
     .digest('hex');
   const { saved, warnings } = start(options, key);
   const resumed = saved.pages;
@@ -194,6 +231,10 @@ export async function checkStored(
     await checkType(medplum, saved, options, botId, input, (c) => {
       core = c;
     });
+    if (options.forecast) {
+      const base = checkerInput(loaded, resourceType as ResourceType);
+      await forecastType(medplum, saved, options, botId, base, options.forecast);
+    }
   }
   await classifyOtherStamps(medplum, saved);
   saved.complete = true;
@@ -214,10 +255,70 @@ export async function checkStored(
   for (const [type, { cursor: _c, done: _d, of: _o, ...report }] of Object.entries(saved.types)) {
     checked.types[type] = report;
   }
-  for (const [url, p] of Object.entries(saved.profiles)) {
-    checked.profiles[url] = { ...p, failing: p.failing.length };
+  checked.profiles = counted(saved.profiles);
+  if (saved.forecast) {
+    const types = Object.entries(saved.forecast.types).map(
+      ([type, { cursor: _c, done: _d, ...report }]) => [type, report],
+    );
+    checked.forecast = {
+      types: Object.fromEntries(types),
+      profiles: counted(saved.forecast.profiles),
+    };
   }
   return checked;
+}
+
+/** Failing ids stay in the saved file; the report has their count. */
+function counted(profiles: SavedProfiles): Record<string, ProfileReport> {
+  return Object.fromEntries(
+    Object.entries(profiles).map(([url, p]) => [url, { ...p, failing: p.failing.length }]),
+  );
+}
+
+/**
+ * Drives the checker through one type's unstamped resources, each routed and
+ * checked as `createProfiled` would stamp it, saving after each page.
+ */
+async function forecastType(
+  medplum: MedplumClient,
+  saved: Saved,
+  options: Pick<ValidateEnvOptions, 'reportPath' | 'onPage'>,
+  botId: string,
+  input: ReturnType<typeof checkerInput>,
+  routing: Pick<Routing, 'routes' | 'stamps'>,
+): Promise<void> {
+  const { resourceType } = input;
+  saved.forecast ??= { types: {}, profiles: {} };
+  const { types, profiles } = saved.forecast;
+  types[resourceType] ??= {
+    read: 0,
+    routed: 0,
+    failing: 0,
+    unrouted: { none: 0, ambiguous: 0 },
+    done: false,
+  };
+  const type = types[resourceType];
+  if (type.done) return;
+  const routes = routing.routes[resourceType] ?? [];
+  const stamps = Object.fromEntries(
+    routes.map((r) => [r.profile, routing.stamps[r.profile] ?? []]),
+  );
+  const forecast = { routes, stamps };
+  do {
+    const page = await runPage(medplum, botId, { ...input, forecast, cursor: type.cursor });
+    type.read += page.read;
+    type.routed += page.stamped;
+    type.failing += page.failing;
+    type.unrouted.none += page.unrouted?.none ?? 0;
+    type.unrouted.ambiguous += page.unrouted?.ambiguous ?? 0;
+    addProfiles(profiles, page, resourceType);
+    type.cursor = page.next;
+    type.done = !page.next;
+    saved.pages++;
+    write(options.reportPath, saved);
+    const of = saved.types[resourceType]?.unstamped ?? 0;
+    await options.onPage?.(resourceType, saved.pages, { read: type.read, of });
+  } while (!type.done);
 }
 
 /** A fresh run, or with `resume` the interrupted one for the same checker and profiles. */
@@ -313,7 +414,7 @@ async function checkType(
   do {
     const page = await runPage(medplum, botId, { ...input, cursor: type.cursor });
     onCore(page.core);
-    merge(saved, type, page);
+    merge(saved, type, page, resourceType);
     type.cursor = page.next;
     type.done = !page.next;
     saved.pages++;
@@ -362,7 +463,12 @@ export async function runPage(
   }
 }
 
-function merge(saved: Saved, type: Saved['types'][string], page: PageResult): void {
+function merge(
+  saved: Saved,
+  type: Saved['types'][string],
+  page: PageResult,
+  resourceType: string,
+): void {
   if (page.totals) {
     type.read = page.totals.readable;
     type.unstamped = page.totals.unstamped;
@@ -382,9 +488,13 @@ function merge(saved: Saved, type: Saved['types'][string], page: PageResult): vo
   for (const [url, n] of Object.entries(page.otherStamps)) {
     type.otherProfiles[url] = (type.otherProfiles[url] ?? 0) + n;
   }
+  addProfiles(saved.profiles, page, resourceType);
+}
+
+function addProfiles(target: SavedProfiles, page: PageResult, resourceType: string): void {
   for (const [url, p] of Object.entries(page.profiles)) {
-    const profile = saved.profiles[url];
-    if (!profile) continue;
+    target[url] ??= { resourceType, checked: 0, failing: [], reasons: [] };
+    const profile = target[url];
     profile.checked += p.checked;
     profile.failing.push(...p.failing);
     for (const reason of p.reasons) {

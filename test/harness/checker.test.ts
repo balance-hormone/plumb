@@ -189,6 +189,49 @@ describe('a page', () => {
     expect(result).toMatchObject({ stamped: 3, failing: failing.size });
   });
 
+  test('forecast routes each unstamped resource and validates it as stamped', async () => {
+    const missing = { resourceType: 'Patient', name: [{ family: 'T' }] };
+    const page = [
+      stamped(valid as Resource, 'a', undefined),
+      stamped(missing as Resource, 'b', undefined),
+      stamped(missing as Resource, 'c', [PATIENT]),
+    ];
+    const routes = [{ profile: PATIENT, parents: [], keys: [] }];
+    const forecast = { routes, stamps: { [PATIENT]: [PATIENT] } };
+    const { result, searches } = await run({ ...input('Patient'), forecast }, [page]);
+    expect(searches[0]).toEqual({
+      '_profile:missing': 'true',
+      _count: '100',
+      _sort: '_lastUpdated',
+    });
+    expect(result).toMatchObject({
+      read: 2,
+      stamped: 2,
+      failing: 1,
+      unrouted: { none: 0, ambiguous: 0 },
+      profiles: { [PATIENT]: { checked: 2, failing: ['b'] } },
+    });
+    expect(result.totals).toBeUndefined();
+  });
+
+  test('forecast counts resources that route to no profile, or to several', async () => {
+    const page = [
+      stamped(valid as Resource, 'a', undefined),
+      stamped(valid as Resource, 'b', undefined),
+    ];
+    const other = 'http://example.org/fhir/StructureDefinition/other';
+    const key = (gender: string): [string, unknown[]] => ['gender', [gender]];
+    const routes = [
+      { profile: PATIENT, parents: [], keys: [key('male')] },
+      { profile: other, parents: [], keys: [key('male')] },
+    ];
+    const forecast = { routes, stamps: { [PATIENT]: [PATIENT], [other]: [other] } };
+    const male = { ...page[1], gender: 'male' } as Resource;
+    const { result } = await run({ ...input('Patient'), forecast }, [[page[0] as Resource, male]]);
+    expect(result).toMatchObject({ read: 2, stamped: 0, unrouted: { none: 1, ambiguous: 1 } });
+    expect(result.profiles).toEqual({});
+  });
+
   test('groups failure reasons by path and message, without array indexes', async () => {
     const missing = { resourceType: 'Patient', name: [{ family: 'T' }] };
     const page = ['a', 'b', 'c'].map((id) => stamped(missing as Resource, id, [PATIENT]));

@@ -89,7 +89,8 @@ and `drizzle-kit check` checks migration files.
   profiles before every old record is fixed without accepting new failures.
 - **Adopting late,** documented as safe steps: check production, migrate what a
   transform can fix ([data migrations](data-migrations.md)), record the
-  baseline, load the profiles, turn strict mode on.
+  baseline, load the profiles, turn strict mode on. `validate --unstamped`
+  (v0.8) is the first step's forecast for records not yet stamped.
 
 ## Where validation runs
 

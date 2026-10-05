@@ -37,6 +37,12 @@
   validate --full` reads everything to break them down into silent stamps
   and profiles not selected, as every run did before. A type of more than one
   page prints its progress (#127).
+- **`plumb validate --unstamped`** forecasts what would fail once unstamped
+  resources are stamped: the checker routes each one with the config's
+  routing rows, as the generated `route` does, and checks it against what
+  `createProfiled` would stamp. Resources routing to no profile, or to
+  several, are counted by reason. The forecast is reported beside the
+  results and never fails the run (#123).
 
 ## 0.7.0 (2026-10-05)
 

@@ -360,6 +360,32 @@ describe('formatValidation', () => {
       '    Basic: none stored',
     ]);
   });
+  test('with a forecast, says what would fail if the unstamped were stamped', () => {
+    const lines = formatValidation({
+      types: { Patient: type({ exists: 5, read: 5, stamped: 2, unstamped: 3 }) },
+      profiles: { [`${PLUMB}/patient`]: profile('Patient', 2, 0) },
+      forecast: {
+        types: {
+          Patient: { read: 3, routed: 2, failing: 1, unrouted: { none: 1, ambiguous: 0 } },
+        },
+        profiles: {
+          [`${PLUMB}/patient`]: {
+            ...profile('Patient', 2, 1),
+            reasons: [
+              { path: 'Patient.birthDate', message: 'Missing required property', count: 1 },
+            ],
+          },
+        },
+      },
+    });
+    expect(lines).toEqual([
+      '    Patient: 5 of 5 read, all 2 stamped passed; 3 unstamped',
+      '      patient   2 checked, 0 failures',
+      '      if stamped: 1 of 2 routed would fail; 1 routes to no profile',
+      '        patient   2 checked, 1 would fail',
+      '          Patient.birthDate: Missing required property   (1)',
+    ]);
+  });
 });
 
 describe('plumb check', () => {

@@ -13,6 +13,7 @@ import {
   validateResource,
 } from '@medplum/core';
 import type { Resource, ResourceType, StructureDefinition } from '@medplum/fhirtypes';
+import { type Route, routeTo } from '../emit/routes.js';
 
 // The checker bot: bundled with @medplum/core into one file, it runs inside the
 // project, so stored resources never leave Medplum; only counts, reasons and
@@ -37,6 +38,12 @@ export interface CheckerInput {
    * read, and the rest are counted by query.
    */
   full?: boolean;
+  /**
+   * Read the unstamped resources instead, and check each against what
+   * `createProfiled` would stamp it with: its type's routing rows, and each
+   * routed profile's stamps.
+   */
+  forecast?: { routes: Route[]; stamps: Record<string, string[]> };
 }
 
 /** A type's counts by query, under the checker's own AccessPolicy. */
@@ -81,6 +88,8 @@ export interface PageResult {
   profiles: Record<string, ProfileResult>;
   /** On the first page of a run that is not `full`. */
   totals?: Totals;
+  /** With `forecast`: the unstamped resources no profile, or several, would route to. */
+  unrouted?: { none: number; ambiguous: number };
   /** The cursor for the next page, absent on the last. */
   next?: string;
 }
@@ -89,12 +98,12 @@ export async function handler(
   medplum: MedplumClient,
   event: BotEvent<CheckerInput>,
 ): Promise<PageResult> {
-  const { resourceType, profiles, definitions, cursor, full } = event.input;
+  const { resourceType, profiles, definitions, cursor, full, forecast } = event.input;
   const selected = load(definitions, profiles);
   // Medplum matches each stamp exactly, so this finds no url|version stamp.
   const stamped: Record<string, string> = full ? {} : { _profile: profiles.join(',') };
   const bundle = await medplum.search(resourceType, {
-    ...stamped,
+    ...(forecast ? { '_profile:missing': 'true' } : stamped),
     _count: PAGE_SIZE,
     _sort: '_lastUpdated',
     ...(cursor ? { _cursor: cursor } : {}),
@@ -102,10 +111,36 @@ export async function handler(
   const next = bundle.link?.find((l) => l.relation === 'next')?.url;
   const resources = (bundle.entry ?? []).flatMap((e) => (e.resource ? [e.resource] : []));
   await loadNestedTypes(medplum, resources);
+  const nextCursor = next ? new URL(next).searchParams.get('_cursor') : null;
+  const after = nextCursor ? { next: nextCursor } : {};
+  if (forecast) return { ...forecastPage(resources, selected, forecast), ...after };
   const page = checkPage(resources, selected);
   const totals = full || cursor ? undefined : await count(medplum, resourceType, stamped);
-  const nextCursor = next ? new URL(next).searchParams.get('_cursor') : null;
-  return { ...page, ...(totals ? { totals } : {}), ...(nextCursor ? { next: nextCursor } : {}) };
+  return { ...page, ...(totals ? { totals } : {}), ...after };
+}
+
+/**
+ * Checks each unstamped resource as if stamped with what its route stamps,
+ * selected profiles only: a default the config does not select has no
+ * definition here.
+ */
+function forecastPage(
+  resources: Resource[],
+  selected: Map<string, StructureDefinition>,
+  forecast: NonNullable<CheckerInput['forecast']>,
+): Omit<PageResult, 'next'> {
+  const unrouted = { none: 0, ambiguous: 0 };
+  const routed: Resource[] = [];
+  for (const resource of resources) {
+    const route = routeTo(forecast.routes, resource);
+    if ('refused' in route) unrouted[route.refused]++;
+    else {
+      const profile = (forecast.stamps[route.profile] ?? []).filter((url) => selected.has(url));
+      routed.push({ ...resource, meta: { ...resource.meta, profile } });
+    }
+  }
+  const page = checkPage(routed, selected);
+  return { ...page, read: resources.length, unrouted };
 }
 
 /**
