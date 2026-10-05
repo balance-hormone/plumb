@@ -93,9 +93,9 @@
   ([design 02](design/02-conformance-check.md)), v0.3 routing and
   `createProfiled` ([design 03](design/03-routing-and-create.md)), v0.4
   typed reads ([design 04](design/04-typed-reads.md)), v0.5 SUSHI in
-  `generate` ([design 05](design/05-sushi.md)). Next: v0.6 is
-  project config as code ([design 06](design/06-project-config.md)), which extends v0.2's `push`. Later: Zod schemas, agent
-  summaries.
+  `generate` ([design 05](design/05-sushi.md)), v0.6 project config as
+  code ([design 06](design/06-project-config.md)), which extends v0.2's
+  `push`. Later: Zod schemas, agent summaries.
 - **v0.2:** the server tests in [`../test/server`](../test/server/)
   start Medplum, Postgres and Redis in Docker and give each run a strict
   project with an admin CI client and synthetic data. CI runs them on Node 22
@@ -203,6 +203,36 @@
   (#90). The README's FSH section uses `fsh`, and an e2e FSH variant installs
   `fsh-sushi`, generates, type-checks, passes `--check`, and fails it after
   an FSH edit without a rebuild (#91). **v0.5 is complete.**
+- **v0.6:** `project` in the config (#97) declares settings, secrets,
+  AccessPolicies in Medplum's own shape, default access policies and clients,
+  by key, with an environment's `settings` merged over the project's. Named
+  errors cover an unknown policy key, duplicate names, a setting that is not
+  a string, boolean or number, and any super-admin field; `lockdownWarnings`
+  flags a writable `*` entry, an admin client with no policy, and a policy
+  other than push's own that writes StructureDefinition.
+  `push` runs a `project` step once the profile gate has passed (#98):
+  `planProject` and `applyProject` find each policy by a `meta.tag` with the
+  config key as code, update it in place, leave an untagged one alone unless
+  `--adopt`, and delete a removed key's only with `--prune`. Every lookup
+  keeps the target project's own resources, since a linked project's tagged
+  policy is not this one's to write; real-server tests link a project to
+  show it. The login's copy of the Project leaves out `link` and `features`,
+  so the plan reads the Project itself.
+  Clients (#99) are created through the admin endpoint, then tagged and given
+  their membership's policy and `admin`; the plan holds only their ids, so no
+  client secret can reach it or `--json`. A client can name a policy the same
+  push creates.
+  The Project's own fields (#100), settings, secrets, `defaultProfile` and
+  `defaultAccessPolicies`, are written in one read-merge-write update after
+  the profiles load. A setting's type follows its value; an `{ env }` secret
+  is planned by its variable and read only when written, and a `true` one
+  must exist. Real-server tests show an unstamped write validated against,
+  and stamped with, the configured default. The checker's identifier now
+  shares the tag system, the package's npm URL.
+  `push --check` (#101) plans without the checker or the gate and exits 1
+  when `push` would write anything; a real-server test turns it red with a
+  hand edit. The README configures a project, catches drift nightly, and
+  gives the lockdown recipe (#102). **v0.6 is complete.**
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
@@ -224,8 +254,9 @@
     type requires
   - [05: SUSHI in `generate`](design/05-sushi.md) (implemented in v0.5): one
     command builds FSH and types it
-  - [06: project config as code](design/06-project-config.md) (accepted):
-    `push` converges settings, default profiles, access policies and clients
+  - [06: project config as code](design/06-project-config.md) (implemented
+    in v0.6): `push` converges settings, default profiles, access policies and
+    clients
 - [`future/`](future/): parked ideas, each with its design sketch and research.
   - [Conformance check](future/conformance-check.md): the later stages, the
     baseline and adopting late; stages 1 and 2 are design 02.

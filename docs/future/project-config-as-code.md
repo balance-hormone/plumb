@@ -1,7 +1,7 @@
 # Idea: Project Config as Code
 
 **Status: picked up** by [design 06](../design/06-project-config.md)
-(accepted). This note keeps the original sketch and research.
+(implemented in v0.6). This note keeps the original sketch and research.
 
 ## Problem
 

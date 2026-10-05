@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.0 (unreleased)
+
+Project config as code: `push` converges what a project admin can write.
+
+- **`project`** in the config declares settings, secrets, AccessPolicies,
+  default access policies and clients, typed with `@medplum/fhirtypes`. An
+  environment's `settings` merge over `project.settings`. An unknown policy
+  key, duplicate names, a setting that is not a string, boolean or number,
+  and a super-admin field (`strictMode`, `features`, `link`,
+  `systemSetting`) are config errors.
+- **`push` runs a `project` step** once the profile gate has passed. It plans
+  each AccessPolicy and client by a `meta.tag` with its config key, updates
+  it in place, and writes the Project's settings, secrets, `defaultProfile`
+  and `defaultAccessPolicies` in one update. A second push with no config
+  change writes nothing.
+- **`--adopt`** tags and converges an untagged policy or client with a key's
+  name; without it, one stops the plan. **`--prune`** deletes a tagged one
+  whose key left the config.
+- **Secrets** come from environment variables (`{ env }`) or must already
+  exist (`true`); no plan, `--json` output or error holds a value. A created
+  client's id is printed, never its secret.
+- **`push --check`** plans without installing or writing anything, and exits
+  1 when `push` would change something, naming what drifted.
+- **Lockdown warnings:** a writable `*` entry, an admin client with no
+  policy, and a policy other than push's own that writes
+  StructureDefinition.
+- `strictMode` and `features` are reported, never written. A linked
+  project's resources are never planned.
+- **Breaking:** the checker bot's identifier system is now
+  `https://www.npmjs.com/package/plumb-fhir`, as is Plumb's tag system, so a
+  checker installed by 0.5 is installed again.
+
 ## 0.5.0 (unreleased)
 
 SUSHI in `generate`: one command builds FSH and types it.
