@@ -31,7 +31,7 @@ export interface CliIo {
 }
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
-       plumb validate --env <name> [--env-file <path>] [--full] [--resume] [--config <path>]
+       plumb validate --env <name> [--env-file <path>] [--full] [--unstamped] [--resume] [--config <path>]
        plumb push --env <name> [--env-file <path>] [--dry-run | --check] [--prune] [--adopt] [--config <path>]
        plumb check [--update-baseline [--allow-growth]] [--config <path>]
 
@@ -55,6 +55,8 @@ Options:
   --resume         continue an interrupted validate from its last page
   --full           validate: read every stored resource, not only those with a selected
                    stamp, to break down silent stamps and other profiles' stamps
+  --unstamped      validate: also forecast what would fail if unstamped resources were
+                   stamped as createProfiled would; reported, never failing the run
   --dry-run        push: stop after the gate and the project plan, writing nothing
   --prune          push: delete what Plumb manages that the config no longer has
   --adopt          push: tag and converge an untagged resource with a key's name
@@ -255,6 +257,7 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
           reportPath,
           resume: values.resume,
           full: values.full,
+          unstamped: values.unstamped,
         });
   printValidation(result, relative(io.cwd, result.reportPath ?? ''), say, problem);
   for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
@@ -344,7 +347,7 @@ function printValidation(
   }
 }
 
-type Found = Pick<Checked, 'types' | 'profiles'>;
+type Found = Pick<Checked, 'types' | 'profiles' | 'forecast'>;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -356,10 +359,39 @@ export function formatValidation(result: Found): string[] {
     const status = typeStatus(t);
     lines.push(`    ${type}: ${[status, ...typeExtras(t)].join('; ')}`);
     for (const [url, p] of profiles) {
-      const name = url.slice(url.lastIndexOf('/') + 1);
-      lines.push(`      ${name}   ${p.checked} checked, ${plural(p.failing, 'failure')}`);
+      lines.push(`      ${short(url)}   ${p.checked} checked, ${plural(p.failing, 'failure')}`);
       for (const r of p.reasons) lines.push(`        ${r.path}: ${r.message}   (${r.count})`);
     }
+    const forecast = result.forecast?.types[type];
+    if (forecast) lines.push(...forecastLines(type, forecast, result.forecast?.profiles ?? {}));
+  }
+  return lines;
+}
+
+const short = (url: string) => url.slice(url.lastIndexOf('/') + 1);
+
+/** What would fail if the type's unstamped resources were stamped: never a failure. */
+function forecastLines(
+  type: string,
+  f: NonNullable<Found['forecast']>['types'][string],
+  profiles: NonNullable<Found['forecast']>['profiles'],
+): string[] {
+  const status =
+    f.routed === 0
+      ? `none of ${f.read} routed`
+      : f.failing === 0
+        ? `all ${f.routed} routed would pass`
+        : `${f.failing} of ${f.routed} routed would fail`;
+  const unrouted = [
+    f.unrouted.none > 0 &&
+      `${f.unrouted.none} ${f.unrouted.none === 1 ? 'routes' : 'route'} to no profile`,
+    f.unrouted.ambiguous > 0 && `${f.unrouted.ambiguous} to several`,
+  ].filter((x) => typeof x === 'string');
+  const lines = [`      if stamped: ${[status, unrouted.join(', ')].filter(Boolean).join('; ')}`];
+  for (const [url, p] of Object.entries(profiles)) {
+    if (p.resourceType !== type) continue;
+    lines.push(`        ${short(url)}   ${p.checked} checked, ${p.failing} would fail`);
+    for (const r of p.reasons) lines.push(`          ${r.path}: ${r.message}   (${r.count})`);
   }
   return lines;
 }
@@ -413,6 +445,7 @@ function parse(argv: string[]) {
       'env-file': { type: 'string', multiple: true },
       resume: { type: 'boolean' },
       full: { type: 'boolean' },
+      unstamped: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       prune: { type: 'boolean' },
       adopt: { type: 'boolean' },

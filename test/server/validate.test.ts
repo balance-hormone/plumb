@@ -191,6 +191,30 @@ describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
     ]);
   });
 
+  test('unstamped forecasts what would fail once stamped, without failing the run', async () => {
+    const forecast = await validateEnvironment({ ...options, unstamped: true });
+    expect(forecast.types).toEqual(report.types);
+    expect(forecast.profiles).toEqual(report.profiles);
+    expect(forecast.steps.at(-1)?.summary).toBe(report.steps.at(-1)?.summary);
+    // The unstamped Patient routes to the only Patient profile, and lacks its birthDate.
+    expect(forecast.forecast?.types.Patient).toEqual({
+      read: 1,
+      routed: 1,
+      failing: 1,
+      unrouted: { none: 0, ambiguous: 0 },
+    });
+    expect(forecast.forecast?.profiles[PATIENT]).toMatchObject({
+      checked: 1,
+      failing: 1,
+      reasons: [expect.objectContaining({ path: 'Patient.birthDate', count: 1 })],
+    });
+    const observation = forecast.forecast?.types.Observation;
+    expect(observation?.read).toBe(1);
+    expect((observation?.routed ?? 0) + (observation?.unrouted.none ?? 0)).toBe(1);
+    expect(forecast.forecast?.types.Encounter).toMatchObject({ read: 0, routed: 0 });
+    expect(JSON.stringify(forecast)).not.toMatch(/"id"/);
+  });
+
   test('an interrupted run resumes from its last cursor', async () => {
     const interrupted = await validateEnvironment({
       ...options,

@@ -2,8 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Resource } from '@medplum/fhirtypes';
 import { beforeAll, describe, expect, test } from 'vitest';
+import { routeTo } from '../../src/emit/routes.js';
 import { usCoreCases } from './fixtures.js';
 import { type GeneratedRoutes, generatedRoutes } from './routes.js';
+
+/** What the generated route returns, or the kind of refusal it throws, as routeTo reports it. */
+function generated(r: GeneratedRoutes, resource: Resource) {
+  try {
+    return { profile: r.route(resource) };
+  } catch (e) {
+    const many = (e as Error).message.includes('unrelated profiles match');
+    return { refused: many ? 'ambiguous' : 'none' };
+  }
+}
+const checker = (r: GeneratedRoutes, resource: Resource) =>
+  routeTo(r.routing.routes[resource.resourceType] ?? [], resource);
 
 const PLUMB = 'http://example.org/fhir/plumb-test/StructureDefinition';
 const LOINC = 'http://loinc.org';
@@ -62,6 +75,13 @@ describe('route, on the synthetic profiles', () => {
     ).toBeUndefined();
   });
 
+  test("the checker's routeTo agrees with the generated route", () => {
+    for (const code of ['39156-5', '29463-7', '8302-2', '8310-5', '0000-0']) {
+      expect(checker(r, observation(code))).toEqual(generated(r, observation(code)));
+    }
+    expect(checker(r, observation('0000-0'))).toEqual({ refused: 'none' });
+  });
+
   test('refuses a resource no profile matches, saying what would select each', () => {
     const err = (() => {
       try {
@@ -93,6 +113,7 @@ describe('route, on the synthetic profiles', () => {
         ],
       },
     });
+    expect(checker(r, both)).toEqual({ refused: 'ambiguous' });
     expect(() => r.route(both)).toThrow(
       /^2 unrelated profiles match this Observation\.\n {2}bindings-observation/,
     );
@@ -195,5 +216,6 @@ describe('route, on the US Core 9.0.0 examples', () => {
   test.each(claimed)('$name routes to the profile it claims, or one more specific', (c) => {
     const routed = r.route(c.resource) as string;
     expect([routed, ...r.parentsOf(routed)]).toContain(c.profile);
+    expect(checker(r, c.resource)).toEqual(generated(r, c.resource));
   });
 });

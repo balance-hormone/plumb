@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { Resource } from '@medplum/fhirtypes';
 import type { PlumbConfig } from '../../src/config.js';
 import { printFiles } from '../../src/emit/print.js';
-import { routingRows } from '../../src/emit/routes.js';
+import { type Routing, routingRows } from '../../src/emit/routes.js';
 import { transform } from '../../src/emit/transform.js';
 import { writeFiles } from '../../src/emit/write.js';
 import { loadProfiles } from '../../src/loader.js';
@@ -45,6 +45,8 @@ export interface GeneratedRoutes {
   RoutingError: new (...args: never[]) => Error & { candidates: readonly string[] };
   /** A routed profile's selected parents, from the generated table. */
   parentsOf: (profile: string) => readonly string[];
+  /** The rows the generated table was printed from. */
+  routing: Routing;
   /** The generated presence check: the rows of the profile's `required` the resource lacks. */
   missing: (resource: Resource, profile: string) => string[];
   isProfiled: (resource: Resource, profile: string) => boolean;
@@ -123,6 +125,7 @@ export async function generatedRoutes(
     stampProfiled,
     typecheck: (source) => typecheck(files, source),
     parentsOf,
+    routing,
     // What a typed read reports missing, for a resource stamped as the profile.
     missing: (resource, profile) => {
       try {

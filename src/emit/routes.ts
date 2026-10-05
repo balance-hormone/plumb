@@ -158,6 +158,24 @@ function ambiguous(type: string, rows: Route[]): string[] {
 const conflict = ([ea, pa]: RouteKey, [eb, pb]: RouteKey) =>
   ea === eb && pa.every((x) => pb.every((y) => !holds(x, y) && !holds(y, x)));
 
+/**
+ * The profile the generated `route` picks for a resource among its type's
+ * rows, or why it refuses. The checker routes unstamped resources with it,
+ * so the two must agree.
+ */
+export function routeTo(
+  rows: readonly Route[],
+  resource: object,
+): { profile: string } | { refused: 'none' | 'ambiguous' } {
+  const fields = resource as Record<string, unknown>;
+  const matched = rows.filter((row) =>
+    row.keys.every(([element, patterns]) => patterns.some((p) => holds(fields[element], p))),
+  );
+  const best = matched.filter((row) => !matched.some((o) => o.parents.includes(row.profile)));
+  if (best.length === 1 && best[0]) return { profile: best[0].profile };
+  return { refused: best.length === 0 ? 'none' : 'ambiguous' };
+}
+
 /** Whether `value` holds everything in `pattern`, as `_plumb.ts`'s `matches`. */
 function holds(value: unknown, pattern: unknown): boolean {
   if (Array.isArray(value) && !Array.isArray(pattern)) return value.some((v) => holds(v, pattern));

@@ -516,6 +516,14 @@ Failed in 40.8s
   the project does not hold, or a `url|version` stamp, since Medplum matches
   bare URLs only), and stamps of profiles the project holds but the config
   does not select. Run it when the report counts any.
+- **`--unstamped` forecasts what stamping would break.** Before moving
+  writes to `createProfiled` or backfilling stamps, `plumb validate --env prod
+  --unstamped` also reads each unstamped resource, routes it as the generated
+  `route` does, and checks it against what `createProfiled` would stamp. The
+  report adds `if stamped: 40 of 2,295 routed would fail; 12 route to no
+  profile` under each type, with the reasons. It is a forecast: the exit
+  code still reflects stamped data only. Defaults the config does not select
+  have no definition to check against, so only selected profiles are checked.
 - **Empty is never ambiguous.** Each type reports how many resources the bot
   read against how many exist, so "all passed", "none carries a selected
   profile", "none stored" and "0 of N readable" (an AccessPolicy that hides
