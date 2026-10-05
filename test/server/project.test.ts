@@ -3,7 +3,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AccessPolicy } from '@medplum/fhirtypes';
+import type { AccessPolicy, ClientApplication } from '@medplum/fhirtypes';
 import { build } from 'esbuild';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
@@ -21,7 +21,8 @@ const CONFIG: ProjectConfig = {
   },
 };
 
-const tagOf = (p: AccessPolicy) => p.meta?.tag?.find((t) => t.system === PLUMB_SYSTEM)?.code;
+const tagOf = (p: AccessPolicy | ClientApplication) =>
+  p.meta?.tag?.find((t) => t.system === PLUMB_SYSTEM)?.code;
 
 // Each test file has a project of its own, so what it holds is only what these tests wrote.
 describe.skipIf(!server)('the project step converges AccessPolicies', { timeout: 60_000 }, () => {
@@ -48,7 +49,7 @@ describe.skipIf(!server)('the project step converges AccessPolicies', { timeout:
       ['+', 'clinician'],
       ['+', 'reader'],
     ]);
-    expect(await applyProject(first, await connect(project))).toBe(2);
+    expect(await applyProject(first, await connect(project))).toMatchObject({ written: 2 });
     const policies = await stored();
     expect(policies.get('clinician')).toMatchObject({
       resource: [{ resourceType: 'Patient' }, { resourceType: 'Observation' }],
@@ -117,10 +118,10 @@ describe.skipIf(!server)('the project step converges AccessPolicies', { timeout:
     expect(kept.changes).toEqual([
       { kind: '-', type: 'AccessPolicy', key: 'nurse', id: expect.any(String), kept: true },
     ]);
-    expect(await applyProject(kept, await connect(project))).toBe(0);
+    expect(await applyProject(kept, await connect(project))).toMatchObject({ written: 0 });
     expect((await stored()).has('nurse')).toBe(true);
 
-    expect(await converge(CONFIG, { prune: true })).toBe(1);
+    expect(await converge(CONFIG, { prune: true })).toMatchObject({ written: 1 });
     expect((await stored()).has('nurse')).toBe(false);
     expect((await plan(CONFIG, { prune: true })).changes).toEqual([]);
   });
