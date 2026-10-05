@@ -195,8 +195,8 @@ const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
 const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 
 /**
- * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with the
- * project's own tsx when it has one, and Node's type stripping otherwise.
+ * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
+ * Node's type stripping, or the project's own tsx for what Node cannot load.
  * `local`, `fsh` and `out` come back as absolute
  * paths, resolved against the config file's folder; with `fsh`, `local` is its
  * SUSHI output.
@@ -211,17 +211,25 @@ export async function loadConfig(options: {
     return fail({ code: 'config-not-found', message: `No config file at ${configPath}.` });
   }
 
-  const tsx = findTsx(configPath);
   const url = pathToFileURL(configPath).href;
   let module: { default?: unknown };
   try {
-    module = tsx
-      ? await tsx.tsImport(url, { parentURL: url, tsconfig: nearest(configPath, 'tsconfig.json') })
-      : await import(url);
+    module = await import(url);
   } catch (err) {
-    const error = importError(err, tsx !== undefined);
-    if (error) return fail(error);
-    throw err;
+    const error = importError(err, false);
+    if (!error) throw err;
+    // Only for what Node cannot load: tsx's esbuild breaks in some
+    // environments that load the config, such as a jsdom test.
+    const tsx = findTsx(configPath);
+    if (!tsx) return fail(error);
+    try {
+      const tsconfig = nearest(configPath, 'tsconfig.json');
+      module = await tsx.tsImport(url, { parentURL: url, ...(tsconfig ? { tsconfig } : {}) });
+    } catch (err) {
+      const error = importError(err, true);
+      if (error) return fail(error);
+      throw err;
+    }
   }
   if (module.default === undefined) {
     return fail({

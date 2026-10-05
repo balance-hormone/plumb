@@ -23,17 +23,27 @@ const TSX = dirname(createRequire(import.meta.url).resolve('tsx/package.json'));
 
 // Vitest transforms TypeScript itself, so loading runs in a plain Node process
 // to exercise Node's own type stripping, as the CLI will. With `tsx`, the
-// project has tsx installed.
+// project has tsx installed; `broken`, a tsx that throws when loaded, as
+// tsx's esbuild does under a jsdom test environment.
 function load(
   files: Record<string, string>,
   configPath?: string,
-  options: { tsx?: boolean } = {},
+  options: { tsx?: boolean | 'broken' } = {},
 ): LoadConfigResult {
   const cwd = mkdtempSync(join(tmpdir(), 'plumb-config-'));
   writeFileSync(join(cwd, 'package.json'), '{ "type": "module" }');
-  if (options.tsx) {
+  if (options.tsx === true) {
     mkdirSync(join(cwd, 'node_modules'));
     symlinkSync(TSX, join(cwd, 'node_modules', 'tsx'), 'dir');
+  }
+  if (options.tsx === 'broken') {
+    const broken = join(cwd, 'node_modules', 'tsx');
+    mkdirSync(broken, { recursive: true });
+    writeFileSync(
+      join(broken, 'package.json'),
+      '{ "name": "tsx", "exports": { "./esm/api": "./api.cjs" } }',
+    );
+    writeFileSync(join(broken, 'api.cjs'), 'throw new Error("tsx loaded");');
   }
   for (const [file, text] of Object.entries(files)) {
     mkdirSync(dirname(join(cwd, file)), { recursive: true });
@@ -173,6 +183,11 @@ describe('loadConfig', () => {
   test('with tsx installed, loads workspace TypeScript, path aliases and enums', () => {
     const result = load(WORKSPACE, undefined, { tsx: true });
     expect(result.ok && result.config.out).toMatch(/[/\\]out[/\\]generated[/\\]types$/);
+  });
+
+  test('with tsx installed, a config Node can load never loads tsx', () => {
+    const result = load({ 'plumb.config.ts': VALID }, undefined, { tsx: 'broken' });
+    expect(result.ok).toBe(true);
   });
 
   test('unsupported-syntax, for TypeScript under node_modules without tsx', () => {
