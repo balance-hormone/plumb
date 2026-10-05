@@ -23,6 +23,12 @@
   files win, and a variable already set wins over every file. Node refuses
   `--env-file` in `NODE_OPTIONS` and cannot run a package manager's shell
   shim, so this was the only short way (#120).
+- **The config loads with the project's tsx when it has one installed**, so
+  in a workspace `plumb.config.ts` can import a sibling package that exports
+  TypeScript source, and use `tsconfig` path aliases and `enum`. Without tsx,
+  Node's type stripping loads it as before, and importing TypeScript from
+  `node_modules` is now a named `unsupported-syntax` error suggesting tsx
+  (#114).
 
 ## 0.7.0 (2026-10-05)
 
