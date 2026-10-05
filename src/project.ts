@@ -4,12 +4,18 @@ import { deepEquals, type MedplumClient } from '@medplum/core';
 import type {
   AccessPolicy,
   ClientApplication,
+  Project,
+  ProjectDefaultProfile,
   ProjectMembership,
+  ProjectSetting,
   Reference,
 } from '@medplum/fhirtypes';
-import { lockdownWarnings, type ProjectConfig } from './config.js';
+import { lockdownWarnings, type PlumbConfig, type ProjectConfig } from './config.js';
 
-/** The `meta.tag` system of what `push` manages; the code is the config key. */
+/**
+ * The `meta.tag` system of what `push` manages, with the config key as code,
+ * and the checker bot's identifier system: one URL the package name keeps stable.
+ */
 export const PLUMB_SYSTEM = 'https://www.npmjs.com/package/plumb-fhir';
 
 /** One write `push` plans in the project: `+` create, `~` update, `-` remove. */
@@ -47,6 +53,15 @@ export type ProjectChange =
       admin: boolean;
     }
   | {
+      kind: '~';
+      type: 'Project';
+      key: 'project';
+      id: string;
+      /** Each setting, secret and default that differs, as the plan prints it. */
+      fields: string[];
+      write: ProjectWrite;
+    }
+  | {
       kind: '-';
       type: 'AccessPolicy' | 'ClientApplication';
       key: string;
@@ -70,6 +85,28 @@ export interface ProjectPlan {
   policyIds: Record<string, string>;
 }
 
+/**
+ * The Project fields `push` writes, each only when it differs. A secret is
+ * named with the variable that holds it, never its value.
+ */
+interface ProjectWrite {
+  setting?: ProjectSetting[];
+  secret?: { name: string; env: string }[];
+  defaultProfile?: ProjectDefaultProfile[];
+  /** Each role's policy, by key. */
+  defaultAccessPolicies?: ProjectConfig['defaultAccessPolicies'];
+}
+
+type Role = NonNullable<ProjectConfig['defaultAccessPolicies']>[number]['profileType'];
+
+/** What the project step plans from: `project`, with the environment's settings, and v0.3's `defaultProfile`. */
+export type ProjectTarget = ProjectConfig & Pick<PlumbConfig, 'defaultProfile'>;
+
+// @medplum/fhirtypes 5.1.0 has no defaultAccessPolicies on Project.
+type ProjectFields = Project & {
+  defaultAccessPolicies?: { profileType: Role; accessPolicy: Reference<AccessPolicy> }[];
+};
+
 /** A client the project holds, with the membership that carries its access. */
 export interface HeldClient {
   client: ClientApplication;
@@ -81,15 +118,17 @@ export interface ProjectOptions {
   adopt?: boolean;
   /** Delete a tagged resource whose key left the config. */
   prune?: boolean;
+  /** Where `{ env }` secrets are read from. */
+  env?: Record<string, string | undefined>;
 }
 
 /**
- * Plans the project's AccessPolicies and clients against the config. Only the
- * target project's own resources are read: a linked project's are not this
- * one's to write, even when they carry Plumb's tag.
+ * Plans the project's AccessPolicies, clients and own fields against the
+ * config. Only the target project's own resources are read: a linked
+ * project's are not this one's to write, even when they carry Plumb's tag.
  */
 export async function planProject(
-  project: ProjectConfig,
+  project: ProjectTarget,
   medplum: MedplumClient,
   options: ProjectOptions = {},
 ): Promise<ProjectPlan> {
@@ -109,21 +148,153 @@ export async function planProject(
   const plan = planPolicies(project, held, options);
   const clients = await withMemberships(medplum, apps, Object.keys(project.clients ?? {}));
   const planned = planClients(project, clients, plan.policyIds, options);
-  // Policies first, which clients reference; removals last, clients before the policies they use.
+  const fields = planFields(project, current, plan.policyIds, options.env ?? {});
+  // Policies first, which clients and the Project reference; removals last, clients before the policies they use.
   const removal = (c: ProjectChange) => c.kind === '-';
   plan.changes = [
     ...plan.changes.filter((c) => !removal(c)),
     ...planned.changes.filter((c) => !removal(c)),
+    ...fields.changes,
     ...planned.changes.filter(removal),
     ...plan.changes.filter(removal),
   ];
-  plan.blocked.push(...planned.blocked);
+  plan.blocked.push(...planned.blocked, ...fields.blocked);
+  // Only a super admin can change these, so they are reported from the login, never written.
+  const login = medplum.getProject();
+  plan.warnings.push(
+    `strictMode ${login?.strictMode ? 'on' : 'off; only a super admin can turn it on'}, features: ${login?.features?.join(', ') || 'none'}`,
+  );
   const own = medplum.getProjectMembership()?.accessPolicy?.reference;
   const ownKey = held.find((p) => own === `AccessPolicy/${p.id}`);
   plan.warnings.push(...lockdownWarnings(project, ownKey && tagOf(ownKey)).map((w) => w.message));
   const links = current.link?.length ?? 0;
   if (links > 0) plan.warnings.push(`linked projects: ${links}, not managed`);
   return plan;
+}
+
+/** A setting's type follows its value: the four a ProjectSetting holds. */
+function toSetting(name: string, value: string | boolean | number): ProjectSetting {
+  if (typeof value === 'string') return { name, valueString: value };
+  if (typeof value === 'boolean') return { name, valueBoolean: value };
+  return Number.isInteger(value) ? { name, valueInteger: value } : { name, valueDecimal: value };
+}
+
+const valueType = (setting: ProjectSetting) => Object.keys(setting).find((k) => k !== 'name');
+
+/**
+ * The Project's settings, secrets and defaults against the config, as one
+ * update. Settings and secrets the config does not name are left alone: a
+ * ProjectSetting has no tag to tell one Plumb set from one set by hand.
+ */
+export function planFields(
+  project: ProjectTarget,
+  current: ProjectFields,
+  policyIds: Record<string, string>,
+  env: Record<string, string | undefined>,
+): Pick<ProjectPlan, 'changes' | 'blocked'> {
+  const parts = [
+    planSettings(project, current),
+    planSecrets(project, current, env),
+    planDefaults(project, current, policyIds),
+  ];
+  const write: ProjectWrite = Object.assign({}, ...parts.map((p) => p.write));
+  const fields = parts.flatMap((p) => p.fields);
+  const blocked = parts.flatMap((p) => p.blocked ?? []);
+  if (fields.length === 0) return { changes: [], blocked };
+  const id = current.id as string;
+  return { changes: [{ kind: '~', type: 'Project', key: 'project', id, fields, write }], blocked };
+}
+
+interface FieldPlan {
+  write: ProjectWrite;
+  fields: string[];
+  blocked?: string[];
+}
+
+function planSettings(project: ProjectTarget, current: ProjectFields): FieldPlan {
+  const setting = Object.entries(project.settings ?? {})
+    .map(([name, value]) => toSetting(name, value))
+    .filter(
+      (s) =>
+        !deepEquals(
+          s,
+          current.setting?.find((h) => h.name === s.name),
+        ),
+    );
+  return {
+    write: setting.length > 0 ? { setting } : {},
+    fields: setting.map((s) => `setting ${s.name} (${valueType(s)})`),
+  };
+}
+
+/** `true` must exist and is never changed; `{ env }` is set from its variable when it differs. */
+function planSecrets(
+  project: ProjectTarget,
+  current: ProjectFields,
+  env: Record<string, string | undefined>,
+): FieldPlan {
+  const secret: NonNullable<ProjectWrite['secret']> = [];
+  const blocked: string[] = [];
+  for (const [name, source] of Object.entries(project.secrets ?? {})) {
+    const held = current.secret?.find((s) => s.name === name);
+    if (source === true) {
+      if (!held) blocked.push(`secret ${name} is not in the project: set it in the console.`);
+    } else if (!env[source.env]) {
+      blocked.push(`${source.env} is not set: it holds secret ${name}.`);
+    } else if (held?.valueString !== env[source.env]) {
+      secret.push({ name, env: source.env });
+    }
+  }
+  return {
+    write: secret.length > 0 ? { secret } : {},
+    fields: secret.map((s) => `secret ${s.name} (value changed)`),
+    blocked,
+  };
+}
+
+/** Each default, when the config declares it, is the whole field. */
+function planDefaults(
+  project: ProjectTarget,
+  current: ProjectFields,
+  policyIds: Record<string, string>,
+): FieldPlan {
+  const plan: FieldPlan = { write: {}, fields: [] };
+  if (project.defaultProfile) {
+    const desired = Object.entries(project.defaultProfile).map(([resourceType, profile]) => ({
+      resourceType,
+      profile,
+    })) as ProjectDefaultProfile[];
+    const types = changedKeys(
+      desired.map((d) => [d.resourceType, d.profile]),
+      (current.defaultProfile ?? []).map((d) => [d.resourceType, d.profile]),
+    );
+    if (types.length > 0) {
+      plan.write.defaultProfile = desired;
+      plan.fields.push(`defaultProfile ${types.join(', ')}`);
+    }
+  }
+  if (project.defaultAccessPolicies) {
+    // A policy this plan creates has no id yet, so a role naming it always changes.
+    const ref = (key: string) => (policyIds[key] ? `AccessPolicy/${policyIds[key]}` : `new ${key}`);
+    const roles = changedKeys(
+      project.defaultAccessPolicies.map((d) => [d.profileType, ref(d.accessPolicy)]),
+      (current.defaultAccessPolicies ?? []).map((d) => [d.profileType, d.accessPolicy.reference]),
+    );
+    if (roles.length > 0) {
+      plan.write.defaultAccessPolicies = project.defaultAccessPolicies;
+      plan.fields.push(`defaultAccessPolicies ${roles.join(', ')}`);
+    }
+  }
+  return plan;
+}
+
+/** The keys whose values differ between two lists of entries, either way round. */
+function changedKeys(desired: [string, unknown][], current: [string, unknown][]): string[] {
+  const want = new Map(desired);
+  const have = new Map(current);
+  return [...new Set([...want.keys(), ...have.keys()])].filter(
+    (k) => !deepEquals(want.get(k), have.get(k)),
+  );
 }
 
 /** The clients Plumb could manage, tagged or named by a key, each with its membership. */
@@ -361,12 +532,13 @@ export interface ProjectApplied {
 export async function applyProject(
   plan: ProjectPlan,
   medplum: MedplumClient,
+  env: Record<string, string | undefined> = {},
 ): Promise<ProjectApplied> {
   const applied: ProjectApplied = { written: 0, created: [] };
   const policyIds = new Map(Object.entries(plan.policyIds));
   for (const change of plan.changes) {
     if (change.kind === '-' && change.kept) continue;
-    const created = await applyChange(medplum, change, policyIds);
+    const created = await applyChange(medplum, change, policyIds, env);
     if (created) applied.created.push({ key: change.key, id: created });
     applied.written++;
   }
@@ -378,12 +550,15 @@ async function applyChange(
   medplum: MedplumClient,
   change: ProjectChange,
   policyIds: Map<string, string>,
+  env: Record<string, string | undefined>,
 ): Promise<string | undefined> {
   const policy = (key?: string): Reference<AccessPolicy> | undefined => {
     const id = key && policyIds.get(key);
     return id ? { reference: `AccessPolicy/${id}` } : undefined;
   };
-  if (change.kind === '-') {
+  if (change.type === 'Project') {
+    await updateFields(medplum, change.id, change.write, policy, env);
+  } else if (change.kind === '-') {
     if (change.membership) await medplum.deleteResource('ProjectMembership', change.membership);
     await medplum.deleteResource(change.type, change.id);
   } else if (change.type === 'AccessPolicy') {
@@ -398,6 +573,42 @@ async function applyChange(
     await updateClient(medplum, change, policy(change.accessPolicy));
   }
   return undefined;
+}
+
+/**
+ * Reads the Project, merges the planned fields into it and writes it back in
+ * one update; what push does not manage stays as read. A secret's value is
+ * read from its variable here, and goes nowhere but the Project.
+ */
+async function updateFields(
+  medplum: MedplumClient,
+  id: string,
+  write: ProjectWrite,
+  policy: (key?: string) => Reference<AccessPolicy> | undefined,
+  env: Record<string, string | undefined>,
+): Promise<void> {
+  const project: ProjectFields = await medplum.readResource('Project', id);
+  const merge = (held: ProjectSetting[] = [], next: ProjectSetting[]) => [
+    ...held.filter((h) => !next.some((n) => n.name === h.name)),
+    ...next,
+  ];
+  if (write.setting) project.setting = merge(project.setting, write.setting);
+  if (write.secret) {
+    const secrets = write.secret.map(({ name, env: variable }) => {
+      const value = env[variable];
+      if (!value) throw new Error(`${variable} is not set: it holds secret ${name}.`);
+      return { name, valueString: value };
+    });
+    project.secret = merge(project.secret, secrets);
+  }
+  if (write.defaultProfile) project.defaultProfile = write.defaultProfile;
+  if (write.defaultAccessPolicies) {
+    project.defaultAccessPolicies = write.defaultAccessPolicies.map((d) => ({
+      profileType: d.profileType,
+      accessPolicy: policy(d.accessPolicy) as Reference<AccessPolicy>,
+    }));
+  }
+  await medplum.updateResource(project);
 }
 
 type ClientChange<K extends '+' | '~'> = Extract<
@@ -473,6 +684,7 @@ export function planSummary(plan: ProjectPlan): string {
 
 /** One change as the plan prints it. */
 export function describeChange(change: ProjectChange): string {
+  if (change.type === 'Project') return `~ Project  ${change.fields.join(', ')}`;
   const line = `${change.kind} ${change.type}  ${change.key}`;
   if (change.kind === '+') return line;
   if (change.kind === '-') return change.kept ? `${line} (kept: pass --prune to delete)` : line;

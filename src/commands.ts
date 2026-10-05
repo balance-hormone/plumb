@@ -179,6 +179,7 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
           dryRun: values['dry-run'],
           prune: values.prune,
           adopt: values.adopt,
+          env: io.env,
         })
       : await validateEnvironment({ ...shared, reportPath, resume: values.resume });
   printValidation(result, relative(io.cwd, result.reportPath ?? ''), say, problem);
