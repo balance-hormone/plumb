@@ -277,6 +277,8 @@ describe('formatValidation', () => {
   const type = (t: Partial<TypeReport>): TypeReport => ({
     exists: 0,
     read: 0,
+    stamped: 0,
+    failing: 0,
     unstamped: 0,
     silent: { unknown: 0, versioned: 0, empty: 0 },
     otherProfiles: {},
@@ -298,11 +300,13 @@ describe('formatValidation', () => {
       shadowed: [],
       resumed: 0,
       types: {
-        Encounter: type({ exists: 2, read: 2 }),
+        Encounter: type({ exists: 2, read: 2, stamped: 2 }),
         Observation: type({ exists: 3, read: 3, unstamped: 3 }),
         Patient: type({
           exists: 9,
           read: 9,
+          stamped: 4,
+          failing: 1,
           unstamped: 1,
           silent: { unknown: 1, versioned: 2, empty: 0 },
           otherProfiles: { [`${PLUMB}/other`]: 1 },
@@ -313,19 +317,22 @@ describe('formatValidation', () => {
       profiles: {
         [`${PLUMB}/encounter`]: profile('Encounter', 2, 0),
         [`${PLUMB}/observation`]: profile('Observation', 0, 0),
+        // One record is stamped with both, a child and its parent.
+        [`${PLUMB}/patient-parent`]: profile('Patient', 1, 0),
         [`${PLUMB}/patient`]: {
-          ...profile('Patient', 5, 1),
+          ...profile('Patient', 4, 1),
           reasons: [{ path: 'Patient.birthDate', message: 'Missing required property', count: 1 }],
         },
       },
     };
     expect(formatValidation(result)).toEqual([
-      '    Encounter: 2 of 2 read, all 2 passed',
+      '    Encounter: 2 of 2 read, all 2 stamped passed',
       '      encounter   2 checked, 0 failures',
       '    Observation: 3 of 3 read, none carries a selected profile; 3 unstamped',
       '      observation   0 checked, 0 failures',
-      '    Patient: 9 of 9 read, 1 of 5 fail; 1 unstamped; silent stamps: 1 unknown profile URL, 2 url|version; 1 stamped with profiles not selected',
-      '      patient   5 checked, 1 failure',
+      '    Patient: 9 of 9 read, 1 of 4 stamped fail; 1 unstamped; silent stamps: 1 unknown profile URL, 2 url|version; 1 stamped with profiles not selected',
+      '      patient-parent   1 checked, 0 failures',
+      '      patient   4 checked, 1 failure',
       '        Patient.birthDate: Missing required property   (1)',
       "    Questionnaire: 0 of 4 readable: check plumb-checker's AccessPolicy",
       '    Basic: none stored',

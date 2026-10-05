@@ -23,6 +23,10 @@ export interface TypeReport {
   /** How many the CLI's client counts, to tell "nothing readable" from "nothing stored". */
   exists: number;
   read: number;
+  /** Resources stamped with at least one selected profile, each counted once. */
+  stamped: number;
+  /** Of those, the ones failing any of their selected profiles. */
+  failing: number;
   /** Resources with no `meta.profile`: routing's job, not validated. */
   unstamped: number;
   /** Stamps that validate against nothing on the server. */
@@ -270,6 +274,8 @@ async function checkType(
     type = {
       exists: count.total ?? 0,
       read: 0,
+      stamped: 0,
+      failing: 0,
       unstamped: 0,
       silent: { unknown: 0, versioned: 0, empty: 0 },
       otherProfiles: {},
@@ -330,6 +336,8 @@ export async function runPage(
 
 function merge(saved: Saved, type: Saved['types'][string], page: PageResult): void {
   type.read += page.read;
+  type.stamped += page.stamped;
+  type.failing += page.failing;
   type.unstamped += page.unstamped;
   type.silent.versioned += page.silent.versioned;
   type.silent.empty += page.silent.empty;
