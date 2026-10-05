@@ -30,7 +30,8 @@ type PushStepName =
   | 'gate'
   | 'apply'
   | 'recheck'
-  | 'project';
+  | 'project'
+  | 'check';
 
 /** What push will do with one StructureDefinition: the selected profiles and what they depend on. */
 export interface PlannedDefinition {
@@ -61,6 +62,11 @@ export interface PushOptions extends EnvOptions, ProjectOptions {
   reportPath: string;
   /** Stop after the gate and the project plan, writing nothing. */
   dryRun?: boolean;
+  /**
+   * Plan without the checker or the gate, write nothing, and fail when push
+   * would write anything: drift, as `generate --check` finds stale files.
+   */
+  check?: boolean;
   onPage?: ValidateEnvOptions['onPage'];
 }
 
@@ -78,22 +84,14 @@ export async function push(options: PushOptions): Promise<PushResult> {
   const ready = await loadAndConnect(options, result, step);
   if (!ready) return result;
   const { loaded, medplum } = ready;
+  if (options.check) return checkDrift(medplum, loaded, options, result, step);
 
-  try {
-    result.checker = await installChecker(medplum, {
-      ...options.checker,
-      resourceTypes: ready.resourceTypes,
-    });
-  } catch (err) {
-    return step.fail('checker', [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
-  }
-  const { status, version, previous, botId } = result.checker;
-  step.finish('checker', `plumb-checker ${previous ? `${previous} → ` : ''}${version} ${status}`);
+  const botId = await checkerStep(medplum, ready.resourceTypes, options, result, step);
+  if (!botId) return result;
 
   const finish = async (ok: boolean) => {
-    const { project: declared, defaultProfile } = options.config;
     const project =
-      (declared || defaultProfile) && (await projectStep(medplum, options, result, step));
+      declaresProject(options.config) && (await projectStep(medplum, options, result, step));
     result.ok = ok && project !== false;
     return step.done();
   };
@@ -146,6 +144,60 @@ export async function push(options: PushOptions): Promise<PushResult> {
     recheck.failed,
   );
   return finish(!recheck.failed);
+}
+
+/** Installs or updates the checker; returns its bot's id, or nothing when that failed. */
+async function checkerStep(
+  medplum: MedplumClient,
+  resourceTypes: string[],
+  options: PushOptions,
+  result: PushResult,
+  step: ReturnType<typeof steps<PushStepName, PushResult>>,
+): Promise<string | undefined> {
+  try {
+    result.checker = await installChecker(medplum, { ...options.checker, resourceTypes });
+  } catch (err) {
+    step.fail('checker', [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
+    return undefined;
+  }
+  const { status, version, previous, botId } = result.checker;
+  step.finish('checker', `plumb-checker ${previous ? `${previous} → ` : ''}${version} ${status}`);
+  return botId;
+}
+
+const declaresProject = (config: PushOptions['config']) =>
+  config.project !== undefined || config.defaultProfile !== undefined;
+
+/** `--check`: both plans, and a failed step naming what push would write. */
+async function checkDrift(
+  medplum: MedplumClient,
+  loaded: LoadProfilesResult,
+  options: PushOptions,
+  result: PushResult,
+  step: ReturnType<typeof steps<PushStepName, PushResult>>,
+): Promise<PushResult> {
+  await planStep(medplum, loaded, result, step);
+  const profiles = result.plan.filter((p) => p.action !== 'unchanged').length;
+  const ok =
+    !declaresProject(options.config) ||
+    (await projectStep(medplum, { ...options, dryRun: true }, result, step));
+  if (!ok && result.errors.length > 0) return step.done();
+  const project = result.project?.changes.filter((c) => !('kept' in c)).length ?? 0;
+  const blocked = result.project?.blocked.length ?? 0;
+  const drift = [
+    profiles > 0 && `${profiles} profile${profiles === 1 ? '' : 's'}`,
+    project > 0 && `${project} project change${project === 1 ? '' : 's'}`,
+    blocked > 0 && `${blocked} blocked`,
+  ].filter((d) => typeof d === 'string');
+  const env = options.environment.name;
+  step.finish(
+    'check',
+    drift.length > 0 ? `drift: ${drift.join(', ')}` : 'no drift',
+    drift.length > 0 ? [`Run plumb push --env ${env} to converge.`] : [],
+    drift.length > 0,
+  );
+  result.ok = drift.length === 0;
+  return step.done();
 }
 
 /**
