@@ -229,6 +229,29 @@ describe('plumb', () => {
       expect(check.status, check.stderr).toBe(0);
     },
   );
+
+  // dist/esm has a package.json of its own, holding only its module type, so
+  // the built CLI must find Plumb's own to read its version and its checker.
+  test.skipIf(!existsSync(BUILT) && !process.env.CI)(
+    "the built CLI reads Plumb's version and checker",
+    { timeout: 30_000 },
+    () => {
+      const { version: expected } = JSON.parse(
+        readFileSync(join(import.meta.dirname, '../package.json'), 'utf8'),
+      ) as { version: string };
+      const version = spawnSync(process.execPath, [BUILT, '--version'], { encoding: 'utf8' });
+      expect(version.stdout.trim()).toBe(expected);
+
+      const cwd = project();
+      expect(spawnSync(process.execPath, [BUILT, 'generate'], { cwd }).status).toBe(0);
+      const validate = spawnSync(process.execPath, [BUILT, 'validate', '--env', 'prod'], {
+        cwd,
+        encoding: 'utf8',
+        env: { ...process.env, PROD_CLIENT_ID: 'id', PROD_CLIENT_SECRET: 'secret' },
+      });
+      expect(validate.stderr).toMatch(/✖ connect {3}Could not log in/);
+    },
+  );
 });
 
 describe('formatStep', () => {
