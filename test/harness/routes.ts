@@ -24,7 +24,7 @@ interface Client {
 export interface Reader {
   readResource(resourceType: string, id: string): Promise<Resource>;
   readReference(reference: object): Promise<Resource>;
-  searchResources(resourceType: string, query: URLSearchParams): Promise<Resource[]>;
+  searchResources(resourceType: string, query: string[][]): Promise<Resource[]>;
 }
 type Write = <T extends Resource>(
   medplum: Client,
