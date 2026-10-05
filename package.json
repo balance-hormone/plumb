@@ -1,6 +1,6 @@
 {
   "name": "plumb-fhir",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Make Medplum's own types profile-aware: generate TypeScript types from FHIR profiles that narrow @medplum/fhirtypes.",
   "keywords": [
     "medplum",
@@ -34,7 +34,7 @@
   "module": "dist/esm/index.mjs",
   "types": "dist/esm/index.d.ts",
   "bin": {
-    "plumb": "./dist/esm/cli.mjs"
+    "plumb": "dist/esm/cli.mjs"
   },
   "files": [
     "dist/cjs",

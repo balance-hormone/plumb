@@ -459,7 +459,7 @@ function printRoutes(routing: RoutingTable, typeNames: Map<string, string>): str
     ' * The content that selects each profile: a row matches a resource when, for',
     ' * every key, the element holds one of its patterns (`matches` in _plumb.ts).',
     ' */',
-    'export const routes = {',
+    'const routes = {',
     ...Object.keys(routing.routes)
       .sort()
       .flatMap((type) => printRows(type, routing.routes[type] ?? [])),
@@ -607,7 +607,7 @@ export function pickProfiled<U extends ProfileUrl>(resources: readonly Resource[
 }
 
 /** A resource as the server returns it, with its id. The same as \`WithId\` in @medplum/core. */
-export type WithId<T> = T & { id: string };
+type WithId<T> = T & { id: string };
 
 /**
  * The part of a \`MedplumClient\` the reads use, so the generated code needs no
@@ -616,14 +616,17 @@ export type WithId<T> = T & { id: string };
 export interface ProfiledReader {
   readResource(resourceType: ResourceType, id: string): Promise<Resource>;
   readReference(reference: Reference): Promise<Resource>;
-  searchResources(resourceType: ResourceType, query: URLSearchParams): Promise<Resource[]>;
+  searchResources(resourceType: ResourceType, query: string[][]): Promise<Resource[]>;
 }
 
-/** A search query, in any form \`medplum.searchResources\` takes. */
+/**
+ * A search query, in any form \`medplum.searchResources\` takes: a string, a
+ * URLSearchParams or any other list of pairs, or a record. Typed without
+ * URLSearchParams, so the generated code compiles without the DOM lib.
+ */
 export type ProfiledQuery =
-  | URLSearchParams
   | string
-  | string[][]
+  | Iterable<readonly string[]>
   | Record<string, string | number | boolean | readonly (string | number | boolean)[] | undefined>;
 
 /**
@@ -660,24 +663,37 @@ export async function searchProfiled<U extends ProfileUrl>(
   query: ProfiledQuery = {},
 ): Promise<WithId<ProfileTypes[U]>[]> {
   const params = searchParams(query);
-  for (const key of params.keys()) {
-    const name = key.split(':')[0] ?? key;
+  for (const [key] of params) {
+    const name = key?.split(':')[0] ?? '';
     if (subsets.includes(name) || includes.includes(name)) throw refusal(profile, name);
   }
-  params.append('_profile', (accepts[profile] ?? [profile]).join(','));
+  params.push(['_profile', (accepts[profile] ?? [profile]).join(',')]);
   const found = await medplum.searchResources(typeOf[profile] as ResourceType, params);
   return pickProfiled(found, profile) as WithId<ProfileTypes[U]>[];
 }
 
-function searchParams(query: ProfiledQuery): URLSearchParams {
-  if (typeof query === 'string' || query instanceof URLSearchParams) return new URLSearchParams(query);
-  const params = new URLSearchParams();
-  const pairs = Array.isArray(query) ? query : Object.entries(query);
+function searchParams(query: ProfiledQuery): string[][] {
+  if (typeof query === 'string') {
+    return query
+      .replace(/^\\?/, '')
+      .split('&')
+      .filter((pair) => pair !== '')
+      .map((pair) => {
+        const at = pair.indexOf('=');
+        const [key, value] = at === -1 ? [pair, ''] : [pair.slice(0, at), pair.slice(at + 1)];
+        return [decode(key), decode(value)];
+      });
+  }
+  const pairs = Symbol.iterator in query ? [...(query as Iterable<readonly string[]>)] : Object.entries(query);
+  const params: string[][] = [];
   for (const [key, value] of pairs) {
-    for (const v of [value].flat()) if (key !== undefined && v !== undefined) params.append(key, String(v));
+    for (const v of [value].flat()) if (key !== undefined && v !== undefined) params.push([key, String(v)]);
   }
   return params;
 }
+
+// As URLSearchParams decodes: '+' is a space.
+const decode = (text: string) => decodeURIComponent(text.replace(/\\+/g, ' '));
 
 function refusal(profile: ProfileUrl, name: string): ProfileReadError {
   const why = subsets.includes(name)
@@ -719,7 +735,7 @@ function printReads(models: ProfileModel[], routing: RoutingTable): string {
       'required',
       'Record<ProfileUrl, readonly (readonly string[])[]>',
       selected.map((m) => [m.url, m.required]),
-    ).map((line, i) => (i === 0 ? `export ${line}` : line)),
+    ),
     '',
     '/** The stamps a read accepts as each profile: its own URL, and each selected profile deriving from it. */',
     ...printTable(

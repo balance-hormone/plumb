@@ -254,7 +254,7 @@ describe('printFiles', () => {
     const reads = files.get('_reads.ts');
     expect(reads).toContain(
       [
-        'export const required: Record<ProfileUrl, readonly (readonly string[])[]> = {',
+        'const required: Record<ProfileUrl, readonly (readonly string[])[]> = {',
         "  'http://example.org/fhir/StructureDefinition/o': [],",
         "  'http://example.org/fhir/StructureDefinition/p': [",
         "    ['identifier'],",
@@ -293,7 +293,7 @@ describe('printFiles', () => {
     });
     expect(files.get('_routes.ts')).toContain(
       [
-        'export const routes = {',
+        'const routes = {',
         '  Observation: [',
         '    {',
         "      profile: 'https://example.org/a',",

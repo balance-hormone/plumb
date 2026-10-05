@@ -149,7 +149,11 @@ describe('readProfiled and searchProfiled, against a stub client', () => {
       return results[0] as Resource;
     },
     searchResources: async (type, query) => {
-      calls.push(['searchResources', type, query.toString()]);
+      calls.push([
+        'searchResources',
+        type,
+        new URLSearchParams(query as [string, string][]).toString(),
+      ]);
       return results;
     },
   });
@@ -196,6 +200,33 @@ describe('readProfiled and searchProfiled, against a stub client', () => {
     async function generatedSearch(profile: string, query: unknown) {
       return generated.searchProfiled(stub([stamped]), profile, query);
     }
+  });
+
+  // The generated code names no URLSearchParams type, so it compiles without
+  // the DOM lib or @types/node; every query form still reaches the client.
+  test('takes every query form, and hands the client plain pairs', async () => {
+    const stamped = stamp({ ...conforming, id: 'obs-1' }, child);
+    const queries = [] as unknown[];
+    const client: Reader = {
+      ...stub([stamped]),
+      searchResources: async (_type, query) => {
+        queries.push(query);
+        return [stamped];
+      },
+    };
+    await generated.searchProfiled(client, child, new URLSearchParams({ status: 'final' }));
+    await generated.searchProfiled(client, child, {
+      code: ['a', 'b'],
+      subject: undefined,
+      _count: 5,
+    });
+    await generated.searchProfiled(client, child, '?name=Jo+Ann&_tag=a%7Cb&flag');
+    const profile = ['_profile', child];
+    expect(queries).toEqual([
+      [['status', 'final'], profile],
+      [['code', 'a'], ['code', 'b'], ['_count', '5'], profile],
+      [['name', 'Jo Ann'], ['_tag', 'a|b'], ['flag', ''], profile],
+    ]);
   });
 
   test.each(['_elements', '_fields', '_summary', '_include', '_revinclude:iterate'])(

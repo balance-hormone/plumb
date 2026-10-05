@@ -24,7 +24,7 @@ interface Client {
 export interface Reader {
   readResource(resourceType: string, id: string): Promise<Resource>;
   readReference(reference: object): Promise<Resource>;
-  searchResources(resourceType: string, query: URLSearchParams): Promise<Resource[]>;
+  searchResources(resourceType: string, query: string[][]): Promise<Resource[]>;
 }
 type Write = <T extends Resource>(
   medplum: Client,
@@ -71,7 +71,6 @@ interface GeneratedModule {
   createProfiled: Write;
   updateProfiled: Write;
   RoutingError: GeneratedRoutes['RoutingError'];
-  routes: Record<string, readonly { profile: string; parents: readonly string[] }[]>;
 }
 
 /**
@@ -110,11 +109,8 @@ export async function generatedRoutes(
     | 'readProfiled'
     | 'searchProfiled'
     | 'ProfileReadError'
-  > & { required: Record<string, readonly (readonly string[])[]> };
-  const plumb = (await import(join(out, '_plumb.ts'))) as {
-    missing: (resource: object, rows: readonly (readonly string[])[]) => string[];
-  };
-  const rows = Object.values(generated.routes).flat();
+  >;
+  const rows = Object.values(routing.routes).flat();
   const parentsOf = (profile: string) => rows.find((row) => row.profile === profile)?.parents ?? [];
   const { route, RoutingError, createProfiled, updateProfiled } = generated;
   return {
@@ -124,7 +120,16 @@ export async function generatedRoutes(
     updateProfiled,
     typecheck: (source) => typecheck(files, source),
     parentsOf,
-    missing: (resource, profile) => plumb.missing(resource, reads.required[profile] ?? []),
+    // What a typed read reports missing, for a resource stamped as the profile.
+    missing: (resource, profile) => {
+      try {
+        reads.asProfiled({ ...resource, meta: { ...resource.meta, profile: [profile] } }, profile);
+        return [];
+      } catch (err) {
+        if (!(err instanceof reads.ProfileReadError)) throw err;
+        return err.failed.flatMap((f) => f.missing);
+      }
+    },
     isProfiled: reads.isProfiled,
     asProfiled: reads.asProfiled,
     pickProfiled: reads.pickProfiled,

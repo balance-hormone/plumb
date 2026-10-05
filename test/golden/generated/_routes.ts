@@ -25,7 +25,7 @@ export type ProfileUrl = keyof ProfileTypes;
  * The content that selects each profile: a row matches a resource when, for
  * every key, the element holds one of its patterns (`matches` in _plumb.ts).
  */
-export const routes = {
+const routes = {
   Composition: [
     {
       profile: 'http://hl7.org/fhir/uv/ips/StructureDefinition/Composition-uv-ips',

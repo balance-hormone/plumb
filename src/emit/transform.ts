@@ -170,7 +170,24 @@ function childrenOf(elements: Record<string, InternalSchemaElement>, key: string
   );
 }
 
-const firstSentence = (text: string | undefined) => text?.split(/(?<=\.)\s/)[0]?.trim();
+// Definitions say "(e.g. a telephone number)", so a full stop inside
+// parentheses or after an abbreviation does not end the sentence.
+const ABBREVIATION = /\b(?:e\.g|i\.e|etc|vs|cf)\.$/i;
+
+function firstSentence(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    else if (c === '.' && depth === 0 && /\s/.test(text[i + 1] ?? '')) {
+      const sentence = text.slice(0, i + 1);
+      if (!ABBREVIATION.test(sentence)) return sentence.trim();
+    }
+  }
+  return text.trim();
+}
 
 /** What every profile's transform shares: lookups, options, and the extension types. */
 interface Context {
