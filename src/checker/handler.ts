@@ -31,6 +31,20 @@ export interface CheckerInput {
   definitions: string;
   /** The server's `_cursor` from the previous page; the first page has none. */
   cursor?: string;
+  /**
+   * Read every resource of the type, to break down the stamps that name no
+   * selected profile. Otherwise only resources with a selected stamp are
+   * read, and the rest are counted by query.
+   */
+  full?: boolean;
+}
+
+/** A type's counts by query, under the checker's own AccessPolicy. */
+export interface Totals {
+  readable: number;
+  unstamped: number;
+  /** Resources with a selected stamp: what the run will page through. */
+  stamped: number;
 }
 
 // Medplum pages by cursor only from 20 a page, sorted by _lastUpdated; by
@@ -65,6 +79,8 @@ export interface PageResult {
   /** Stamps naming a profile not selected, by URL: the CLI tells loaded from unknown. */
   otherStamps: Record<string, number>;
   profiles: Record<string, ProfileResult>;
+  /** On the first page of a run that is not `full`. */
+  totals?: Totals;
   /** The cursor for the next page, absent on the last. */
   next?: string;
 }
@@ -73,9 +89,12 @@ export async function handler(
   medplum: MedplumClient,
   event: BotEvent<CheckerInput>,
 ): Promise<PageResult> {
-  const { resourceType, profiles, definitions, cursor } = event.input;
+  const { resourceType, profiles, definitions, cursor, full } = event.input;
   const selected = load(definitions, profiles);
+  // Medplum matches each stamp exactly, so this finds no url|version stamp.
+  const stamped: Record<string, string> = full ? {} : { _profile: profiles.join(',') };
   const bundle = await medplum.search(resourceType, {
+    ...stamped,
     _count: PAGE_SIZE,
     _sort: '_lastUpdated',
     ...(cursor ? { _cursor: cursor } : {}),
@@ -84,8 +103,28 @@ export async function handler(
   const resources = (bundle.entry ?? []).flatMap((e) => (e.resource ? [e.resource] : []));
   await loadNestedTypes(medplum, resources);
   const page = checkPage(resources, selected);
+  const totals = full || cursor ? undefined : await count(medplum, resourceType, stamped);
   const nextCursor = next ? new URL(next).searchParams.get('_cursor') : null;
-  return { ...page, ...(nextCursor ? { next: nextCursor } : {}) };
+  return { ...page, ...(totals ? { totals } : {}), ...(nextCursor ? { next: nextCursor } : {}) };
+}
+
+/**
+ * Counted by the bot, so they are what its AccessPolicy reads. Medplum stores
+ * an empty `meta.profile` as none, so `:missing` finds those too.
+ */
+async function count(
+  medplum: MedplumClient,
+  resourceType: ResourceType,
+  stamped: Record<string, string>,
+): Promise<Totals> {
+  const total = async (params: Record<string, string>) =>
+    (await medplum.search(resourceType, { ...params, _summary: 'count' })).total ?? 0;
+  const [readable, unstamped, selected] = await Promise.all([
+    total({}),
+    total({ '_profile:missing': 'true' }),
+    total(stamped),
+  ]);
+  return { readable, unstamped, stamped: selected };
 }
 
 /** Indexes the definitions as the loader does, and returns the selected profiles by URL. */

@@ -29,6 +29,14 @@
   Node's type stripping loads it as before, and importing TypeScript from
   `node_modules` is now a named `unsupported-syntax` error suggesting tsx
   (#114).
+- **`validate` and `push`'s gate read only resources with a selected stamp**
+  (`_profile=<selected URLs>`), and count the rest by query, so one narrow
+  profile on a large type no longer reads the whole table: selecting one
+  Observation profile read every stored Observation, 100 per async job.
+  Resources stamped only with other profiles are counted together; `plumb
+  validate --full` reads everything to break them down into silent stamps
+  and profiles not selected, as every run did before. A type of more than one
+  page prints its progress (#127).
 
 ## 0.7.0 (2026-10-05)
 

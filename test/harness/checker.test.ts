@@ -44,15 +44,27 @@ async function run(input: CheckerInput, pages: Resource[][]) {
   const medplum = {
     // The server's base R4, which the bot reads for nested resource types.
     searchOne: async (_type: string, { url }: { url: string }) => BASE.find((sd) => sd.url === url),
+    // Filters on _profile as Medplum does: exact stamps, any of a list.
     search: async (resourceType: string, params: Record<string, string>): Promise<Bundle> => {
       searches.push(params);
+      const any = params._profile?.split(',');
+      const matches = (r: Resource) =>
+        (!any || (r.meta?.profile ?? []).some((url) => any.includes(url))) &&
+        (params['_profile:missing'] !== 'true' || !r.meta?.profile?.length);
+      if (params._summary === 'count') {
+        return {
+          resourceType: 'Bundle',
+          type: 'searchset',
+          total: pages.flat().filter(matches).length,
+        };
+      }
       const i = Number(params._cursor ?? 0);
       const next =
         i + 1 < pages.length ? `http://example.org/fhir/R4/${resourceType}?_cursor=${i + 1}` : '';
       return {
         resourceType: 'Bundle',
         type: 'searchset',
-        entry: (pages[i] ?? []).map((resource) => ({ resource })),
+        entry: (pages[i] ?? []).filter(matches).map((resource) => ({ resource })),
         link: next ? [{ relation: 'next', url: next }] : [],
       };
     },
@@ -75,9 +87,13 @@ async function run(input: CheckerInput, pages: Resource[][]) {
 }
 
 const inputs = new Map<ResourceType, CheckerInput>();
-function input(resourceType: ResourceType, cursor?: string): CheckerInput {
+function input(resourceType: ResourceType, cursor?: string, full?: boolean): CheckerInput {
   if (!inputs.has(resourceType)) inputs.set(resourceType, checkerInput(loaded, resourceType));
-  return { ...(inputs.get(resourceType) as CheckerInput), ...(cursor ? { cursor } : {}) };
+  return {
+    ...(inputs.get(resourceType) as CheckerInput),
+    ...(cursor ? { cursor } : {}),
+    ...(full ? { full } : {}),
+  };
 }
 const stamped = (resource: Resource, id: string, profile: string[] | undefined): Resource =>
   ({ ...resource, id, meta: { ...resource.meta, profile } }) as Resource;
@@ -118,15 +134,34 @@ describe('matches validateProfiled on the US Core examples', () => {
 describe('a page', () => {
   const valid = { resourceType: 'Patient', birthDate: '1970-01-01', name: [{ family: 'T' }] };
 
-  test('counts unstamped resources and silent and other stamps, validating none of them', async () => {
-    const page = [
-      stamped(valid as Resource, 'a', undefined),
-      stamped(valid as Resource, 'b', []),
-      stamped(valid as Resource, 'c', [`${PATIENT}|1.0.0`]),
-      stamped(valid as Resource, 'd', ['http://example.org/fhir/StructureDefinition/other']),
-      stamped(valid as Resource, 'e', [PATIENT]),
-    ];
-    const { result } = await run(input('Patient'), [page]);
+  const mixed = [
+    stamped(valid as Resource, 'a', undefined),
+    stamped(valid as Resource, 'b', []),
+    stamped(valid as Resource, 'c', [`${PATIENT}|1.0.0`]),
+    stamped(valid as Resource, 'd', ['http://example.org/fhir/StructureDefinition/other']),
+    stamped(valid as Resource, 'e', [PATIENT]),
+  ];
+
+  test('reads only resources with a selected stamp, counting the rest by query', async () => {
+    const { result, searches } = await run(input('Patient'), [mixed]);
+    const selected = input('Patient').profiles.join(',');
+    expect(searches).toContainEqual({ _profile: selected, _count: '100', _sort: '_lastUpdated' });
+    expect(result).toMatchObject({
+      read: 1,
+      stamped: 1,
+      unstamped: 0,
+      totals: { readable: 5, unstamped: 2, stamped: 1 },
+      profiles: { [PATIENT]: { checked: 1, failing: [] } },
+    });
+    // Counted once, on a run's first page.
+    const later = await run(input('Patient', '1'), [[], mixed]);
+    expect(later.result.totals).toBeUndefined();
+  });
+
+  test('full reads every resource, counting unstamped resources and silent and other stamps', async () => {
+    const page = mixed;
+    const { result } = await run(input('Patient', undefined, true), [page]);
+    expect(result.totals).toBeUndefined();
     expect(result).toMatchObject({
       read: 5,
       stamped: 1,
@@ -166,7 +201,7 @@ describe('a page', () => {
 
   test('pages by the server cursor, returning the next one until the last page', async () => {
     const pages = [[stamped(valid as Resource, 'a', [PATIENT])], []];
-    const first = await run(input('Patient'), pages);
+    const first = await run(input('Patient', undefined, true), pages);
     expect(first.searches[0]).toEqual({ _count: '100', _sort: '_lastUpdated' });
     expect(first.result.next).toBe('1');
     const last = await run(input('Patient', '1'), pages);

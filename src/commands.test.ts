@@ -303,6 +303,7 @@ describe('formatValidation', () => {
     unstamped: 0,
     silent: { unknown: 0, versioned: 0, empty: 0 },
     otherProfiles: {},
+    stampedOther: 0,
     ...t,
   });
   const profile = (resourceType: string, checked: number, failing: number) => ({
@@ -322,7 +323,7 @@ describe('formatValidation', () => {
       resumed: 0,
       types: {
         Encounter: type({ exists: 2, read: 2, stamped: 2 }),
-        Observation: type({ exists: 3, read: 3, unstamped: 3 }),
+        Observation: type({ exists: 3, read: 3, unstamped: 2, stampedOther: 1 }),
         Patient: type({
           exists: 9,
           read: 9,
@@ -349,7 +350,7 @@ describe('formatValidation', () => {
     expect(formatValidation(result)).toEqual([
       '    Encounter: 2 of 2 read, all 2 stamped passed',
       '      encounter   2 checked, 0 failures',
-      '    Observation: 3 of 3 read, none carries a selected profile; 3 unstamped',
+      '    Observation: 3 of 3 read, none carries a selected profile; 2 unstamped; 1 stamped only with profiles not selected (--full breaks them down)',
       '      observation   0 checked, 0 failures',
       '    Patient: 9 of 9 read, 1 of 4 stamped fail; 1 unstamped; silent stamps: 1 unknown profile URL, 2 url|version; 1 stamped with profiles not selected',
       '      patient-parent   1 checked, 0 failures',

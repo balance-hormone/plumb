@@ -492,8 +492,8 @@ plumb validate --env prod
 ✔ checker   plumb-checker 0.6.0 installed   60ms
 ✔ profiles  1 selected, none shadowed   80ms
 ✖ validate  1 of 1 profiles would fail   38.4s
-    Patient: 12400 of 12400 read, 300 of 12360 fail; 40 unstamped; silent stamps: 3 url|version
-      us-core-patient   12360 checked, 300 failures
+    Patient: 12400 of 12400 read, 300 of 12357 stamped fail; 40 unstamped; 3 stamped only with profiles not selected (--full breaks them down)
+      us-core-patient   12357 checked, 300 failures
         Patient.identifier: Missing required property   (300)
 Failing ids: .plumb/validate-prod.json (gitignored)
 Failed in 40.8s
@@ -507,10 +507,15 @@ Failed in 40.8s
 - **Against the versions in `plumb.config.ts`,** not what the project has
   loaded: it answers "what would fail if we loaded these?"
 - **Each resource is checked against the selected profiles it is stamped
-  with** (`meta.profile`). Resources with no stamp are counted, not checked.
-  Silent stamps, which today validate against nothing, are counted too: a
-  profile URL the project does not hold, a `url|version` stamp (Medplum
-  matches bare URLs only) and an empty `meta.profile`.
+  with** (`meta.profile`). The bot reads only resources carrying a selected
+  stamp, so one narrow profile on a large type reads only what carries it.
+  The rest are counted by query: resources with no stamp, and those stamped
+  only with other profiles.
+- **`--full` reads every resource** of each type to break those other stamps
+  down: silent stamps, which today validate against nothing (a profile URL
+  the project does not hold, or a `url|version` stamp, since Medplum matches
+  bare URLs only), and stamps of profiles the project holds but the config
+  does not select. Run it when the report counts any.
 - **Empty is never ambiguous.** Each type reports how many resources the bot
   read against how many exist, so "all passed", "none carries a selected
   profile", "none stored" and "0 of N readable" (an AccessPolicy that hides
@@ -525,7 +530,8 @@ Failed in 40.8s
   CI logs or `--json`. The `.plumb` folder ignores itself in git.
 - **Large projects:** the bot checks one page per run, as an async job, and
   the file saves each page; `--resume` continues an interrupted run from its
-  last page.
+  last page. A type of more than one page prints its progress
+  (`Observation: 4,300 of 45,213 read`).
 - **Exit codes:** 0 when nothing fails; 1 when something would fail, a type
   could not be read, or a profile is shadowed; 2 for usage, config and
   connection errors, and when the checker is missing or from another Plumb

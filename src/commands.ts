@@ -31,7 +31,7 @@ export interface CliIo {
 }
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
-       plumb validate --env <name> [--env-file <path>] [--resume] [--config <path>]
+       plumb validate --env <name> [--env-file <path>] [--full] [--resume] [--config <path>]
        plumb push --env <name> [--env-file <path>] [--dry-run | --check] [--prune] [--adopt] [--config <path>]
        plumb check [--update-baseline [--allow-growth]] [--config <path>]
 
@@ -53,6 +53,8 @@ Options:
   --env-file <path>  variables to read credentials and secrets from, as Node's
                    --env-file does; repeatable, later files win, the environment over all
   --resume         continue an interrupted validate from its last page
+  --full           validate: read every stored resource, not only those with a selected
+                   stamp, to break down silent stamps and other profiles' stamps
   --dry-run        push: stop after the gate and the project plan, writing nothing
   --prune          push: delete what Plumb manages that the config no longer has
   --adopt          push: tag and converge an untagged resource with a key's name
@@ -248,7 +250,12 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
           adopt: values.adopt,
           env,
         })
-      : await validateEnvironment({ ...shared, reportPath, resume: values.resume });
+      : await validateEnvironment({
+          ...shared,
+          reportPath,
+          resume: values.resume,
+          full: values.full,
+        });
   printValidation(result, relative(io.cwd, result.reportPath ?? ''), say, problem);
   for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
@@ -285,8 +292,14 @@ async function envOptions(command: string, values: Values, io: CliIo) {
     cacheDir: io.cacheDir,
     fetch: io.fetch,
     onStep: (step: EnvStep<string>) => printStep(step, printer(io, quiet), quiet),
+    // A type of many pages could otherwise print nothing for minutes.
+    onPage: (type: string, _pages: number, { read, of }: { read: number; of: number }) => {
+      if (read < of) printer(io, quiet).say(`    ${type}: ${count(read)} of ${count(of)} read`);
+    },
   };
 }
+
+const count = (n: number) => n.toLocaleString('en-US');
 
 /**
  * The environment with each env file's variables under it. Node refuses
@@ -376,6 +389,8 @@ function typeExtras(t: TypeReport): string[] {
     t.unstamped > 0 && `${t.unstamped} unstamped`,
     silent.length > 0 && `silent stamps: ${silent.join(', ')}`,
     others > 0 && `${others} stamped with profiles not selected`,
+    t.stampedOther > 0 &&
+      `${t.stampedOther} stamped only with profiles not selected (--full breaks them down)`,
   ].filter((x) => typeof x === 'string');
 }
 
@@ -397,6 +412,7 @@ function parse(argv: string[]) {
       env: { type: 'string' },
       'env-file': { type: 'string', multiple: true },
       resume: { type: 'boolean' },
+      full: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       prune: { type: 'boolean' },
       adopt: { type: 'boolean' },
