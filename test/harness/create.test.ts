@@ -105,6 +105,20 @@ describe('createProfiled and updateProfiled, against a stub client', () => {
     expect(writes).toEqual([]);
   });
 
+  // For writes createProfiled cannot make: conditional creates, upserts, batches.
+  test('stampProfiled returns what createProfiled writes, and writes nothing', async () => {
+    const { writes, client } = stub();
+    const input = frozen(observation('39156-5', { meta: { profile: [FOREIGN] } }));
+    await r.createProfiled(client, input);
+    expect(r.stampProfiled(input)).toEqual(writes[0]);
+    expect(r.stampProfiled(observation('0000-0'), { profile: CHILD }).meta?.profile).toEqual([
+      ORG,
+      CHILD,
+    ]);
+    expect(r.stampProfiled(input, { profile: false }).meta?.profile).toEqual([FOREIGN]);
+    expect(() => r.stampProfiled(observation('0000-0'))).toThrow(r.RoutingError);
+  });
+
   test('types: a MedplumClient fits, and { profile } narrows the resource and the result', () => {
     const child = JSON.stringify(
       observation('39156-5', {
@@ -117,7 +131,7 @@ describe('createProfiled and updateProfiled, against a stub client', () => {
 import type { MedplumClient } from '@medplum/core';
 import type { Observation } from '@medplum/fhirtypes';
 import type { ChildObservation } from './generated/ChildObservation.js';
-import { createProfiled, type ProfiledClient, updateProfiled } from './generated/index.js';
+import { createProfiled, type ProfiledClient, stampProfiled, updateProfiled } from './generated/index.js';
 
 declare const medplum: MedplumClient;
 declare const observation: Observation;
@@ -125,6 +139,9 @@ export const client: ProfiledClient = medplum;
 export const routed: Promise<Observation> = createProfiled(medplum, observation);
 export const chosen: Promise<ChildObservation> = createProfiled(medplum, ${child}, { profile: '${CHILD}' });
 export const updated: Promise<Observation> = updateProfiled(medplum, observation, { profile: false });
+export const stamped: ChildObservation = stampProfiled(${child}, { profile: '${CHILD}' });
+// @ts-expect-error stamping as a profile needs what its type requires
+export const unstampable = stampProfiled(observation, { profile: '${CHILD}' });
 // @ts-expect-error the chosen profile needs a subject, an effective time and a value
 export const incomplete = createProfiled(medplum, observation, { profile: '${CHILD}' });
 // @ts-expect-error only a selected profile can be chosen

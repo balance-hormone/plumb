@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0 (2026-10-05)
+
+- **`stampProfiled(resource, options?)`** returns the copy `createProfiled`
+  would write, routed and stamped, without writing it: for conditional
+  creates, upserts and batch or transaction entries. It takes the same
+  options, is typed the same way, and throws the same `RoutingError` (#124).
+- The README says `updateProfiled` stamps a record that was unstamped, so
+  edits of stored records that fail the profile start being refused; and to
+  commit `fsh-generated/resources/` but gitignore SUSHI's index files (#125).
+
 ## 0.6.2 (2026-10-05)
 
 `validate` and `push` from an installed Plumb, and on Medplum's `awslambda`

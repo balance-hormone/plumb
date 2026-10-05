@@ -36,6 +36,7 @@ export interface GeneratedRoutes {
   route: (resource: Resource) => string | undefined;
   createProfiled: Write;
   updateProfiled: Write;
+  stampProfiled: (resource: Resource, options?: { profile: string | false }) => Resource;
   /**
    * Type-checks `source` beside the generated files, in one tsc run with the
    * project's own @medplum/* installed, and returns its diagnostics.
@@ -70,6 +71,7 @@ interface GeneratedModule {
   route: GeneratedRoutes['route'];
   createProfiled: Write;
   updateProfiled: Write;
+  stampProfiled: (resource: Resource, options?: { profile: string | false }) => Resource;
   RoutingError: GeneratedRoutes['RoutingError'];
 }
 
@@ -112,12 +114,13 @@ export async function generatedRoutes(
   >;
   const rows = Object.values(routing.routes).flat();
   const parentsOf = (profile: string) => rows.find((row) => row.profile === profile)?.parents ?? [];
-  const { route, RoutingError, createProfiled, updateProfiled } = generated;
+  const { route, RoutingError, createProfiled, updateProfiled, stampProfiled } = generated;
   return {
     route,
     RoutingError,
     createProfiled,
     updateProfiled,
+    stampProfiled,
     typecheck: (source) => typecheck(files, source),
     parentsOf,
     // What a typed read reports missing, for a resource stamped as the profile.
