@@ -2,6 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 import { deepEquals, type MedplumClient, normalizeErrorString } from '@medplum/core';
 import type { CodeSystem, StructureDefinition, ValueSet } from '@medplum/fhirtypes';
+import {
+  applyBots,
+  type BotPlan,
+  botsSummary,
+  describeBot,
+  missingFeatures,
+  planBots,
+} from './bots.js';
 import { closure } from './checker/input.js';
 import {
   type CheckerInstall,
@@ -43,6 +51,7 @@ type PushStepName =
   | 'recheck'
   | 'content'
   | 'project'
+  | 'bots'
   | 'check';
 
 /**
@@ -72,6 +81,8 @@ export interface PushResult extends EnvResult<PushStepName> {
   project?: ProjectPlan;
   /** The reference content's planned changes, when the config lists content. */
   content?: ContentPlan;
+  /** The bots' planned changes, when the config declares bots. */
+  bots?: BotPlan;
 }
 
 export interface PushOptions extends EnvOptions, ProjectOptions {
@@ -162,7 +173,10 @@ export async function push(options: PushOptions): Promise<PushResult> {
   return finish(!recheck.failed);
 }
 
-/** Loads and connects, then checks the content offline, before anything is written. */
+/**
+ * Loads and connects, then checks the bots' bundles and features and the
+ * content, before anything is written.
+ */
 async function prepare(
   options: PushOptions,
   result: PushResult,
@@ -170,8 +184,12 @@ async function prepare(
 ) {
   const ready = await loadAndConnect(options, result, step);
   if (!ready) return undefined;
-  const bots = checkBotFiles(options.config.bots);
-  if (bots.length > 0) return void step.fail('load', bots);
+  const files = checkBotFiles(options.config.bots);
+  if (files.length > 0) return void step.fail('load', files);
+  if (options.config.bots) {
+    const missing = await missingFeatures(ready.medplum, options.config.bots);
+    if (missing.length > 0) return void step.fail('bots', missing);
+  }
   const content = loadContent(options.config.content, ready.loaded);
   if (!content.ok) return void step.fail('load', content.errors);
   return { ...ready, content };
@@ -232,17 +250,22 @@ function driftOf(result: PushResult): string[] {
     changes.filter((c) => !c.kept).length;
   const content = pending(result.content?.changes);
   const project = pending(result.project?.changes);
+  const bots = pending(result.bots?.changes);
   const blocked = (result.content?.blocked.length ?? 0) + (result.project?.blocked.length ?? 0);
   return [
     profiles > 0 && `${profiles} profile${profiles === 1 ? '' : 's'}`,
     terminology > 0 && `${terminology} terminology`,
     content > 0 && `${content} content`,
     project > 0 && `${project} project change${project === 1 ? '' : 's'}`,
+    bots > 0 && `${bots} bot${bots === 1 ? '' : 's'}`,
     blocked > 0 && `${blocked} blocked`,
   ].filter((d) => typeof d === 'string');
 }
 
-/** The content step, then the project's own, each only when the config declares it. */
+/**
+ * The content step, then the project's own, then the bots, each only when the
+ * config declares it: a bot's policy and secrets come from the project.
+ */
 async function converge(
   medplum: MedplumClient,
   files: ContentFile[],
@@ -251,10 +274,54 @@ async function converge(
   step: Pick<ReturnType<typeof steps<PushStepName, PushResult>>, 'finish' | 'fail'>,
 ): Promise<boolean> {
   const content = files.length === 0 || (await contentStep(medplum, files, options, result, step));
-  return (
+  const project =
     content &&
-    (!declaresProject(options.config) || (await projectStep(medplum, options, result, step)))
-  );
+    (!declaresProject(options.config) || (await projectStep(medplum, options, result, step)));
+  return project && (!options.config.bots || (await botsStep(medplum, options, result, step)));
+}
+
+/**
+ * Plans the bots, then writes and deploys them unless the plan is blocked or
+ * this is a dry run. Returns whether it succeeded.
+ */
+async function botsStep(
+  medplum: MedplumClient,
+  options: PushOptions,
+  result: PushResult,
+  step: Pick<ReturnType<typeof steps<PushStepName, PushResult>>, 'finish' | 'fail'>,
+): Promise<boolean> {
+  try {
+    result.bots = await planBots(medplum, options.config.bots ?? {}, options);
+  } catch (err) {
+    step.fail('bots', [{ code: 'bots-failed', message: normalizeErrorString(err) }]);
+    return false;
+  }
+  const plan = result.bots;
+  if (plan.blocked.length > 0) {
+    step.finish('bots', botsSummary(plan), [], true);
+    step.fail('bots', plan.blocked);
+    return false;
+  }
+  const webhooks = (list: BotPlan['webhooks']) => list.map((w) => `webhook  ${w.key}  ${w.url}`);
+  step.finish('bots', botsSummary(plan), [
+    ...plan.changes.map(describeBot),
+    ...webhooks(plan.webhooks),
+    ...plan.warnings,
+  ]);
+  const pending = plan.changes.some((c) => !('kept' in c && c.kept));
+  if (options.dryRun || !pending) return true;
+  try {
+    const applied = await applyBots(plan, medplum);
+    step.finish(
+      'bots',
+      `applied ${applied.written} change${applied.written === 1 ? '' : 's'}`,
+      webhooks(applied.webhooks),
+    );
+  } catch (err) {
+    step.fail('bots', [{ code: 'bots-failed', message: normalizeErrorString(err) }]);
+    return false;
+  }
+  return true;
 }
 
 /**

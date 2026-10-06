@@ -772,6 +772,7 @@ describe('bots and subscriptions', () => {
       d: { file: './d.cjs', name: 'b' },
       e: { file: './e.cjs', name: 'd' },
       f: 'x',
+      checker: { file: './checker.cjs' },
     }`);
     expect(paths(result)).toEqual([
       ['invalid-bot', 'bots.a.policy'],
@@ -786,6 +787,7 @@ describe('bots and subscriptions', () => {
       ['invalid-bot', 'bots.c.audit'],
       ['duplicate-key', 'bots.d.name'],
       ['invalid-type', 'bots.f'],
+      ['invalid-bot', 'bots.checker'],
     ]);
     const messages = result.ok ? [] : result.errors.map((e) => e.message);
     expect(messages[0]).toMatch(/"nobody", which is not a key in project.accessPolicies/);
