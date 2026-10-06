@@ -207,6 +207,7 @@ describe('callOperation', () => {
 
 test('tsc holds callers and handlers to the contract', () => {
   const source = `
+import type { MedplumClient } from '@medplum/core';
 import type { Communication, Patient } from '@medplum/fhirtypes';
 import {
   callOperation,
@@ -217,7 +218,9 @@ import {
   type StandardSchemaV1,
 } from './generated/index.js';
 
-declare const medplum: OperationClient;
+declare const client: MedplumClient;
+// A MedplumClient is a client, with neither the DOM lib nor @types/node.
+const medplum: OperationClient = client;
 declare const draft: StandardSchemaV1<{ to: string; text: string }, { to: string; text: string; sentAt: Date }>;
 declare const profiled: ProfileTypes['${PATIENT}'];
 
