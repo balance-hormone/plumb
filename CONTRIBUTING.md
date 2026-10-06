@@ -46,8 +46,10 @@ only you can add it: tools, bots and coding agents must not add one for you.
   real-registry test runs nightly, or locally with `PLUMB_REGISTRY=1`. The
   server tests in `test/server` start Medplum in Docker and run in CI, or
   locally with `PLUMB_SERVER=1`; `PLUMB_MEDPLUM_SERVER` picks the server
-  release. A server already started with
-  `docker compose -f test/server/compose.yml up -d` is reused and left running.
+  release. They start it with `startServer`, as a project's own tests do, and
+  remove it afterwards; one already running, as one an interrupted run left,
+  is reused and left running, and `docker compose -p plumb-medplum down
+  --volumes` removes it.
 
 [`AGENTS.md`](AGENTS.md) holds the rest of the project's rules, for people and
 coding agents alike.

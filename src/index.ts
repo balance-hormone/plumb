@@ -11,6 +11,7 @@ export type {
   ProjectConfig,
   RouteRow,
   Settings,
+  TestConfig,
 } from './config.js';
 export { defineConfig, loadConfig } from './config.js';
 export type { ValidateOptions, ValidateReport } from './validate.js';

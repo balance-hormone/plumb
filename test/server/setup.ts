@@ -1,17 +1,15 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
 import { MedplumClient } from '@medplum/core';
 import type { Bundle } from '@medplum/fhirtypes';
 import type { TestProject } from 'vitest/node';
+import { startServer, stopServer } from '../../src/testing.js';
 
 // The mock client enforces neither profiles, strict mode nor access policies, so
 // server claims are tested against Medplum itself, in Docker. It runs in CI's
 // server job, or locally with PLUMB_SERVER=1; each run gets a project of its own.
-const COMPOSE = ['compose', '-f', join(import.meta.dirname, 'compose.yml')];
 const BASE_URL = 'http://localhost:8103/';
-// Seeded by compose.yml on the server's first boot.
+// Seeded by the test server on its first boot.
 const SUPER_ADMIN = ['00000000-0000-4000-8000-000000000001', 'plumb-test-super-admin'] as const;
 
 export interface TestServer {
@@ -27,23 +25,20 @@ declare module 'vitest' {
   }
 }
 
-const docker = (...args: string[]) => spawnSync('docker', args, { encoding: 'utf8' });
-
 export default async function setup(project: TestProject) {
   project.provide('medplum', undefined);
   if (!process.env.PLUMB_SERVER) return;
-  if (docker('info').status !== 0) {
-    if (process.env.CI) throw new Error('The server tests need Docker.');
-    console.warn('Docker is not running, so the Medplum server tests are skipped.');
-    return;
+  const server = startServer({ test: { server: process.env.PLUMB_MEDPLUM_SERVER } });
+  if (!server.ok) {
+    if (server.error.code === 'docker-unavailable' && !process.env.CI) {
+      console.warn('Docker is not running, so the Medplum server tests are skipped.');
+      return;
+    }
+    throw new Error(server.error.message);
   }
-  // A server someone started by hand is left running for the next run.
-  const running = docker(...COMPOSE, 'ps', '-q', 'medplum').stdout.trim() !== '';
-  const up = spawnSync('docker', [...COMPOSE, 'up', '--detach', '--wait'], { stdio: 'inherit' });
-  if (up.status !== 0) throw new Error('The Medplum server did not start.');
-
   project.provide('medplum', await newProject(SEED));
-  if (!running) return () => void docker(...COMPOSE, 'down', '--volumes');
+  // A server already running, as one left by an interrupted run, is left running.
+  return () => stopServer(server);
 }
 
 /**

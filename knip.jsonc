@@ -3,7 +3,7 @@
   // The hook runs from .claude/settings.json, which knip does not read. The library
   // and CLI are reached through `exports` and `bin` (dist/), which knip cannot map
   // back to src.
-  "entry": [".claude/hooks/*.mjs", "src/index.ts", "src/cli.ts"],
+  "entry": [".claude/hooks/*.mjs", "src/index.ts", "src/testing.ts", "src/cli.ts"],
   // Golden files are compared as text, and the check fixture is compiled by the
   // analyzer under test, not imported.
   "ignore": ["test/golden/generated/**", "test/fixtures/check/**"]

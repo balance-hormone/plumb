@@ -51,6 +51,25 @@ export interface PlumbConfig {
   project?: ProjectConfig;
   /** What `plumb check` reads. */
   check?: CheckConfig;
+  /** The test environment: a server Plumb starts and a project `push` converges in it. */
+  test?: TestConfig;
+}
+
+/**
+ * What a test project has beyond what `push` writes. The test server's super
+ * admin sets `strictMode` and `features`, which `project` cannot.
+ */
+export interface TestConfig {
+  /** The Medplum server release, as `5.1.42`; by default the installed `@medplum/core`'s. */
+  server?: string;
+  /** `true` by default; `false` rehearses a loose project. */
+  strictMode?: boolean;
+  /** The project's features; `['bots']` by default. */
+  features?: string[];
+  /** Merged over `project.settings`, as an environment's are. */
+  settings?: Settings;
+  /** Transaction or batch Bundles, as paths or globs, loaded in order after the push. */
+  seed?: string[];
 }
 
 /** What `plumb check` reads: the project's code, for raw access to profiled types. */
@@ -150,7 +169,8 @@ export type ConfigErrorCode =
   | 'super-admin-field'
   | 'unknown-access-policy'
   | 'duplicate-key'
-  | 'invalid-check';
+  | 'invalid-check'
+  | 'invalid-server-version';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -181,9 +201,11 @@ const KEYS = new Set([
   'defaultProfile',
   'project',
   'check',
+  'test',
 ]);
 const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as const;
 const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
+const TEST_KEYS = ['server', 'strictMode', 'features', 'settings', 'seed'];
 // A project admin's write to these is silently restored, so declaring one would never take.
 const SUPER_ADMIN_FIELDS = ['strictMode', 'features', 'link', 'systemSetting'];
 // Medplum's member roles; @medplum/fhirtypes 5.1 has no type for them yet.
@@ -357,6 +379,7 @@ function check(config: unknown): ConfigError[] {
     ...checkDefaultProfile(record.defaultProfile),
     ...checkProject(record.project),
     ...checkCheck(record.check),
+    ...checkTest(record.test),
   );
   for (const key of ['local', 'fsh']) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
@@ -649,6 +672,44 @@ function checkProject(project: unknown): ConfigError[] {
     ...checkDefaultAccessPolicies(project.defaultAccessPolicies, checkPolicyKey),
     ...checkClients(project.clients, checkPolicyKey),
   ];
+}
+
+function checkTest(test: unknown): ConfigError[] {
+  if (test === undefined) return [];
+  if (!isObject(test)) return [notObject('test')];
+  const errors: ConfigError[] = Object.keys(test)
+    .filter((key) => !TEST_KEYS.includes(key))
+    .map((key) => ({
+      code: 'unknown-key',
+      path: `test.${key}`,
+      message: `Unknown config key "test.${key}".`,
+    }));
+  // Medplum's server images are tagged by release, never by range.
+  if (test.server !== undefined && !/^\d+\.\d+\.\d+$/.test(String(test.server))) {
+    errors.push({
+      code: 'invalid-server-version',
+      path: 'test.server',
+      message: `"test.server" must be a Medplum release, as 5.1.42.`,
+    });
+  }
+  if (test.strictMode !== undefined && typeof test.strictMode !== 'boolean') {
+    errors.push({
+      code: 'invalid-type',
+      path: 'test.strictMode',
+      message: '"test.strictMode" must be true or false.',
+    });
+  }
+  for (const key of ['features', 'seed']) {
+    const list = test[key];
+    if (list !== undefined && !(Array.isArray(list) && list.every((i) => typeof i === 'string'))) {
+      errors.push({
+        code: 'invalid-type',
+        path: `test.${key}`,
+        message: `"test.${key}" must be a list of strings.`,
+      });
+    }
+  }
+  return [...errors, ...checkSettings(test.settings, 'test.settings')];
 }
 
 const notObject = (path: string): ConfigError => ({
