@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+Data migrations ([design 11](docs/design/11-data-migrations.md)).
+
+- **`migrations` in the config:** `defineMigration` modules with a pure
+  `transform` that returns JSON Patch, or `undefined` when a record needs
+  nothing; `synthetic: true` on an environment; `plumb migrate new <name>`
+  scaffolds a dated module. `invalid-migration` is checked offline: a reused
+  or undated id, an unknown `dependsOn` or a cycle, an unknown type, a
+  search parameter Medplum does not index (#189).
+- **`generate` writes `_migrations.ts` and `_migrator.ts`:**
+  `handleMigrations`, a migration bot's handler, reads a page, transforms,
+  forecasts the changed records with Plumb's checker against the selected
+  profiles, and with `write` PUTs each with `If-Match`, rereading once on a
+  412. Only counts, reasons and versions come back (#190).
+- **`plumb migrate --env`** drives the bot a page at a time as async jobs:
+  a dry run unless `--write`, a ledger `Basic` per migration in the project,
+  a ten-minute lease (`migration-running`), resume after Ctrl-C or a crash,
+  and a minute's wait over the write quota. `migrator-not-current` until
+  `push` deploys this build (#191).
+- **`plumb migrate status`** exits 1 when anything is pending, running,
+  paused, errored or edited since applied; migrations run after their
+  `dependsOn`, then by id; `--rerun <id>` runs an applied one again;
+  `migration-edited` and `unmet-dependency` stop a `--write` (#192).
+- **`push`'s gate names the pending migrations** on each failing type (#195).
+- **`--local`** runs the generated runner in the CLI's process on an
+  environment marked `synthetic`, and `not-synthetic` anywhere else;
+  `plumb-fhir/test` exports `migrate(project, config, options)` (#193).
+- **`restamp: true`** adds `plumb-restamp-<Type>` for each type with routing
+  rows: the stamps `updateProfiled` would set, other URLs kept, run again
+  whenever `_routes.ts` changes (#194).
+- **Works with Medplum 5.1.0,** which ignores `If-Match` on a PATCH: the
+  runner patches in memory and writes with PUT (#190).
+
 ## 0.13.0 (2026-10-06)
 
 Behaviour as code ([design 10](docs/design/10-behaviour.md)), whose two

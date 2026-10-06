@@ -546,8 +546,8 @@ Failed in 40.8s
   release (run `plumb push` to install it). `validate` never installs or
   changes anything.
 
-**4. Fix or migrate** the failing records, and validate again until nothing
-fails.
+**4. Fix or [migrate](#migrate-stored-data)** the failing records, and
+validate again until nothing fails.
 
 **5. Load the profiles:**
 
@@ -604,6 +604,176 @@ variables:
   env:
     MEDPLUM_PROD_CLIENT_ID: ${{ secrets.MEDPLUM_PROD_CLIENT_ID }}
     MEDPLUM_PROD_CLIENT_SECRET: ${{ secrets.MEDPLUM_PROD_CLIENT_SECRET }}
+```
+
+## Migrate stored data
+
+`validate` says which stored records a stricter profile would refuse; a
+migration fixes them, inside the project. Together with `push` this is a
+database's **check, backfill, then tighten**:
+
+```bash
+npx plumb validate --env prod          # 312 Patients fail us-core-patient: birthDate missing
+npx plumb migrate --env prod           # dry run: 312 to change, and a forecast
+npx plumb migrate --env prod --write   # the backfill, resumable
+npx plumb push --env prod              # the gate passes; the stricter profile loads
+```
+
+**Declare a migration** in a module the config lists. `plumb migrate new
+patient-birthdate` scaffolds `<date>-patient-birthdate.ts` in the first
+`modules` folder:
+
+```ts
+// src/migrations/20261006-patient-birthdate.ts
+import { defineMigration } from '../fhir/generated/index.js';
+
+export default defineMigration({
+  id: '20261006-patient-birthdate',
+  resourceType: 'Patient',
+  search: { 'birthdate:missing': 'true' }, // narrows what is read; optional
+  transform(patient) {
+    if (patient.birthDate) return undefined; // nothing to do
+    return [{ op: 'add', path: '/birthDate', value: '1900-01-01' }];
+  },
+});
+```
+
+- **`transform` is pure:** it returns JSON Patch operations, or `undefined`
+  when the record needs nothing, so a run is safe to repeat and to resume. A
+  transform is a function, so test it on fixtures with no server: records in,
+  patches out.
+- **The resource is typed** by `@medplum/fhirtypes`, not a profile type: the
+  record is stale, so a profile type would claim what it lacks.
+- **`search` only narrows** what is read; the runner adds `_lastUpdated`,
+  `_sort` and `_count`, and reads only records last updated before the run
+  started.
+- **An `id` starts with a date,** so branches never collide on a number.
+  `dependsOn: ['<id>']` runs a migration after another; otherwise they run by
+  `id`. A bad id, a cycle, an unknown type or a search parameter Medplum does
+  not index is `invalid-migration`, before anything is read.
+
+**Deploy the migrator.** Migrations run a page at a time in a bot of the
+project's own, so patient data never leaves Medplum. `generate` writes
+`_migrator.ts`, importing each module, and the bot's entry is one line:
+
+```ts
+// src/bots/migrator.ts, built as the project's other bots are
+export { handler } from '../fhir/generated/_migrator.js';
+```
+
+```ts
+// in plumb.config.ts
+bots: {
+  migrator: { file: './dist/bots/migrator.cjs', runtime: 'awslambda', timeout: 300, policy: 'migrator' },
+},
+migrations: {
+  bot: 'migrator',
+  modules: ['./src/migrations/*.ts'],
+  restamp: true, // optional: Plumb's restamp migrations, below
+},
+```
+
+The `migrator` policy reads and writes the migrated types, and grants Plumb's
+checker by key, `{ resourceType: 'Bot', bots: ['checker'] }`, which forecasts
+each page. `push` deploys the bot; a new module makes `generate --check`
+stale until it is generated and the bot rebuilt.
+
+**Run it.** A dry run is the default and writes nothing, the ledger
+included:
+
+```text
+plumb migrate --env prod
+✔ load        1 profiles of Patient   1.9s
+✔ connect     https://api.medplum.com/   320ms
+✔ migrations  1 of 1 chosen   40ms
+✔ checker     plumb-checker 0.14.0 installed   60ms
+✔ migrator    migrator current (migrator-3c07…)   70ms
+✔ 20261006-patient-birthdate  dry run: 312 read, 312 to change, 0 unchanged   9.8s
+    forecast: 312 would pass the selected profiles, 0 would still fail
+Done in 12.6s
+```
+
+- **The forecast** validates each changed record, as patched, against the
+  selected profiles it is stamped with, in the checker: it answers "would
+  these pass once the stricter profile loads?"
+- **`--write`** PUTs each record with `If-Match` on the version read. A record
+  edited in between is read and transformed again; a second clash counts as a
+  conflict, left for the next run. A record the server refuses counts as
+  failed, with its reason. Only counts and reasons come back, never a record
+  or an id.
+- **Pages** are 100 records (`--page-size`, 20 to 1,000), each an async job,
+  short enough for the bot's timeout. Over the project's write quota, a page
+  waits a minute and runs again.
+- **Ctrl-C** stops after the current page, and the next `--write` resumes
+  from its cursor. `plumb migrate --env prod <id>…` runs only those.
+- **The migrator must be this build:** `migrator-not-current` (exit 2) until
+  `push` deploys it, as `validate` requires the checker.
+
+**The ledger** is one `Basic` per migration in the project, found by Plumb's
+tag: its status (`running`, `paused`, `errored` or `applied`), the module's
+hash, the git commit, the counts, and a lease, so two runs never race
+(`migration-running`) and a run whose CLI died is taken over after ten
+minutes. An applied migration is not run again. One whose module changed
+since is `migration-edited`; `--rerun <id>` runs it again, changing only what
+its transform still finds.
+
+**Watch every environment** with `plumb migrate status`, which exits 1 when
+anything is pending, running, paused, errored or edited, so a nightly job
+catches an environment that missed a migration:
+
+```text
+plumb migrate status --env prod
+✔ migrations  2 declared
+✔ connect     https://api.medplum.com/
+✔ 20261006-patient-birthdate  applied at 3c07a1e, 312 changed
+✖ 20261020-coverage-payor     pending
+```
+
+Once a migration is applied in every environment, its module can go; its
+ledger entry stays, and `status` lists it with "(no module)".
+
+**Restamping.** With `restamp: true`, `generate` also writes
+`plumb-restamp-<Type>` for each type with routing rows. Each sets the stamps
+`updateProfiled` would, keeps any other URL in `meta.profile`, and leaves a
+record that routes to no single profile alone. They run again whenever
+`_routes.ts` changes, so a new routing row or profile restamps what is
+stored.
+
+**`push` names what is pending.** The two stay separate: `push` never writes
+patient data, and `migrate` never loads a profile. When the gate refuses, it
+lists the pending migrations on each failing type:
+
+```text
+✖ gate      312 stored Patients would fail us-core-patient
+    pending: 20261006-patient-birthdate (Patient)
+    Refusing to load: run plumb migrate --env prod --write, or see plumb validate --env prod.
+```
+
+The order for a tightening is **expand, migrate, contract:** ship the app
+writing the new shape, migrate the old records, then `push` the stricter
+profile. A record the app writes in the old shape after a run started is not
+read by it; the gate catches it, and `--rerun` fixes it.
+
+**Locally and in tests.** On an environment marked `synthetic: true` (no real
+patient data), `--local` runs the same generated runner in the CLI's process,
+with no bot and no deploy; anywhere else it is `not-synthetic`, before
+anything is read. A project's tests do the same against a
+[test project](#test-against-a-real-server):
+
+```ts
+import { loadConfig } from 'plumb-fhir';
+import { connectAs, migrate, testProject } from 'plumb-fhir/test';
+import { expect, test } from 'vitest';
+
+// test.seed holds Patients with no birthDate, stamped with no profile that requires one.
+test('the birthdate migration backfills every patient', async () => {
+  const loaded = await loadConfig({ cwd: process.cwd() });
+  if (!loaded.ok) throw new Error('plumb.config.ts did not load');
+  const result = await migrate(testProject(), loaded.config, { lockPath: 'plumb.lock', write: true });
+  expect(result.ok).toBe(true);
+  const medplum = await connectAs(testProject());
+  expect(await medplum.searchResources('Patient', { 'birthdate:missing': 'true' })).toEqual([]);
+});
 ```
 
 ## Configure the project

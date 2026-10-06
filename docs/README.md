@@ -382,16 +382,30 @@
   The README covers operations and typed bots, design 10 is marked
   implemented with what differs as built, and the changelog gains v0.13
   (#177). **v0.13 is complete.**
+- **v0.14:** `migrations` in the config (#189): `defineMigration` modules,
+  loaded as the config is, checked offline (`invalid-migration`), with
+  `synthetic` on an environment and `plumb migrate new`. `generate` writes
+  `_migrations.ts` and `_migrator.ts` (#190): `handleMigrations` reads a page,
+  transforms, asks Plumb's checker for the forecast with `Bot/$execute`, and
+  writes. The server tests found Medplum 5.1.0 applying a PATCH whatever its
+  `If-Match`, so the runner PUTs with `If-Match` instead.
+  `plumb migrate --env` drives the bot a page at a time (#191), with a
+  ledger `Basic` per migration holding its status, hash, cursor, counts and
+  lease, a dry run unless `--write`, resume, and a minute's wait over the
+  write quota. `plumb migrate status`, `dependsOn` order, `--rerun` and
+  `migration-edited` follow (#192); `push`'s gate names the pending
+  migrations on each failing type (#195); `--local` runs the runner in
+  process on synthetic environments, and `plumb-fhir/test` exports
+  `migrate` (#193). `restamp: true` generates `_restamp.ts`, a repeatable
+  migration per routed type hashed by `_routes.ts` (#194). The README covers
+  migrations, design 11 is marked implemented with what differs as built,
+  and the changelog gains v0.14 (#196). **v0.14 is complete.**
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
-  (built), reference content (built), behaviour (built) and data. Next, in
-  order: data migrations, then input validation through Medplum's own
-  validator (in place of generated Zod schemas). See [`spec.md`](spec.md),
-  Direction and Roadmap.
-- **Design 11** (data migrations) is accepted for v0.14: `defineMigration`
-  modules run a page at a time by a declared bot, so patient data stays in
-  Medplum, dry run unless `--write`, with a ledger in the project and a
-  built-in restamp.
+  (built), reference content (built), behaviour (built) and data over time
+  (built). Next: input validation through Medplum's own validator (in place
+  of generated Zod schemas). See [`spec.md`](spec.md), Direction and
+  Roadmap.
 - Ideas not yet designed are notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
@@ -428,7 +442,8 @@
     and v0.13): bots,
     schedules, webhooks and Subscriptions through `push` by key, and operation
     contracts with typed callers and handlers
-  - [11: data migrations](design/11-data-migrations.md) (accepted): stored
+  - [11: data migrations](design/11-data-migrations.md) (implemented in
+    v0.14): stored
     records fixed by declared migrations, run inside the project, recorded in
     a ledger there
 - [`future/`](future/): ideas not yet designed, each with its sketch and
