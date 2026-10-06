@@ -24,7 +24,7 @@ const SYNTHETIC = join(import.meta.dirname, '../fixtures/profiles/fsh-generated/
 const errorOf = async (promise: Promise<unknown>) =>
   promise.then(
     () => undefined,
-    (err: { outcome?: { id?: string; issue?: { details?: { text?: string } }[] } }) => err.outcome,
+    (err: { outcome?: { id?: string; issue?: { expression?: string[] }[] } }) => err.outcome,
   );
 
 // Design 11's "Checked first": what the runner relies on Medplum to do.
@@ -70,7 +70,7 @@ describe.skipIf(!server)('Medplum, as the migration runner relies on it', () => 
         { op: 'remove', path: '/birthDate' },
       ]),
     );
-    expect(outcome?.issue?.map((i) => i.details?.text).join(' ')).toMatch(/birthDate/);
+    expect(outcome?.issue?.flatMap((i) => i.expression ?? [])).toContain('Patient.birthDate');
   });
 
   test('a PATCH that changes nothing writes no version', async () => {
