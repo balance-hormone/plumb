@@ -1,9 +1,26 @@
 # Design 10: Behaviour as Code
 
-**Status: accepted** on 2026-10-06; v0.12 is #167 to #173 and v0.13 #174 to
-#177. The first item on the
+**Status: v0.12 implemented** (#167 to #173); v0.13 (#174 to #177) is next.
+Accepted on 2026-10-06. The first item on the
 [spec's roadmap](../spec.md#roadmap). It supersedes the
 [operation contracts](../future/operation-contracts.md) sketch.
+
+As built in v0.12, these details differ from or add to the text below:
+
+- **A bot's `file` is checked when `push` starts,** not when the config
+  loads, since a project builds its bots after `generate` (#168).
+- **`secret`, `headers` and `maxAttempts` on a bot's Subscription are
+  errors,** since Medplum applies them only to URL delivery (#168).
+- **The key `checker` is Plumb's own** checker bot's, so a config cannot use
+  it (#169).
+- **An untagged bot matching by name is `untagged-bot`** until `--adopt`, as
+  `shadowed-bot` names two with one identifier (#169).
+- **A removed bot with no schedule is reported, not planned,** so `--check`
+  does not count it as drift on every run (#169).
+- **A Subscription is adopted by its criteria and endpoint,** having no
+  name; its `reason` is its key, and the order of Medplum's extensions is not
+  drift (#171).
+- **A test project has `cron` by default when a bot has a schedule** (#172).
 
 Builds on [design 06](06-project-config.md)'s project config, whose
 AccessPolicies, secrets and tags it reuses, on

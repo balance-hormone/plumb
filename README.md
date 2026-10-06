@@ -854,6 +854,101 @@ A choice's codes are a literal union when its answer options, or an
 within `bindings.maxCodes`; otherwise it is any `Coding`. Every answer may be
 missing.
 
+## Bots and Subscriptions
+
+A project's behaviour is its bots and what triggers them. Declare both by
+key, and `push` creates, configures and deploys them in every environment;
+no server id ever appears in the repository.
+
+```ts
+// in plumb.config.ts
+project: {
+  secrets: { SMS_API_KEY: { env: 'SMS_API_KEY' } },
+  accessPolicies: {
+    'reminder-sender': { resource: [{ resourceType: 'Appointment', readonly: true }] },
+    'intake-writer': { resource: [{ resourceType: 'QuestionnaireResponse' }] },
+    // Who may run a bot, by its key: the same policy in every environment.
+    'front-desk': { resource: [{ resourceType: 'Bot', bots: ['send-reminder'] }] },
+  },
+},
+bots: {
+  'send-reminder': {
+    file: './dist/bots/send-reminder.cjs', // built by the project
+    timeout: 30,                           // seconds; 10 by default
+    policy: 'reminder-sender',             // the bot's own access
+    secrets: ['SMS_API_KEY'],
+    cron: '0 14 * * *',
+  },
+  'intake-webhook': {
+    file: './dist/bots/intake-webhook.cjs',
+    policy: 'intake-writer',
+    publicWebhook: true,
+    rawBody: true,
+  },
+},
+subscriptions: {
+  'new-appointment': {
+    criteria: 'Appointment?status=booked',
+    interactions: ['create'],
+    bot: 'send-reminder',
+  },
+  'lab-result': {
+    criteria: 'DiagnosticReport?status=final',
+    url: 'https://hooks.example.org/lab',
+    secret: { env: 'LAB_HOOK_SECRET' },          // signs each delivery as X-Signature
+    headers: { Authorization: { env: 'LAB_HOOK_TOKEN' } },
+  },
+},
+```
+
+```text
+✔ bots           plan: 1 to create, 0 to update, 2 to deploy, 0 to disconnect
+    + Bot  send-reminder  awslambda, policy reminder-sender
+    ~ Bot  intake-webhook (code changed (a91f… → 3c07…))
+    webhook  intake-webhook  https://api.example.org/webhook/7d1e…
+✔ bots           applied 2 changes
+✔ subscriptions  plan: 1 to create, 1 to update, 0 to turn off
+    + Subscription  new-appointment  Appointment?status=booked → Bot send-reminder
+    ~ Subscription  lab-result (criteria changed)
+✔ subscriptions  applied 2 changes
+```
+
+- **Checked before anything is written:** an unknown policy, secret or bot
+  key; a `publicWebhook` without a `policy`, which Medplum would answer with a
+  403; a schedule Medplum would silently ignore; criteria Medplum's matcher
+  can never fire on (chained parameters, `_has`, a project's own
+  SearchParameters, number, quantity and composite parameters, and modifiers
+  it reads as equality); a FHIRPath that does not parse; and a bundle that is
+  missing or, for `vmcontext`, is not CommonJS assigning `exports.handler`.
+- **Bots are found by identifier** (Plumb's system and the key), created
+  through Medplum's admin endpoint so each gets its membership and policy,
+  and converged field by field. The bundle deploys only when its hash
+  differs from the one in the deployed filename, so an unchanged bot never
+  publishes a new Lambda version. Each public webhook's URL is printed for
+  the environment; vendors point at it, so it never changes.
+- **Subscriptions are found by tag,** so a changed criteria updates one in
+  place. A bot's is addressed by the bot's id in this environment. Secret and
+  header values are read from their variables when written and never kept in
+  the plan; Medplum cuts a header value at its first `:`, so one holding a
+  `:` stops the push. One Medplum turned off after failed deliveries is
+  reported and turned back on.
+- **Removal is gentle:** `--prune` clears a removed bot's schedule and turns
+  a removed Subscription off. A bot is never deleted, since that would break
+  every webhook pointing at it.
+- **Existing bots and Subscriptions** the project made by hand are adopted
+  with `--adopt`: a bot by its name, keeping its id, membership and webhook
+  URL; a Subscription by its criteria and endpoint. Until then, `push` names
+  them and stops.
+- **Features only a super admin can turn on:** the project needs `bots`, and
+  `cron` when a bot has a schedule. `push` checks both before writing
+  anything (`bots-disabled`, `cron-disabled`).
+- **`push --check`** reports bots and Subscriptions edited in the console,
+  and code deployed by hand, as drift.
+
+A bot that throws when a Subscription runs it counts as delivered in
+Medplum: it is not retried, and the Subscription stays on. Check the bot's
+AuditEvents, not the Subscription's status.
+
 ## Test against a real server
 
 `MockClient` keeps everything in memory and enforces none of what

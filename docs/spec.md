@@ -30,7 +30,7 @@ it, idempotently, and **verify** that the server and the stored data match.
 | Schema | Profiles, extensions, value sets | Built: v0.1 to v0.5, designs [01](design/01-generator.md) to [05](design/05-sushi.md) |
 | Config | Settings, secrets, defaults, AccessPolicies, clients | Built: v0.6, [design 06](design/06-project-config.md) |
 | Reference content | Questionnaires, terminology, Organizations | Built: v0.11, [design 09](design/09-reference-content.md) |
-| Behaviour | Bots, their operations and Subscriptions | Designed: v0.12 and v0.13, [design 10](design/10-behaviour.md) |
+| Behaviour | Bots, their operations and Subscriptions | Bots and triggers built: v0.12; operations next, v0.13; [design 10](design/10-behaviour.md) |
 | Data over time | Migrations when a profile or a routing row changes | Later; [data migrations](future/data-migrations.md) |
 
 Drizzle and the T3 stack are reference points, not the target. Plumb borrows
@@ -491,9 +491,9 @@ Next, in order. Each gets a design note before it is built.
 1. **Behaviour as code.** Bot registrations, typed handlers, operation
    contracts and Subscriptions, to bots or URLs, declared together
    because each references the others. The OperationDefinition is generated
-   from the contract. See [design 10](design/10-behaviour.md), accepted:
-   bots and triggers in v0.12, operation contracts and typed handlers in
-   v0.13.
+   from the contract. See [design 10](design/10-behaviour.md): bots and
+   triggers implemented in v0.12, operation contracts and typed handlers
+   next, in v0.13.
 2. **Data migrations.** Report, fix, then enforce: `validate` finds what a
    tightened profile breaks, and an idempotent migration fixes it.
 3. **Input validation.** Forms and API edges need checks outside Node, partial

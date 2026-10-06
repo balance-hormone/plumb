@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+Bots and triggers ([design 10](docs/design/10-behaviour.md), first half).
+
+- **`bots` and `subscriptions` in the config,** by key, checked offline:
+  `invalid-bot` for an unknown policy or secret, a public webhook without a
+  policy, or a schedule Medplum would ignore; `invalid-subscription` for
+  criteria Medplum's matcher can never fire on, a FHIRPath that does not
+  parse, or a malformed header (#168).
+- **`push` converges bots** in a `bots` step after `project`: found by
+  identifier, created through the admin endpoint with their membership and
+  policy, converged field by field, and deployed only when the bundle's hash
+  changes. `--adopt` takes over a bot by name; `--prune` clears a removed
+  bot's schedule and never deletes it. Webhook URLs are printed, and missing
+  `bots` or `cron` features stop the push before anything is written (#169).
+- **Access to bots by key:** a policy entry
+  `{ resourceType: 'Bot', bots: ['<key>'] }` is written as criteria on the
+  bots' identifiers, the same in every environment (#170).
+- **`push` converges Subscriptions** in a last `subscriptions` step: found by
+  tag, delivering to a bot by key or to an `https` URL, with secret and
+  header values read from the environment and never kept in the plan. One
+  Medplum turned off is turned back on; `--prune` turns a removed one off
+  (#171).
+- **Test projects run the declared bots,** each on vmcontext, from its
+  `test.bots` build when one is named, with `cron` on when a bot has a
+  schedule (#172).
+
 ## 0.11.0 (2026-10-06)
 
 Reference content as code ([design 09](docs/design/09-reference-content.md)).
