@@ -281,6 +281,9 @@
     clients
   - [07: `plumb check`](design/07-check.md) (implemented in v0.8): raw
     access found by type, against a baseline
+  - [08: test environments](design/08-test-environments.md) (accepted, v0.10): a
+    real Medplum and a project with the config pushed, for a project's own
+    tests
 - [`future/`](future/): parked ideas, each with its design sketch and research.
   - [Conformance check](future/conformance-check.md): the later stages, the
     baseline and adopting late; stages 1 and 2 are design 02.
