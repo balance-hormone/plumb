@@ -578,6 +578,39 @@ both open. The manifest declares bots by identifier (upserted with
 `PUT Bot?identifier=`) and operations as conditional `PUT
 OperationDefinition?url=`; it has no Subscriptions.
 
+## Upstream issues
+
+Drafted for [design 10](../design/10-behaviour.md), each reproduced by a
+real-server test in [`test/server/upstream.test.ts`](../../test/server/upstream.test.ts),
+which pins today's behaviour so a fix turns it red. Upstream proposals start
+as issues (below); not yet filed.
+
+**1. A Subscription's bot that fails counts as delivered.**
+
+> A rest-hook Subscription whose endpoint is a Bot keeps `status: active` and
+> is never retried when the bot throws, even with
+> `subscription-max-attempts` set. `execBot` in
+> `packages/server/src/workers/subscription.ts` awaits `executeBot` but
+> ignores the result's `success`, so the job completes and the failure
+> tracker never sees it. URL deliveries, by contrast, retry and are
+> auto-disabled. Reproduction: a bot whose handler throws; a Subscription on
+> `Patient` to it with `subscription-max-attempts: 3`; create a Patient. One
+> AuditEvent records the failure; after 15 s there is still one, and the
+> Subscription is still `active`. Expected: the delivery counts as failed,
+> so it is retried and counts toward auto-disable, as a URL delivery does.
+
+**2. A custom operation called by `GET` with a query string is not found.**
+
+> `tryCustomOperation` in `packages/server/src/fhir/operations/custom.ts`
+> takes the operation code from `req.url` split on `/`, which keeps the query
+> string, so `GET Patient/$my-op?name=x` looks for an OperationDefinition with
+> code `my-op?name=x`, finds none, and answers `404 Not found`.
+> `GET Patient/$my-op` and `POST` work. Reproduction: a type-level
+> OperationDefinition with code `plumb-echo` on `Patient`, implemented by a
+> bot; `GET Patient/$plumb-echo` runs the bot, `GET
+> Patient/$plumb-echo?name=Synthetic` is `Not found`. Expected: the code
+> without the query string, whose parameters reach the bot as its input.
+
 ## Data migrations
 
 Read for [design 11](../design/11-data-migrations.md) from `main` at

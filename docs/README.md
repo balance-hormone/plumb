@@ -346,6 +346,10 @@
   `runtime`, from its `test.bots` build when one is named, with the `cron`
   feature by default when a bot has a schedule. A real-server test triggers a
   bot declared for Lambda through a Subscription in a test project.
+  The README covers bots and Subscriptions, and the research notes draft two
+  Medplum issues with real-server reproductions: a Subscription's failing bot
+  counting as delivered, and a custom operation called by `GET` with a query
+  string not found (#173). **v0.12 is complete.**
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
@@ -388,7 +392,8 @@
   - [09: reference content as code](design/09-reference-content.md) (implemented
     in v0.11): Questionnaires, terminology and Organizations through `push`,
     and typed Questionnaire answers
-  - [10: behaviour as code](design/10-behaviour.md) (accepted): bots,
+  - [10: behaviour as code](design/10-behaviour.md) (bots and triggers
+    implemented in v0.12; operations next): bots,
     schedules, webhooks and Subscriptions through `push` by key, and operation
     contracts with typed callers and handlers
   - [11: data migrations](design/11-data-migrations.md) (accepted): stored
