@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkRoutes, type PlumbConfig } from './config.js';
+import { loadContent } from './content.js';
 import { printFiles } from './emit/print.js';
 import { routingRows } from './emit/routes.js';
 import { type ProfileModel, transform } from './emit/transform.js';
@@ -129,13 +130,20 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
     profiles: config.profiles,
   });
   if (!loaded.ok) return fail('load', loaded.errors);
-  // Whether a routing row names a selected profile and its elements is known only now.
-  const routeErrors = checkRoutes(config, loaded.profiles);
-  if (routeErrors.length > 0) return fail('load', routeErrors);
+  // Whether a routing row names a selected profile and its elements, and
+  // whether content validates against what it claims, is known only now.
+  const content = loadContent(config.content, loaded);
+  const loadErrors = [...checkRoutes(config, loaded.profiles), ...content.errors];
+  if (loadErrors.length > 0) return fail('load', loadErrors);
   const skipped = loaded.warnings.filter((w) => w.code === 'unparseable-skipped').length;
   finish(
     'load',
-    { profiles: loaded.profiles.length, skipped, unresolved: loaded.unresolved.length },
+    {
+      profiles: loaded.profiles.length,
+      skipped,
+      unresolved: loaded.unresolved.length,
+      content: content.files.length,
+    },
     loaded.warnings.map((w) => w.message),
   );
 

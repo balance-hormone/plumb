@@ -53,6 +53,11 @@ export interface PlumbConfig {
   check?: CheckConfig;
   /** The test environment: a server Plumb starts and a project `push` converges in it. */
   test?: TestConfig;
+  /**
+   * Reference content `push` converges: files or globs of Questionnaire,
+   * CodeSystem, ValueSet and Organization JSON, one resource each.
+   */
+  content?: string[];
 }
 
 /**
@@ -202,6 +207,7 @@ const KEYS = new Set([
   'project',
   'check',
   'test',
+  'content',
 ]);
 const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as const;
 const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
@@ -219,7 +225,7 @@ const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 /**
  * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
  * Node's type stripping, or the project's own tsx for what Node cannot load.
- * `local`, `fsh`, `out` and `test.seed` come back as absolute
+ * `local`, `fsh`, `out`, `content` and `test.seed` come back as absolute
  * paths, resolved against the config file's folder; with `fsh`, `local` is its
  * SUSHI output.
  */
@@ -265,6 +271,7 @@ export async function loadConfig(options: {
       ...config,
       out: resolve(base, config.out),
       ...(config.check ? { check: resolveCheck(base, config.check) } : {}),
+      ...(config.content ? { content: config.content.map((p) => resolve(base, p)) } : {}),
       ...(config.test?.seed
         ? { test: { ...config.test, seed: config.test.seed.map((p) => resolve(base, p)) } }
         : {}),
@@ -384,6 +391,7 @@ function check(config: unknown): ConfigError[] {
     ...checkCheck(record.check),
     ...checkTest(record.test),
   );
+  errors.push(...checkContent(record.content));
   for (const key of ['local', 'fsh']) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
       errors.push({ code: 'invalid-type', path: key, message: `"${key}" must be a path.` });
@@ -674,6 +682,18 @@ function checkProject(project: unknown): ConfigError[] {
     ...checkAccessPolicies(project.accessPolicies),
     ...checkDefaultAccessPolicies(project.defaultAccessPolicies, checkPolicyKey),
     ...checkClients(project.clients, checkPolicyKey),
+  ];
+}
+
+function checkContent(content: unknown): ConfigError[] {
+  if (content === undefined) return [];
+  if (Array.isArray(content) && content.every((p) => typeof p === 'string')) return [];
+  return [
+    {
+      code: 'invalid-type',
+      path: 'content',
+      message: '"content" must be a list of paths or globs.',
+    },
   ];
 }
 

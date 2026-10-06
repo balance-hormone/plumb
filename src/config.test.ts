@@ -353,6 +353,21 @@ describe('loadConfig', () => {
     expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([[code, path]]);
   });
 
+  test('content resolves against the config, keeping globs; anything but a list of paths is invalid-type', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', content: ['./fhir/content/*.json'] };`,
+    });
+    expect(result.ok && result.config.content).toEqual([
+      result.ok && join(dirname(result.configPath), 'fhir/content/*.json'),
+    ]);
+    const invalid = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', content: './fhir/content' };`,
+    });
+    expect(!invalid.ok && invalid.errors.map((e) => [e.code, e.path])).toEqual([
+      ['invalid-type', 'content'],
+    ]);
+  });
+
   test('unknown-key inside bindings, and bindings that is not an object', () => {
     const unknown = load({
       'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', bindings: { max: 5 } };`,
