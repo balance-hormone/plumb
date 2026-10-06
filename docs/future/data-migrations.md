@@ -1,7 +1,8 @@
 # Idea: Data Migrations
 
-**Status: parked.** An idea for a later tool, not a commitment. Plumb's first
-deliverable is profile types ([`../spec.md`](../spec.md)).
+**Status: on the roadmap,** after behaviour as code
+([`../spec.md`](../spec.md), Roadmap). Its design note will supersede this
+sketch.
 
 ## Problem
 
