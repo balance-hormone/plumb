@@ -611,6 +611,56 @@ as issues (below); not yet filed.
 > Patient/$plumb-echo?name=Synthetic` is `Not found`. Expected: the code
 > without the query string, whose parameters reach the bot as its input.
 
+## Data migrations
+
+Read for [design 11](../design/11-data-migrations.md) from `main` at
+`427004db6` on 2026-10-06. Paths are under `packages/server/src` unless
+named. Not yet pinned by real-server tests; design 11's first issues add them.
+
+- **`If-Match` guards PATCH and PUT.** `fhir-router/src/fhirrouter.ts`
+  `parseIfMatchHeader()` takes the version inside `W/"…"` for update, patch
+  and their conditional forms; `fhir/repo.ts` `updateResourceImpl` throws
+  `preconditionFailed`, a 412, when the stored `versionId` differs. Batch
+  entries honour `request.ifMatch` (`fhir-router/src/batch.ts`).
+  `MedplumClient.patchResource` and `updateResource` take request options,
+  headers included.
+- **JSON Patch `test` works but reads as a 400.** `@medplum/core` vendors
+  `rfc6902` (`core/src/patch/`); `util/patch.ts` `patchObject()` throws
+  `badRequest` with `Test failed: …`, indistinguishable by status from a
+  validation failure.
+- **A PATCH validates its result** through `updateResourceImpl` and
+  `fhir/repository/validation.ts`: base R4 and every profile in
+  `meta.profile`, refused under `strictMode`, logged otherwise; a profile the
+  server has not loaded is skipped with a log line. A patch may change
+  `meta.profile`; one that removes it gets `defaultProfile` back
+  (`checkResourcePermissions`).
+- **An unchanged write is not a version.** `repo.ts` `isNotModified()`
+  compares with `deepEqualsObject`, ignoring `versionId`, `lastUpdated` and
+  `author`, and returns the stored resource.
+- **Cursor paging** (`fhir/search.ts`, `canUseCursorLinks`) needs offset 0,
+  `_count` of 20 or more, and one sort rule, `_lastUpdated` ascending. The
+  cursor is `lastUpdated >= t` less the ids already seen. `_count` above
+  1,000 is clamped (`DEFAULT_MAX_SEARCH_COUNT`). Search results keep `meta`,
+  `versionId` included, even under `_elements` and `_summary`.
+- **FHIR quota** (`fhir/fhirquota.ts`): per membership and per project, per
+  minute; a write costs 100, a search 20, a read 1; the default user limit is
+  50,000 (`defaultFhirQuota`), set by `UserConfiguration` `fhirQuota` or the
+  project's `userFhirQuota` and `totalFhirQuota` system settings. Over it is a
+  429 `too-many-requests` with a rate-limit-reset extension in seconds and a
+  `RateLimit` header; no `Retry-After`.
+- **Bot timeouts:** vmcontext defaults to 10 s, uncapped, passed only to
+  `vm.runInNewContext` (`bots/vmcontext.ts`); Lambda defaults to 10 s and
+  refuses more than 900 (`cloud/aws/deploy.ts`).
+- **Async `$execute`** (`fhir/operations/execute.ts`,
+  `utils/asyncjobexecutor.ts`) writes an `AsyncJob` through the caller's
+  repository and stores the bot's return in `output` as `responseBody`
+  (`bots/utils.ts`).
+- **Conditional create is serializable** (`fhir-router/src/repo.ts`
+  `conditionalCreate`, `withTransaction({ serializable: true })`), searching
+  with the caller's access, so a match the caller cannot read is not found.
+  `Basic` is in neither `protectedResourceTypes` nor
+  `projectAdminResourceTypes` (`core/src/access.ts`).
+
 ## Contributing upstream
 
 - Medplum requires a **DCO** (`Signed-off-by` on every commit), not a CLA.
