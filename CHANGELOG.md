@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 (2026-10-06)
 
 Test environments ([design 08](docs/design/08-test-environments.md)): a
 project's own tests run against a real Medplum, with its config pushed.
