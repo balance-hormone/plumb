@@ -259,7 +259,8 @@ export type ConfigErrorCode =
   | 'invalid-server-version'
   | 'invalid-bot'
   | 'invalid-subscription'
-  | 'unknown-bot';
+  | 'unknown-bot'
+  | 'invalid-operation';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -369,11 +370,12 @@ export async function loadConfig(options: {
 }
 
 /**
- * Imports the config with Node, or with the project's tsx for what Node
- * cannot load: tsx's esbuild breaks in some environments that load the
- * config, such as a jsdom test. Errors Plumb can name come back; others throw.
+ * Imports the config, or a module it names, with Node, or with the project's
+ * tsx for what Node cannot load: tsx's esbuild breaks in some environments
+ * that load the config, such as a jsdom test. Errors Plumb can name come
+ * back; others throw.
  */
-async function importConfig(
+export async function importConfig(
   configPath: string,
 ): Promise<{ module: { default?: unknown } } | { error: ConfigError }> {
   const url = pathToFileURL(configPath).href;

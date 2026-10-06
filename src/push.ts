@@ -31,6 +31,16 @@ import {
 } from './content.js';
 import type { LoadProfilesResult } from './loader.js';
 import {
+  applyOperations,
+  type Contract,
+  checkOperations,
+  describeOperation,
+  loadOperations,
+  type OperationPlan,
+  operationsSummary,
+  planOperations,
+} from './operations.js';
+import {
   applyProject,
   describeChange,
   type ProjectOptions,
@@ -59,6 +69,7 @@ type PushStepName =
   | 'content'
   | 'project'
   | 'bots'
+  | 'operations'
   | 'subscriptions'
   | 'check';
 
@@ -91,6 +102,8 @@ export interface PushResult extends EnvResult<PushStepName> {
   content?: ContentPlan;
   /** The bots' planned changes, when the config declares bots. */
   bots?: BotPlan;
+  /** The OperationDefinitions' planned changes, when the config lists operations. */
+  operations?: OperationPlan;
   /** The Subscriptions' planned changes, when the config declares any. */
   subscriptions?: SubscriptionPlan;
 }
@@ -122,14 +135,16 @@ export async function push(options: PushOptions): Promise<PushResult> {
   const step = steps<PushStepName, PushResult>(result, options.onStep);
   const ready = await prepare(options, result, step);
   if (!ready) return result;
-  const { loaded, medplum, content } = ready;
-  if (options.check) return checkDrift(medplum, loaded, content.files, options, result, step);
+  const { loaded, medplum, content, operations } = ready;
+  if (options.check) {
+    return checkDrift(medplum, loaded, content.files, operations, options, result, step);
+  }
 
   const botId = await checkerStep(medplum, ready.resourceTypes, options, result, step);
   if (!botId) return result;
 
   const finish = async (ok: boolean) => {
-    result.ok = (await converge(medplum, content.files, options, result, step)) && ok;
+    result.ok = (await converge(medplum, content.files, operations, options, result, step)) && ok;
     return step.done();
   };
 
@@ -202,7 +217,29 @@ async function prepare(
   }
   const content = loadContent(options.config.content, ready.loaded);
   if (!content.ok) return void step.fail('load', content.errors);
-  return { ...ready, content };
+  const operations = await prepareOperations(options.config, ready.loaded);
+  if ('errors' in operations) return void step.fail('load', operations.errors);
+  return { ...ready, content, operations };
+}
+
+/** The contracts `operations` lists, and each selected profile's resource type. */
+interface Operations {
+  contracts: Contract[];
+  typeOf: (profile: string) => string | undefined;
+}
+
+/** Loads the contract modules and checks them against the config and the selected profiles. */
+async function prepareOperations(
+  config: PushOptions['config'],
+  loaded: LoadProfilesResult,
+): Promise<Operations | { errors: { code: string; message: string }[] }> {
+  const read = await loadOperations(config.operations);
+  if (!read.ok) return { errors: read.errors };
+  const urls = loaded.profiles.map((p) => p.url);
+  const errors = checkOperations(read.contracts, config.bots ?? {}, urls);
+  if (errors.length > 0) return { errors };
+  const typeOf = (url: string) => loaded.profiles.find((p) => p.url === url)?.sd.type;
+  return { contracts: read.contracts, typeOf };
 }
 
 /** Installs or updates the checker; returns its bot's id, or nothing when that failed. */
@@ -232,12 +269,14 @@ async function checkDrift(
   medplum: MedplumClient,
   loaded: LoadProfilesResult,
   files: ContentFile[],
+  operations: Operations,
   options: PushOptions,
   result: PushResult,
   step: ReturnType<typeof steps<PushStepName, PushResult>>,
 ): Promise<PushResult> {
   await planStep(medplum, loaded, files, result, step);
-  const ok = await converge(medplum, files, { ...options, dryRun: true }, result, step);
+  const dry = { ...options, dryRun: true };
+  const ok = await converge(medplum, files, operations, dry, result, step);
   if (!ok && result.errors.length > 0) return step.done();
   const drift = driftOf(result);
   const env = options.environment.name;
@@ -255,37 +294,37 @@ async function checkDrift(
 function driftOf(result: PushResult): string[] {
   const drifted = result.plan.filter((p) => p.action !== 'unchanged');
   const profiles = drifted.filter((p) => p.resourceType === 'StructureDefinition').length;
-  const terminology = drifted.length - profiles;
   const pending = (changes: { kind: string; kept?: true }[] = []) =>
     changes.filter((c) => !c.kept).length;
-  const content = pending(result.content?.changes);
-  const project = pending(result.project?.changes);
-  const bots = pending(result.bots?.changes);
-  const subscriptions = pending(result.subscriptions?.changes);
-  const blocked =
-    (result.content?.blocked.length ?? 0) +
-    (result.project?.blocked.length ?? 0) +
-    (result.subscriptions?.blocked.length ?? 0);
-  return [
-    profiles > 0 && `${profiles} profile${profiles === 1 ? '' : 's'}`,
-    terminology > 0 && `${terminology} terminology`,
-    content > 0 && `${content} content`,
-    project > 0 && `${project} project change${project === 1 ? '' : 's'}`,
-    bots > 0 && `${bots} bot${bots === 1 ? '' : 's'}`,
-    subscriptions > 0 && `${subscriptions} subscription${subscriptions === 1 ? '' : 's'}`,
-    blocked > 0 && `${blocked} blocked`,
-  ].filter((d) => typeof d === 'string');
+  const blocked = [result.content, result.project, result.subscriptions].reduce(
+    (n, plan) => n + (plan?.blocked.length ?? 0),
+    0,
+  );
+  const counts: [number, string, string?][] = [
+    [profiles, 'profile', 'profiles'],
+    [drifted.length - profiles, 'terminology'],
+    [pending(result.content?.changes), 'content'],
+    [pending(result.project?.changes), 'project change', 'project changes'],
+    [pending(result.bots?.changes), 'bot', 'bots'],
+    [pending(result.operations?.changes), 'operation', 'operations'],
+    [pending(result.subscriptions?.changes), 'subscription', 'subscriptions'],
+    [blocked, 'blocked'],
+  ];
+  return counts
+    .filter(([n]) => n > 0)
+    .map(([n, one, many]) => `${n} ${n === 1 || !many ? one : many}`);
 }
 
 /**
  * The content step, then the project's own, then the bots, then the
- * Subscriptions, each only when the config declares it: a bot's policy and
- * secrets come from the project, and nothing fires at a bot before its code
- * is deployed.
+ * operations and Subscriptions, each only when the config declares it: a
+ * bot's policy and secrets come from the project, and nothing reaches a bot
+ * before its code is deployed.
  */
 async function converge(
   medplum: MedplumClient,
   files: ContentFile[],
+  operations: Operations,
   options: PushOptions,
   result: PushResult,
   step: Pick<ReturnType<typeof steps<PushStepName, PushResult>>, 'finish' | 'fail'>,
@@ -296,10 +335,55 @@ async function converge(
     (!declaresProject(options.config) || (await projectStep(medplum, options, result, step)));
   const bots =
     project && (!options.config.bots || (await botsStep(medplum, options, result, step)));
-  return (
+  const contracts =
     bots &&
+    (!options.config.operations ||
+      (await operationsStep(medplum, operations, options, result, step)));
+  return (
+    contracts &&
     (!options.config.subscriptions || (await subscriptionsStep(medplum, options, result, step)))
   );
+}
+
+/**
+ * Plans the OperationDefinitions, then writes them unless the plan is blocked
+ * or this is a dry run. Returns whether it succeeded.
+ */
+async function operationsStep(
+  medplum: MedplumClient,
+  operations: Operations,
+  options: PushOptions,
+  result: PushResult,
+  step: Pick<ReturnType<typeof steps<PushStepName, PushResult>>, 'finish' | 'fail'>,
+): Promise<boolean> {
+  try {
+    result.operations = await planOperations(
+      medplum,
+      operations.contracts,
+      operations.typeOf,
+      options,
+    );
+  } catch (err) {
+    step.fail('operations', [{ code: 'operations-failed', message: normalizeErrorString(err) }]);
+    return false;
+  }
+  const plan = result.operations;
+  if (plan.blocked.length > 0) {
+    step.finish('operations', operationsSummary(plan), [], true);
+    step.fail('operations', plan.blocked);
+    return false;
+  }
+  step.finish('operations', operationsSummary(plan), plan.changes.map(describeOperation));
+  const pending = plan.changes.some((c) => !('kept' in c && c.kept));
+  if (options.dryRun || !pending) return true;
+  try {
+    const written = await applyOperations(plan, medplum);
+    step.finish('operations', `applied ${written} change${written === 1 ? '' : 's'}`);
+  } catch (err) {
+    step.fail('operations', [{ code: 'operations-failed', message: normalizeErrorString(err) }]);
+    return false;
+  }
+  return true;
 }
 
 /**
