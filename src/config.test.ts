@@ -1238,9 +1238,20 @@ describe('resolveEnvironment', () => {
         baseUrl: 'https://staging.example.com/',
         clientId: { env: 'STAGING_ID' },
         clientSecret: { env: 'STAGING_SECRET' },
+        synthetic: true,
       },
     },
   };
+
+  test('carries synthetic, so migrate --local knows where records may come to the CLI', () => {
+    const staging = resolveEnvironment(config, 'staging', {
+      STAGING_ID: 'id',
+      STAGING_SECRET: 's',
+    });
+    expect(staging.ok && staging.environment.synthetic).toBe(true);
+    const prod = resolveEnvironment(config, 'prod', { PROD_ID: 'id', PROD_SECRET: 's' });
+    expect(prod.ok && prod.environment).not.toHaveProperty('synthetic');
+  });
 
   test('reads the credentials from the variables the config names', () => {
     expect(resolveEnvironment(config, 'prod', { PROD_ID: 'id', PROD_SECRET: 'secret' })).toEqual({

@@ -244,6 +244,8 @@ export interface ResolvedEnvironment {
   baseUrl: string;
   clientId: string;
   clientSecret: string;
+  /** Holds no real patient data, as the config or a test project says. */
+  synthetic?: boolean;
 }
 
 export type ConfigErrorCode =
@@ -1648,6 +1650,7 @@ export function resolveEnvironment(
       baseUrl: environment.baseUrl,
       clientId: env[environment.clientId.env] as string,
       clientSecret: env[environment.clientSecret.env] as string,
+      ...(environment.synthetic ? { synthetic: true } : {}),
     },
   };
 }
