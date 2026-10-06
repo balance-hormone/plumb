@@ -419,6 +419,54 @@ upstream turn a repository into a configured test project? No.
   pushed once, but a copy is not a project converged by `push`, which is what a
   test environment tests. It stays an option if per-run pushes prove slow.
 
+## Reference content
+
+Read for [design 09](../design/09-reference-content.md) from `main` at
+`398038d` (5.2.1) on 2026-10-06.
+
+- **Search parameters are global and fixed at start.** `fhir/structure.ts`
+  `loadStructureDefinitions()` indexes `@medplum/definitions`'
+  `SEARCH_PARAMETER_BUNDLE_FILES` into `globalSchema`; search, indexing on
+  write and subscription matching read only that. No code reads a stored
+  SearchParameter back, each parameter maps to columns a schema migration
+  adds (`fhir/searchparameter.ts`), and an unknown code is `400 Unknown search
+  parameter`. `enabledSearchParameters` in the server config only narrows the
+  set; `$rebuild-base-definitions` and reindexing are super-admin only. One
+  docs page (`scheduling/state-by-state-licensure.mdx`) suggests "a custom
+  SearchParameter"; the source does not support it.
+- **Terminology resolves the caller's own project first.**
+  `operations/utils/terminology.ts` `findTerminologyResource()` searches by
+  `url` (not retired) through the caller's repository and ranks the own
+  project, then linked projects in `Project.link` order, then base R4, then
+  CodeSystem `content`, version, date and id. `$expand`, `$validate-code`,
+  `$lookup`, `$import` and the `validate-terminology` feature all use it; a
+  ValueSet it cannot find is `400 ValueSet <url> not found`, which refuses the
+  write under `validate-terminology`.
+- **A CodeSystem's inline concepts are indexed on write**
+  (`lookups/coding.ts`) when `content` is `complete`, `example` or
+  `fragment`; an update first purges the CodeSystem's codes and re-imports
+  the inline ones. `not-present` and `supplement` CodeSystems need
+  `CodeSystem/$import`, which a project admin may call for the project's own
+  CodeSystems (`operations/codesystemimport.ts`), 1,000 concepts per call.
+- **`validate-terminology`** is a project feature, so only a super admin can
+  turn it on.
+- **No canonical URL is unique.** Nothing checks it on create or update.
+  Terminology resolves duplicates by the ranking above; `QuestionnaireResponse/$extract`
+  takes an unsorted `searchOne` by URL; `$apply` the newest active one.
+- **A QuestionnaireResponse is not checked against its Questionnaire,** on
+  write or elsewhere. `$extract` (SDC template extraction) returns a
+  transaction Bundle without writing it.
+- **Deletes are not blocked by references.** `deleteResource()` checks
+  permission and pre-commit subscriptions only. `checkReferencesOnWrite`
+  checks that a written resource's outgoing `Reference` values resolve, not
+  canonicals, and not on delete.
+- **Subscriptions** fire when `status` is `active` and the resource is in the
+  subscription's project (`workers/subscription.ts`); no feature is needed for
+  `rest-hook` to a URL, a `Bot/<id>` endpoint needs `bots`, websocket needs
+  `websocket-subscriptions`. Criteria are not validated on write, and criteria
+  the matcher cannot evaluate never fire. The author's AccessPolicy is logged
+  but not enforced for `rest-hook`.
+
 ## Contributing upstream
 
 - Medplum requires a **DCO** (`Signed-off-by` on every commit), not a CLA.
