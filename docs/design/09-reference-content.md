@@ -1,6 +1,6 @@
 # Design 09: Reference Content as Code
 
-**Status: proposed** on 2026-10-06, for v0.11. The second item on the
+**Status: accepted** on 2026-10-06, for v0.11. The second item on the
 [spec's roadmap](../spec.md#roadmap). Builds on
 [design 02](02-conformance-check.md)'s `push`, which loads profiles by
 canonical URL, and [design 06](06-project-config.md)'s project config, which

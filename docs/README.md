@@ -309,7 +309,7 @@
   - [08: test environments](design/08-test-environments.md) (implemented in v0.10): a
     real Medplum and a project with the config pushed, for a project's own
     tests
-  - [09: reference content as code](design/09-reference-content.md) (proposed,
+  - [09: reference content as code](design/09-reference-content.md) (accepted,
     v0.11): Questionnaires, terminology and Organizations through `push`,
     and typed Questionnaire answers
 - [`future/`](future/): parked ideas, each with its design sketch and research.
