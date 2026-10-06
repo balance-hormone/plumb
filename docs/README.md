@@ -341,6 +341,11 @@
   `off` with an `error` is reported and set back to `active`; `--prune` turns
   a removed one off. Real-server tests show a matching write running the bot,
   seen in its AuditEvent, and a console edit turning `--check` red.
+  A test project runs the declared bots (#172): `createTestProject` pushes
+  them and their Subscriptions, every bot on vmcontext whatever its
+  `runtime`, from its `test.bots` build when one is named, with the `cron`
+  feature by default when a bot has a schedule. A real-server test triggers a
+  bot declared for Lambda through a Subscription in a test project.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
