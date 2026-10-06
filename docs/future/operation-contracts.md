@@ -1,7 +1,8 @@
 # Idea: Operation Contracts
 
-**Status: parked.** An idea for a later tool, not a commitment. Plumb's first
-deliverable is profile types ([`../spec.md`](../spec.md)).
+**Status: next on the roadmap,** as part of behaviour as code
+([`../spec.md`](../spec.md), Roadmap). Its design note will supersede this
+sketch, which still assumes Zod contracts.
 
 ## Problem
 

@@ -222,7 +222,7 @@ The detailed design, including the four emission decisions, is
 9. As an engineer writing FSH, I want `plumb generate` to run SUSHI for me, so that one command covers FSH too.
 10. As an engineer, I want resources routed to the profile their content selects, and `createProfiled` to stamp it, so that a heart rate, a lab result and a smoking status are each held to their real profile.
 11. As an engineer, I want read and search helpers that return the profile type and assert the profile stamp, so that a component receives a conforming resource, not base R4.
-12. As an engineer, I want a Zod schema generated from a profile, with `pick`, `partial` and override helpers, so that a form enforces the same required fields the server does.
+12. As an engineer, I want a form and an API edge to check input against the selected profiles with Medplum's own validator, through Standard Schema, with partial drafts and per-field errors, so that a form enforces the same required fields the server does.
 13. As an agent, I want a generated summary per profile (required fields, bindings, slices, invariants), so that I can write a conforming resource on the first try.
 
 ## Implementation Decisions
@@ -481,36 +481,26 @@ Built since v0.1: the conformance check and gated `push`
 ([design 03](design/03-routing-and-create.md)), typed reads
 ([design 04](design/04-typed-reads.md)), SUSHI in `generate`
 ([design 05](design/05-sushi.md)), project config as code
-([design 06](design/06-project-config.md)) and `plumb check`
-([design 07](design/07-check.md)).
+([design 06](design/06-project-config.md)), `plumb check`
+([design 07](design/07-check.md)), test environments
+([design 08](design/08-test-environments.md), v0.10) and reference content
+as code ([design 09](design/09-reference-content.md), v0.11).
 
 Next, in order. Each gets a design note before it is built.
 
-1. **Test environments.** Medplum's `MockClient` enforces no profile, default,
-   strict mode or AccessPolicy, so a project's tests cannot see what its
-   server will do. Plumb's own real-server harness starts a strict Medplum and
-   pushes a config into it; a project gets the same, with its config pushed
-   and its seed data loaded, for its own tests. See
-   [design 08](design/08-test-environments.md), implemented in v0.10.
-2. **Reference content as code.** `push` converges Questionnaires, CodeSystems,
-   ValueSets and Organizations, canonical ones by URL and the rest by tag,
-   loads the terminology the selected profiles bind, and `generate` types a
-   Questionnaire's answers. Medplum ignores a project's own SearchParameters,
-   so custom search parameters wait on Medplum; Subscriptions move to
-   behaviour. See [design 09](design/09-reference-content.md), implemented in v0.11.
-3. **Behaviour as code.** Bot registrations, typed handlers, operation
+1. **Behaviour as code.** Bot registrations, typed handlers, operation
    contracts and Subscriptions, to bots or URLs, declared together
    because each references the others. The OperationDefinition is generated
    from the contract.
-4. **Data migrations.** Report, fix, then enforce: `validate` finds what a
+2. **Data migrations.** Report, fix, then enforce: `validate` finds what a
    tightened profile breaks, and an idempotent migration fixes it.
-5. **Input validation.** Forms and API edges need checks outside Node, partial
+3. **Input validation.** Forms and API edges need checks outside Node, partial
    drafts and per-field errors. They run Medplum's validator on the selected
    profiles, exposed through Standard Schema so form and server libraries can
    use it. Generated Zod schemas were considered and set aside: they would be
    a second validator, drifting from the server in exactly the rules it does
    not check.
-6. **Agent summaries,** one short Markdown file per profile next to the
+4. **Agent summaries,** one short Markdown file per profile next to the
    generated code.
 
 ## Testing Decisions
@@ -588,9 +578,9 @@ every file cited). Evidence and the rest of the server's behaviour are in
 
 - **A standalone repository**, separate from any adopter's code, so nothing
   adopter-shaped can leak into Plumb's code or tests.
-- **Private until v0.1 works end to end on US Core.** It goes public after
-  sign-off from the copyright holder and with Medplum's
-  contribution requirement (a DCO) copied.
+- **Public since v0.1 worked end to end on US Core,** after sign-off from
+  the copyright holder and with Medplum's contribution requirement (a DCO)
+  copied.
 - **Apache-2.0 with a `NOTICE` file**, matching Medplum, so the code can move
   upstream by transfer rather than extraction.
 - **Repository layout** follows Principle 4: a single package at the

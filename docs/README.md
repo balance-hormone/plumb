@@ -309,7 +309,8 @@
   order: behaviour as code,
   data migrations, input validation through Medplum's own validator (in place
   of generated Zod schemas). See [`spec.md`](spec.md), Direction and Roadmap.
-- Other tools are parked as idea notes in [`future/`](future/).
+- Ideas not yet designed are notes in [`future/`](future/); operation
+  contracts and data migrations are next.
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
 
@@ -341,7 +342,8 @@
   - [09: reference content as code](design/09-reference-content.md) (implemented
     in v0.11): Questionnaires, terminology and Organizations through `push`,
     and typed Questionnaire answers
-- [`future/`](future/): parked ideas, each with its design sketch and research.
+- [`future/`](future/): ideas not yet designed, each with its sketch and
+  research.
   - [Conformance check](future/conformance-check.md): the later stages, the
     baseline and adopting late; stages 1 and 2 are design 02.
   - [Project config as code](future/project-config-as-code.md): `push`,

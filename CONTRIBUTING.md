@@ -58,11 +58,11 @@ coding agents alike.
 
 For a maintainer with publish rights to `plumb-fhir` on npm:
 
-1. Move the changelog's section from "unreleased" to the date, and set the
-   `version` in `package.json` to match.
-2. Remove `"private": true` from `package.json`. It is there so nothing is
-   published by accident before the first release is signed off.
-3. Publish from a clean checkout of `main`:
+1. In a `chore(release): <version>` PR, date the changelog's section and set
+   the `version` in `package.json` (and `package-lock.json`) to match.
+2. Once it merges, tag the merge commit (`git tag v0.11.0 && git push --tags`)
+   and create a GitHub release from the changelog section.
+3. Publish from a clean checkout of the tag:
 
    ```bash
    npm ci
@@ -70,9 +70,10 @@ For a maintainer with publish rights to `plumb-fhir` on npm:
    ```
 
    `prepublishOnly` runs `npm run check` and `npm run build` first, so a
-   failing check stops the publish.
-4. Tag the release (`git tag v0.1.0 && git push --tags`) and create a GitHub
-   release from the changelog.
+   failing check stops the publish. Each publish moves npm's `latest` tag, so
+   publish several versions oldest first.
+4. Put the release's issues in a milestone named after the version
+   (`v0.11.0`) and close it.
 
 ## Licence
 
