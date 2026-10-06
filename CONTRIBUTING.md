@@ -56,23 +56,23 @@ coding agents alike.
 
 ## Releasing
 
-For a maintainer with publish rights to `plumb-fhir` on npm:
+For a maintainer who can push tags to this repository:
 
 1. In a `chore(release): <version>` PR, date the changelog's section and set
    the `version` in `package.json` (and `package-lock.json`) to match.
-2. Once it merges, tag the merge commit (`git tag v0.11.0 && git push --tags`)
-   and create a GitHub release from the changelog section.
-3. Publish from a clean checkout of the tag:
+2. Once it merges, tag the merge commit and push the tag:
 
    ```bash
-   npm ci
-   npm publish
+   git tag v0.11.0 && git push origin v0.11.0
    ```
 
-   `prepublishOnly` runs `npm run check` and `npm run build` first, so a
-   failing check stops the publish. Each publish moves npm's `latest` tag, so
-   publish several versions oldest first.
-4. Put the release's issues in a milestone named after the version
+   The Release workflow checks the tag matches `package.json`, publishes to
+   npm through trusted publishing, and creates the GitHub release from the
+   changelog section. `prepublishOnly` runs `npm run check` and
+   `npm run build` first, so a failing check stops the publish. Each publish
+   moves npm's `latest` tag, so push several versions' tags one at a time,
+   oldest first.
+3. Put the release's issues in a milestone named after the version
    (`v0.11.0`) and close it.
 
 ## Licence
