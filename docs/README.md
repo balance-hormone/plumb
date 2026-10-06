@@ -371,5 +371,8 @@
   - [Prior art](research/prior-art.md): existing profile type generators and
     why none fits Medplum, plus what Plumb borrows from Drizzle, Prisma and
     others.
+  - [Data migrations prior art](research/migrations-prior-art.md): how
+    schema tools, backfill runners, document stores and FHIR servers fix
+    stored data, and what fits Medplum.
   - [Prototype](research/prototype.md): the FSH → types → validator proof of
     concept and the gaps it found.
