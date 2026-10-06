@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 (2026-10-06)
 
-Bots and triggers ([design 10](docs/design/10-behaviour.md), first half).
+Behaviour as code ([design 10](docs/design/10-behaviour.md)), whose two
+milestones, v0.12.0 and v0.13.0, ship together: 0.12.0 was not published
+on its own.
+
+Bots and triggers (v0.12.0).
 
 - **`bots` and `subscriptions` in the config,** by key, checked offline:
   `invalid-bot` for an unknown policy or secret, a public webhook without a
@@ -27,8 +31,7 @@ Bots and triggers ([design 10](docs/design/10-behaviour.md), first half).
   `test.bots` build when one is named, with `cron` on when a bot has a
   schedule (#172).
 
-Operations and typed handlers ([design 10](docs/design/10-behaviour.md),
-second half).
+Operations and typed handlers (v0.13.0).
 
 - **Operation contracts:** with `operations` in the config, `generate`
   writes `defineOperation`, `callOperation`, `handleOperation` and
