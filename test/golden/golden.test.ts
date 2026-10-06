@@ -73,6 +73,8 @@ test('generated output matches the committed goldens', () => {
         'lab-result': { criteria: 'DiagnosticReport?status=final', bot: 'lab-watcher' },
       },
     ),
+    // Migrations with no module yet: the runner, and a bot entry that imports none.
+    [],
   );
   if (process.env.GOLDEN_UPDATE) expect(writeFiles(OUT, files).errors).toEqual([]);
   const { stale, errors: folder } = compareFiles(OUT, files);
@@ -99,7 +101,8 @@ test('every generated export is re-exported by the index or imported by a siblin
   }
   const unused = files.flatMap((f) => {
     const module = f.replace(/\.ts$/, '');
-    if (f === 'index.ts' || used.has(`${module}:*`)) return [];
+    // The migration bot's handler is what the project's bot entry exports.
+    if (f === 'index.ts' || f === '_migrator.ts' || used.has(`${module}:*`)) return [];
     return [
       ...source(f).matchAll(/^export (?:async )?(?:const|function|class|type|interface) (\w+)/gm),
     ]

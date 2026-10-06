@@ -44,6 +44,11 @@ export interface CheckerInput {
    * routed profile's stamps.
    */
   forecast?: { routes: Route[]; stamps: Record<string, string[]> };
+  /**
+   * Check these records, as a migration would leave them, instead of
+   * reading stored ones: sent by the migration bot, inside the project.
+   */
+  resources?: Resource[];
 }
 
 /** A type's counts by query, under the checker's own AccessPolicy. */
@@ -98,8 +103,20 @@ export async function handler(
   medplum: MedplumClient,
   event: BotEvent<CheckerInput>,
 ): Promise<PageResult> {
-  const { resourceType, profiles, definitions, cursor, full, forecast } = event.input;
+  const {
+    resourceType,
+    profiles,
+    definitions,
+    cursor,
+    full,
+    forecast,
+    resources: given,
+  } = event.input;
   const selected = load(definitions, profiles);
+  if (given) {
+    await loadNestedTypes(medplum, given);
+    return checkPage(given, selected);
+  }
   // Medplum matches each stamp exactly, so this finds no url|version stamp.
   const stamped: Record<string, string> = full ? {} : { _profile: profiles.join(',') };
   const bundle = await medplum.search(resourceType, {

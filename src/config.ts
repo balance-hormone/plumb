@@ -1221,8 +1221,9 @@ function checkBotGrants(config: Record<string, unknown>): ConfigError[] {
           },
         ];
       }
+      // Plumb's own checker is granted by key too: the migration bot runs it.
       return (entry.bots as string[])
-        .filter((bot) => !Object.hasOwn(bots, bot))
+        .filter((bot) => bot !== 'checker' && !Object.hasOwn(bots, bot))
         .map((bot) => ({
           code: 'unknown-bot' as const,
           path,

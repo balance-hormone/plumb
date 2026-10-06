@@ -252,3 +252,18 @@ describe('a page', () => {
     expect(last.result.next).toBeUndefined();
   });
 });
+
+describe('records given by the migration bot', () => {
+  test('are checked as given, with nothing read', async () => {
+    const valid = { resourceType: 'Patient', birthDate: '1970-01-01', name: [{ family: 'T' }] };
+    const missing = { resourceType: 'Patient', name: [{ family: 'T' }] };
+    const resources = [
+      stamped(valid as Resource, 'a', [PATIENT]),
+      stamped(missing as Resource, 'b', [PATIENT]),
+    ];
+    const { result, searches } = await run({ ...input('Patient'), resources }, [[]]);
+    expect(searches).toEqual([]);
+    expect(result.profiles[PATIENT]?.checked).toBe(2);
+    expect(result.profiles[PATIENT]?.failing).toEqual(['b']);
+  });
+});

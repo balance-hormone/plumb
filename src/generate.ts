@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { globSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { checkRoutes, type PlumbConfig } from './config.js';
 import { addContentTerminology, loadContent } from './content.js';
 import { printBots } from './emit/bots.js';
@@ -182,7 +182,7 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
     questionnaires,
     config.operations,
     botsFile(config),
-    config.migrations !== undefined,
+    migrationImports(config),
   );
 
   if (check) {
@@ -211,6 +211,22 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
 /** A profile outside any package is hashed by its StructureDefinition. */
 function hashOf(model: ProfileModel): string {
   return `sha256-${createHash('sha256').update(JSON.stringify(model.sd)).digest('base64')}`;
+}
+
+/**
+ * Each migration module's import path from `out`, as NodeNext writes it, for
+ * `_migrator.ts`; the list is generated, so a new module makes the output stale.
+ */
+function migrationImports(config: PlumbConfig): string[] | undefined {
+  if (!config.migrations) return undefined;
+  const files = new Set(config.migrations.modules.flatMap((pattern) => globSync(pattern)));
+  return [...files].sort().map((file) => {
+    const path = relative(config.out, file)
+      .split(sep)
+      .join('/')
+      .replace(/\.(m|c)?ts$/, '.$1js');
+    return path.startsWith('.') ? path : `./${path}`;
+  });
 }
 
 /** `_bots.ts`, when the config declares bots. */
