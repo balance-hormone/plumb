@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { deepEquals, type MedplumClient, normalizeErrorString } from '@medplum/core';
-import type { StructureDefinition } from '@medplum/fhirtypes';
+import type { CodeSystem, StructureDefinition, ValueSet } from '@medplum/fhirtypes';
 import { closure } from './checker/input.js';
 import {
   type CheckerInstall,
@@ -22,6 +22,8 @@ import {
   planSummary as projectSummary,
 } from './project.js';
 
+type Definition = StructureDefinition | ValueSet | CodeSystem;
+
 type PushStepName =
   | 'load'
   | 'connect'
@@ -33,8 +35,12 @@ type PushStepName =
   | 'project'
   | 'check';
 
-/** What push will do with one StructureDefinition: the selected profiles and what they depend on. */
+/**
+ * What push will do with one definition: the selected profiles, what they
+ * depend on, and the ValueSets and CodeSystems they bind.
+ */
 export interface PlannedDefinition {
+  resourceType: Definition['resourceType'];
   url: string;
   version?: string;
   action: 'create' | 'update' | 'unchanged' | 'shadowed';
@@ -177,7 +183,9 @@ async function checkDrift(
   step: ReturnType<typeof steps<PushStepName, PushResult>>,
 ): Promise<PushResult> {
   await planStep(medplum, loaded, result, step);
-  const profiles = result.plan.filter((p) => p.action !== 'unchanged').length;
+  const drifted = result.plan.filter((p) => p.action !== 'unchanged');
+  const profiles = drifted.filter((p) => p.resourceType === 'StructureDefinition').length;
+  const terminology = drifted.length - profiles;
   const ok =
     !declaresProject(options.config) ||
     (await projectStep(medplum, { ...options, dryRun: true }, result, step));
@@ -186,6 +194,7 @@ async function checkDrift(
   const blocked = result.project?.blocked.length ?? 0;
   const drift = [
     profiles > 0 && `${profiles} profile${profiles === 1 ? '' : 's'}`,
+    terminology > 0 && `${terminology} terminology`,
     project > 0 && `${project} project change${project === 1 ? '' : 's'}`,
     blocked > 0 && `${blocked} blocked`,
   ].filter((d) => typeof d === 'string');
@@ -255,18 +264,24 @@ async function planStep(
   result: PushResult,
   step: { finish: (name: PushStepName, summary: string, w: string[], failed: boolean) => void },
 ) {
-  // Base R4 is the server's own, so only what packages and local files add is planned.
-  const planned = closure(
-    loaded.profiles.map((p) => p.url),
-    loaded,
-  ).filter((sd) => loaded.definitions.get(sd.url)?.source !== 'base');
-  const held = new Map<string, StructureDefinition[]>();
-  for (const sd of planned) {
-    const found = await medplum.searchResources('StructureDefinition', {
-      url: sd.url,
+  // Base R4 is the server's own, so only what packages and local files add is
+  // planned. Terminology loads first, so nothing written binds to a ValueSet
+  // the server lacks.
+  const { terminology, codeless } = boundTerminology(loaded);
+  const planned: Definition[] = [
+    ...terminology,
+    ...closure(
+      loaded.profiles.map((p) => p.url),
+      loaded,
+    ).filter((sd) => loaded.definitions.get(sd.url)?.source !== 'base'),
+  ];
+  const held = new Map<string, Definition[]>();
+  for (const definition of planned) {
+    const found = await medplum.searchResources(definition.resourceType, {
+      url: definition.url,
       _count: '100',
     });
-    held.set(sd.url, found);
+    held.set(definition.url as string, found);
   }
   result.plan = planLoad(planned, held);
   const shadowed = result.plan.filter((p) => p.action === 'shadowed');
@@ -280,22 +295,27 @@ async function planStep(
       ...result.plan
         .filter((p) => p.edited)
         .map((p) => `${p.url}|${p.version}: changed without a version bump.`),
+      ...(codeless.length > 0
+        ? [
+            `${codeless.length} CodeSystem${codeless.length === 1 ? '' : 's'} bound ship without their codes, so are not loaded: ${codeless.join(', ')}.`,
+          ]
+        : []),
     ],
     shadowed.length > 0,
   );
   return { planned, held };
 }
 
-/** Updates the one StructureDefinition the project holds for a URL, or creates it. */
+/** Updates the one definition the project holds for a URL, or creates it. */
 async function apply(
   medplum: MedplumClient,
   changes: PlannedDefinition[],
-  planned: StructureDefinition[],
-  held: Map<string, StructureDefinition[]>,
+  planned: Definition[],
+  held: Map<string, Definition[]>,
 ): Promise<void> {
   for (const change of changes) {
-    const sd = planned.find((d) => d.url === change.url) as StructureDefinition;
-    const { id: _, meta: __, ...content } = sd;
+    const definition = planned.find((d) => d.url === change.url) as Definition;
+    const { id: _, meta: __, ...content } = definition;
     const target = held.get(change.url)?.[0];
     if (target) await medplum.updateResource({ ...content, id: target.id });
     else await medplum.createResource(content);
@@ -314,17 +334,42 @@ function recheckNotes(failed: boolean, strictMode: boolean): string[] {
 }
 
 /**
- * Compares each planned StructureDefinition with what the project holds under
+ * The ValueSets and CodeSystems the selected profiles bind, as the loader
+ * resolved them, less base R4's. A CodeSystem without its concepts (SNOMED CT
+ * in a package) is listed instead: its codes come from Medplum.
+ */
+export function boundTerminology(loaded: Pick<LoadProfilesResult, 'definitions'>) {
+  const terminology: (ValueSet | CodeSystem)[] = [];
+  const codeless: string[] = [];
+  for (const { resource, source } of loaded.definitions.values()) {
+    if (source === 'base' || resource.resourceType === 'StructureDefinition') continue;
+    if (resource.resourceType === 'CodeSystem' && resource.content === 'not-present') {
+      codeless.push(resource.url as string);
+    } else terminology.push(resource);
+  }
+  // A ValueSet's codes come from its CodeSystems, so they load first.
+  terminology.sort(
+    (a, b) => Number(a.resourceType === 'ValueSet') - Number(b.resourceType === 'ValueSet'),
+  );
+  return { terminology, codeless };
+}
+
+/**
+ * Compares each planned definition with what the project holds under
  * its URL. Push updates the one it holds rather than adding another, which
  * would shadow it: Medplum picks the "newest" by sorting versions as text.
  */
 export function planLoad(
-  planned: StructureDefinition[],
-  held: Map<string, StructureDefinition[]>,
+  planned: Definition[],
+  held: Map<string, Definition[]>,
 ): PlannedDefinition[] {
   return planned.map((sd) => {
-    const found = held.get(sd.url) ?? [];
-    const base = { url: sd.url, ...(sd.version ? { version: sd.version } : {}) };
+    const found = held.get(sd.url as string) ?? [];
+    const base = {
+      resourceType: sd.resourceType,
+      url: sd.url as string,
+      ...(sd.version ? { version: sd.version } : {}),
+    };
     const current = found[0];
     if (found.length > 1) return { ...base, action: 'shadowed' };
     if (!current) return { ...base, action: 'create' };
@@ -339,7 +384,7 @@ export function planLoad(
   });
 }
 
-const sameContent = (a: StructureDefinition, b: StructureDefinition) => {
+const sameContent = (a: Definition, b: Definition) => {
   const { id: _a, meta: _am, ...left } = a;
   const { id: _b, meta: _bm, ...right } = b;
   return deepEquals(left, right);
@@ -353,8 +398,13 @@ function planSummary(plan: PlannedDefinition[], selected: Set<string>): string {
   const named = changes
     .filter((p) => selected.has(p.url))
     .map((p) => `${p.url.slice(p.url.lastIndexOf('/') + 1)}${p.version ? ` ${p.version}` : ''}`);
-  const dependencies = changes.length - named.length;
-  return `load ${named.join(', ') || 'no selected profile'}${dependencies ? ` (+${dependencies} dependencies)` : ''}`;
+  const terminology = changes.filter((p) => p.resourceType !== 'StructureDefinition').length;
+  const dependencies = changes.length - named.length - terminology;
+  const extra = [
+    dependencies && `+${dependencies} dependencies`,
+    terminology && `+${terminology} terminology`,
+  ].filter(Boolean);
+  return `load ${named.join(', ') || 'no selected profile'}${extra.length ? ` (${extra.join(', ')})` : ''}`;
 }
 
 /** What fails: `loaded` once the profiles are in the project, before that what would. */

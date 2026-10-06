@@ -74,7 +74,9 @@ describe.skipIf(!server)('push loads profiles through the gate', { timeout: 60_0
     const result = await push(options);
     expect(result.ok).toBe(false);
     expect(result.errors).toEqual([]);
-    expect(result.plan).toEqual([{ url: PATIENT, version: '0.1.0', action: 'create' }]);
+    expect(result.plan).toEqual([
+      { resourceType: 'StructureDefinition', url: PATIENT, version: '0.1.0', action: 'create' },
+    ]);
     expect(result.steps.at(-1)).toMatchObject({
       name: 'gate',
       failed: true,
@@ -108,7 +110,13 @@ describe.skipIf(!server)('push loads profiles through the gate', { timeout: 60_0
     const again = await push(options);
     expect(again.ok).toBe(true);
     expect(again.plan).toEqual([
-      { url: PATIENT, version: '0.1.0', held: '0.1.0', action: 'unchanged' },
+      {
+        resourceType: 'StructureDefinition',
+        url: PATIENT,
+        version: '0.1.0',
+        held: '0.1.0',
+        action: 'unchanged',
+      },
     ]);
     expect(again.steps.at(-1)?.name).toBe('plan');
   });
@@ -120,7 +128,14 @@ describe.skipIf(!server)('push loads profiles through the gate', { timeout: 60_0
     const result = await push(options);
     expect(result.ok).toBe(true);
     expect(result.plan).toEqual([
-      { url: PATIENT, version: '0.1.0', held: '0.1.0', action: 'update', edited: true },
+      {
+        resourceType: 'StructureDefinition',
+        url: PATIENT,
+        version: '0.1.0',
+        held: '0.1.0',
+        action: 'update',
+        edited: true,
+      },
     ]);
     expect(result.steps.find((s) => s.name === 'plan')?.warnings).toEqual([
       `${PATIENT}|0.1.0: changed without a version bump.`,
