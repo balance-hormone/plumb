@@ -449,7 +449,13 @@ Read for [design 09](../design/09-reference-content.md) from `main` at
   `CodeSystem/$import`, which a project admin may call for the project's own
   CodeSystems (`operations/codesystemimport.ts`), 1,000 concepts per call.
 - **`validate-terminology`** is a project feature, so only a super admin can
-  turn it on.
+  turn it on. It also stops Medplum creating any bot: `admin/projects/:id/bot`
+  and `Bot/$init` write the bot's source as a Binary with `contentType`
+  `text/typescript` (`operations/botinit.ts`), which fails the base mimetypes
+  binding (`Value "text/typescript" did not satisfy terminology binding
+  http://hl7.org/fhir/ValueSet/mimetypes|4.0.1`). Found by Plumb's real-server
+  test on 5.1.42; `push` cannot install its checker in such a project until
+  Medplum fixes it.
 - **No canonical URL is unique.** Nothing checks it on create or update.
   Terminology resolves duplicates by the ranking above; `QuestionnaireResponse/$extract`
   takes an unsorted `searchOne` by URL; `$apply` the newest active one.

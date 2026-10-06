@@ -574,12 +574,16 @@ Done in 76.4s
   they depend on, with what the project holds. A URL the project already
   holds is updated in place, never added again (that would shadow it). A
   StructureDefinition whose content changed without a version bump is
-  flagged, and a URL already shadowed stops the push. Base R4 is the server's
-  own and is never written.
+  flagged, and a URL already shadowed stops the push. The ValueSets and
+  CodeSystems the profiles bind are planned with them, CodeSystems first, so
+  a project with Medplum's `validate-terminology` feature can resolve every
+  binding; a CodeSystem a package ships without its codes (SNOMED CT, LOINC)
+  is listed and left to Medplum. Base R4 is the server's own and is never
+  written.
 - **gate** runs the checker against the planned versions. If any stored
   resource would fail, `push` refuses and loads nothing. `--dry-run` stops
   here, so it is a safe way to install the checker and preview a push.
-- **apply** creates or updates the StructureDefinitions.
+- **apply** creates or updates the definitions, terminology first.
 - **recheck** checks again at once, to catch a failing write made between the
   gate and loading. A failure there fails the push (exit 1), and the profiles
   stay loaded, as Postgres keeps a `NOT VALID` constraint.

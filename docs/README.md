@@ -274,6 +274,13 @@
   harness starts its server and makes its projects with the same functions;
   its push tests still need projects nothing was pushed into.
   The README tests against a real server (#145). **v0.10 is complete.**
+- **v0.11:** `push` plans the ValueSets and CodeSystems the selected
+  profiles bind with the profiles, CodeSystems first, so a project with
+  `validate-terminology` resolves every binding instead of refusing writes
+  with `ValueSet <url> not found` (#154). A CodeSystem shipped without its
+  codes is listed and left to Medplum. That project feature also stops
+  Medplum's own bot creation, so `push` cannot install the checker there (see
+  the research notes).
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
