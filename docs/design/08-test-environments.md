@@ -1,6 +1,6 @@
 # Design 08: Test Environments
 
-**Status: proposed.** The first item on the [spec's roadmap](../spec.md#roadmap).
+**Status: accepted** on 2026-10-06, for v0.10. The first item on the [spec's roadmap](../spec.md#roadmap).
 Builds on [design 02](02-conformance-check.md)'s `push` and
 [design 06](06-project-config.md)'s project config: a test environment is a
 project they converge, on a server Plumb starts.
