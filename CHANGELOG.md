@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 (2026-10-06)
 
 Reference content as code ([design 09](docs/design/09-reference-content.md)).
 
