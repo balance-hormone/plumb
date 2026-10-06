@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { expect, test } from 'vitest';
 import { server } from './medplum.js';
 
@@ -18,7 +19,8 @@ test.skipIf(!server)(
       encoding: 'utf8',
     });
     expect(run.status, run.stdout + run.stderr).toBe(0);
-    expect(run.stdout).toMatch(/Tests\s+2 passed/);
+    // CI forces colour, so the summary is matched without its escape codes.
+    expect(stripVTControlCharacters(run.stdout)).toMatch(/Tests\s+2 passed/);
     const ps = spawnSync('docker', ['compose', '-p', 'plumb-medplum', 'ps', '-q', 'medplum'], {
       encoding: 'utf8',
     });
