@@ -188,10 +188,13 @@ export class OperationError extends Error {
   }
 }
 
-/** What \`callOperation\` needs of a client: a MedplumClient fits. */
+/**
+ * What \`callOperation\` needs of a client: a MedplumClient fits. Typed
+ * without \`URL\`, so a project needs neither the DOM lib nor @types/node.
+ */
 export interface OperationClient {
-  fhirUrl(...path: string[]): URL;
-  post(url: URL | string, body: unknown, contentType?: string): Promise<unknown>;
+  fhirUrl(...path: string[]): { toString(): string };
+  post(url: string, body: unknown, contentType?: string): Promise<unknown>;
 }
 
 /**
@@ -217,7 +220,7 @@ export async function callOperation<I extends OperationSide, O extends Operation
   let response: unknown;
   try {
     response = await medplum.post(
-      medplum.fhirUrl(...path, \`$\${operation.code}\`),
+      medplum.fhirUrl(...path, \`$\${operation.code}\`).toString(),
       input,
       json ? 'application/json' : 'application/fhir+json',
     );
