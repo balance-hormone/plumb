@@ -949,6 +949,105 @@ A bot that throws when a Subscription runs it counts as delivered in
 Medplum: it is not retried, and the Subscription stays on. Check the bot's
 AuditEvents, not the Subscription's status.
 
+## Operations and typed bots
+
+A custom operation is a contract: its code, the bot that implements it, and
+what goes in and comes out. Each side is a resource type, a selected profile,
+or any [Standard Schema](https://standardschema.dev) value (Zod, Valibot,
+ArkType and others implement it), so Plumb adds no schema library. List the
+modules that hold contracts in `operations`, and `generate` writes
+`defineOperation`, `callOperation` and `handleOperation` into the generated
+folder, so neither an app nor a bot takes a runtime dependency on Plumb.
+
+```ts
+// src/operations/send-message.ts
+import { z } from 'zod';
+import { defineOperation } from '../fhir/generated/index.js';
+
+export const sendMessage = defineOperation({
+  code: 'send-message',
+  level: 'type',
+  resource: 'Communication',
+  bot: 'messenger',                                  // a key in bots
+  input: z.object({ to: z.string(), text: z.string().min(1) }),
+  output: 'Communication',                           // or a selected profile's URL
+});
+```
+
+```ts
+// in plumb.config.ts
+operations: ['./src/operations/*.ts'],
+```
+
+The caller and the bot share the contract. Both check at run time, so a
+malformed message is refused before it is sent, and a handler that returns the
+wrong thing fails in the bot:
+
+```ts
+// in the app
+const sent = await callOperation(medplum, sendMessage, { to: 'Patient/1', text: 'Hi' });
+//    ^? Communication
+
+// the bot's bundle
+export const handler = handleOperation(sendMessage, async (medplum: MedplumClient, input) => {
+  // input: { to: string; text: string }; the return must be a Communication
+  return medplum.createResource({ resourceType: 'Communication', status: 'completed' });
+});
+```
+
+- **A JSON side is checked by its schema,** a resource type by
+  `resourceType`, a profile by the generated `asProfiled`: its stamp and what
+  its type requires. Full validation stays Medplum's, on write.
+- **A failed check is an `OperationError`** carrying an OperationOutcome with
+  each issue and its path (`input.text: Required`). In a bot, Medplum answers
+  it with a 400, which `callOperation` throws as an `OperationError` too.
+- **`push` writes the OperationDefinition** for each contract, in an
+  `operations` step between `bots` and `subscriptions`: its code, level and
+  resource, its `return` or `result` out parameter, and this environment's
+  `Bot/<id>`, so no file holds an id. It is found again by Plumb's tag;
+  `--prune` deletes a removed one, since Medplum ignores `status`.
+- **Checked before anything is written:** a code used twice or one Medplum
+  already has, a bot `bots` lacks, a type or instance operation without its
+  resource, and a profile that is not selected (`invalid-operation`). An
+  OperationDefinition with the same code that Plumb did not write, in the
+  project or one it links, stops the push (`shadowed-operation`): Medplum
+  would run either.
+
+```text
+✔ operations     plan: 1 to create, 0 to update, 0 to delete
+    + OperationDefinition  $send-message → Bot messenger
+✔ operations     applied 1 change
+```
+
+Contract modules load as the config does: with Node's type stripping, so a
+relative import needs its `.ts` extension, or with the project's tsx when it
+is installed.
+
+### Typed bot handlers
+
+With `bots` in the config, `generate` writes `defineBot`, whose `event` is
+typed by what the bot's triggers send it and the secrets it declares:
+
+```ts
+import { defineBot } from '../fhir/generated/index.js';
+
+export const handler = defineBot('send-reminder', async (medplum, event) => {
+  if (event.input.resourceType === 'Appointment') {
+    // from the new-appointment Subscription
+  } else {
+    // event.input is the Bot: the schedule ran it
+  }
+  const key = event.secrets.SMS_API_KEY.valueString; // only declared secrets
+});
+```
+
+| Trigger | `event.input` |
+| --- | --- |
+| A Subscription on `Appointment?…` | `Appointment`, or `{ deletedResource: Appointment }` when it includes `delete` |
+| A schedule | `Bot` |
+| A webhook | `string` with `rawBody`, otherwise `unknown`: the body is the bot's to check |
+| An operation | the contract's input, through `handleOperation` |
+
 ## Test against a real server
 
 `MockClient` keeps everything in memory and enforces none of what
@@ -1110,8 +1209,11 @@ the rest. Each generated type's doc comment lists the rules it cannot check.
 - **Every failure blocks `push`:** a baseline of accepted failures comes
   later. Another writer can still load StructureDefinitions around `push`
   unless the [lockdown](#lock-the-project-down) keeps them read-only.
-- **Bots other than Plumb's checker are not declared** in `project`;
-  Medplum's CLI deploys them and their code.
+- **A custom operation called by `GET` with a query string is not found**
+  by Medplum, which reads the query as part of the code; `callOperation`
+  always POSTs.
+- **An instance operation's bot gets the stored resource,** not the body
+  sent, so its input side is the resource's type.
 - **The checker is tested on Medplum's `vmcontext` bot runtime.** Hosted
   Medplum runs bots on AWS Lambda, which the tests cannot run.
 
