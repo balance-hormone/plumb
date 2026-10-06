@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { type MedplumClient, normalizeErrorString } from '@medplum/core';
-import type { Basic, Bot, ResourceType } from '@medplum/fhirtypes';
+import { join } from 'node:path';
+import { type BotEvent, type MedplumClient, normalizeErrorString } from '@medplum/core';
+import type { Basic, Bot, Resource, ResourceType } from '@medplum/fhirtypes';
 import { botFilename } from './bots.js';
+import { type CheckerInput, handler as checker } from './checker/handler.js';
 import { checkerInput } from './checker/input.js';
 import { CHECKER_IDENTIFIER, checkerFilename, findChecker } from './checker/install.js';
+import { importModules } from './config.js';
 import { notCurrent, runPage } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
@@ -76,6 +79,12 @@ export interface MigrateEnvOptions extends EnvOptions {
   ids?: string[];
   /** Applied migrations to run a fresh pass over, by id. */
   rerun?: string[];
+  /**
+   * Run the generated runner in this process instead of the migration bot,
+   * with Plumb's checker in-process for the forecast: only where the
+   * environment is synthetic, since the records come to this machine.
+   */
+  local?: boolean;
   /** Records per page; 100 by default. */
   pageSize?: number;
   /** The git commit the modules are at, for the ledger. */
@@ -115,6 +124,15 @@ export async function migrateEnvironment(options: MigrateEnvOptions): Promise<Mi
       { code: 'no-migrations', message: 'The config has no "migrations" to run.' },
     ]);
   }
+  if (options.local && !options.environment.synthetic) {
+    const env = options.environment.name;
+    return step.fail('migrations', [
+      {
+        code: 'not-synthetic',
+        message: `--local brings records to this machine, so it runs only where the environment is marked synthetic: ${env} is not.`,
+      },
+    ]);
+  }
   const ready = await loadAndConnect(options, result, step);
   if (!ready) return result;
   const { loaded, medplum } = ready;
@@ -126,23 +144,75 @@ export async function migrateEnvironment(options: MigrateEnvOptions): Promise<Mi
   );
   step.finish('migrations', `${chosen.length} of ${declared.migrations.length} chosen`);
 
+  const page = options.local
+    ? await localRunner(medplum, options.config.out, declared.migrations).catch((err: unknown) =>
+        step.fail('migrations', [
+          { code: 'invalid-migration', message: normalizeErrorString(err) },
+        ]),
+      )
+    : await deployedRunner(medplum, options, config.bot, step);
+  if (typeof page !== 'function') return result;
+  await runAll({ medplum, loaded, page, options }, chosen, result, step);
+  result.ok = result.errors.length === 0 && result.steps.every((s) => !s.failed);
+  return step.done();
+}
+
+type PageRunner = (input: object) => Promise<PageResult>;
+
+/** The migration bot, once the checker and the bot are found to be this build. */
+async function deployedRunner(
+  medplum: MedplumClient,
+  options: MigrateEnvOptions,
+  bot: string,
+  step: ReturnType<typeof steps<MigrateStepName, MigrateEnvResult>>,
+): Promise<PageRunner | undefined> {
   const checker = await findChecker(medplum);
   if (
     checker?.executableCode?.title !==
     checkerFilename(options.checker.code, options.checker.version)
   ) {
-    return step.fail('checker', [notCurrent(checker, options)]);
+    return void step.fail('checker', [notCurrent(checker, options)]);
   }
   step.finish('checker', `plumb-checker ${options.checker.version} installed`);
-  const migrator = await currentMigrator(medplum, options, config.bot);
-  if ('message' in migrator) return step.fail('migrator', [migrator]);
-  step.finish('migrator', `${config.bot} current (${migrator.executableCode?.title})`);
-
-  const run = { medplum, loaded, botId: migrator.id as string, options };
-  await runAll(run, chosen, result, step);
-  result.ok = result.errors.length === 0 && result.steps.every((s) => !s.failed);
-  return step.done();
+  const migrator = await currentMigrator(medplum, options, bot);
+  if ('message' in migrator) return void step.fail('migrator', [migrator]);
+  step.finish('migrator', `${bot} current (${migrator.executableCode?.title})`);
+  const botId = migrator.id as string;
+  return (input) => runPage<PageResult>(medplum, botId, input, options.wait, 'migrator');
 }
+
+/**
+ * The project's generated runner in this process, with Plumb's checker
+ * handler answering its forecast in place of the checker bot.
+ */
+async function localRunner(
+  medplum: MedplumClient,
+  out: string,
+  migrations: Migration[],
+): Promise<PageRunner> {
+  const imported = await importModules([join(out, '_migrations.ts')], 'out', 'invalid-migration');
+  const runner = imported.ok
+    ? (imported.modules[0]?.module as { handleMigrations?: LocalRunner } | undefined)
+    : undefined;
+  if (!runner?.handleMigrations) {
+    throw new Error(`No generated runner in ${out}: run plumb generate.`);
+  }
+  const handler = runner.handleMigrations(migrations);
+  // What the generated MigrationClient needs, with the forecast answered here.
+  const client = {
+    search: (type: ResourceType, query: string) => medplum.search(type, query),
+    readResource: (type: ResourceType, id: string) => medplum.readResource(type, id),
+    updateResource: (resource: Resource, options: object) =>
+      medplum.updateResource(resource, options),
+    executeBot: (_bot: unknown, input: CheckerInput) =>
+      checker(medplum, { input } as BotEvent<CheckerInput>),
+  };
+  return (input) => handler(client, { input }) as Promise<PageResult>;
+}
+
+type LocalRunner = (
+  migrations: Migration[],
+) => (medplum: object, event: { input: object }) => Promise<unknown>;
 
 /**
  * The migrations on these resource types that the project has not applied,
@@ -308,7 +378,7 @@ async function runAll(
 interface Run {
   medplum: MedplumClient;
   loaded: Pick<LoadProfilesResult, 'profiles' | 'definitions'>;
-  botId: string;
+  page: PageRunner;
   options: MigrateEnvOptions;
 }
 
@@ -435,13 +505,7 @@ async function runPages(
     let page: PageResult;
     try {
       const cursor = state.cursor ? { cursor: state.cursor } : {};
-      page = await runPage<PageResult>(
-        medplum,
-        run.botId,
-        { ...input, ...cursor },
-        options.wait,
-        'migrator',
-      );
+      page = await run.page({ ...input, ...cursor });
     } catch (err) {
       await savePass(medplum, pass, {
         ...state,

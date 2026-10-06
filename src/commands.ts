@@ -37,7 +37,7 @@ const USAGE = `Usage: plumb generate [--check] [--config <path>]
        plumb validate --env <name> [--env-file <path>] [--full] [--unstamped] [--resume] [--config <path>]
        plumb push --env <name> [--env-file <path>] [--dry-run | --check] [--prune] [--adopt] [--config <path>]
        plumb check [--update-baseline [--allow-growth]] [--config <path>]
-       plumb migrate --env <name> [<id>…] [--write] [--rerun <id>] [--page-size <n>] [--env-file <path>] [--config <path>]
+       plumb migrate --env <name> [<id>…] [--write] [--rerun <id>] [--local] [--page-size <n>] [--env-file <path>] [--config <path>]
        plumb migrate status --env <name> [--env-file <path>] [--config <path>]
        plumb migrate new <name> [--config <path>]
 
@@ -72,6 +72,7 @@ Options:
   --adopt          push: tag and converge an untagged resource with a key's name
   --write          migrate: apply the changes and keep the ledger; Ctrl-C pauses after a page
   --rerun <id>     migrate: run an applied migration again; repeatable
+  --local          migrate: run in this process, without the bot; synthetic environments only
   --page-size <n>  migrate: records per page, 20 to 1,000 (default: 100)
   --update-baseline  check: rewrite the baseline from what is found; refuses growth
   --allow-growth     check: let --update-baseline accept new findings
@@ -196,6 +197,7 @@ const SETUP = new Set([
   'checker-outdated',
   'migrator-missing',
   'migrator-not-current',
+  'not-synthetic',
 ]);
 
 async function migrateCommand(ids: string[], values: Values, io: CliIo): Promise<number> {
@@ -220,6 +222,7 @@ async function migrateCommand(ids: string[], values: Values, io: CliIo): Promise
       write: values.write,
       ...(ids.length > 0 ? { ids } : {}),
       ...(values.rerun ? { rerun: values.rerun } : {}),
+      local: values.local,
       ...(pageSize ? { pageSize } : {}),
       ...gitCommit(root),
       signal: controller.signal,
@@ -545,6 +548,7 @@ function parse(argv: string[]) {
       'allow-growth': { type: 'boolean' },
       write: { type: 'boolean' },
       rerun: { type: 'string', multiple: true },
+      local: { type: 'boolean' },
       'page-size': { type: 'string' },
       json: { type: 'boolean' },
       quiet: { type: 'boolean' },

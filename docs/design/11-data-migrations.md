@@ -322,7 +322,7 @@ CLI's process instead of the bot, against the same ledger. It needs no `bots`
 feature and no deploy, which suits a developer's own project and CI. On any
 other environment `--local` stops with `not-synthetic`, before reading
 anything. A test project ([design 08](08-test-environments.md)) runs
-migrations the same way: `plumb-fhir/test` exports `migrate(project, options)`,
+migrations the same way: `plumb-fhir/test` exports `migrate(project, config, options)`,
 so a project's tests seed stale records, migrate, and assert what `validate`
 then says.
 

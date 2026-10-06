@@ -8,6 +8,7 @@ import type { Bundle, ProjectMembership, Reference } from '@medplum/fhirtypes';
 import { bundledChecker } from './checker/install.js';
 import type { PlumbConfig } from './config.js';
 import type { EnvStep } from './connect.js';
+import { type MigrateEnvResult, migrateEnvironment } from './migrate.js';
 import { PLUMB_SYSTEM } from './project.js';
 import { type PushResult, push } from './push.js';
 import { BASE_URL, login, newProject, TEST_PROJECT_VARIABLE, type TestProject } from './server.js';
@@ -94,6 +95,44 @@ export async function createTestProject(
   if (refused)
     return { ok: false, push: result, error: { code: 'seed-refused', message: refused } };
   return { ok: true, push: result, ...project };
+}
+
+export interface TestMigrateOptions {
+  /** The project's `plumb.lock`, as `generate` wrote it. */
+  lockPath: string;
+  cacheDir?: string;
+  /** Apply the changes and keep the ledger; otherwise a dry run. */
+  write?: boolean;
+  /** Only these migrations, by id. */
+  ids?: string[];
+  /** Applied migrations to run again, by id. */
+  rerun?: string[];
+  onStep?: (step: EnvStep<string>) => void;
+}
+
+/**
+ * Runs the config's migrations against a test project, as `plumb migrate
+ * --local` does: in this process, with no bot deployed, since a test project
+ * holds only synthetic data. A test seeds stale records, migrates, and
+ * asserts on the counts or on what the project then holds.
+ */
+export function migrate(
+  project: TestProject,
+  config: PlumbConfig,
+  options: TestMigrateOptions,
+): Promise<MigrateEnvResult> {
+  return migrateEnvironment({
+    config,
+    environment: { name: 'test', ...project, synthetic: true },
+    lockPath: options.lockPath,
+    cacheDir: options.cacheDir,
+    checker: bundledChecker(),
+    local: true,
+    write: options.write,
+    ...(options.ids ? { ids: options.ids } : {}),
+    ...(options.rerun ? { rerun: options.rerun } : {}),
+    onStep: options.onStep,
+  });
 }
 
 /** `bots`, and `cron` when a bot has a schedule, so the declared bots run as they would. */
