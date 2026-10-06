@@ -82,7 +82,7 @@ export function formatStep(step: Step, out: string): string {
   const summary = {
     sushi: `${c.structureDefinitions} StructureDefinitions, ${c.valueSets} ValueSets`,
     packages: `${c.cached} cached, ${c.fetched} fetched`,
-    load: `${c.profiles} profiles${c.skipped ? `, ${c.skipped} skipped` : ''}`,
+    load: `${c.profiles} profiles${c.skipped ? `, ${c.skipped} skipped` : ''}${c.content ? `, ${c.content} content` : ''}`,
     emit: `${c.types} types, ${c.slices} slices, ${c.codeLists} code lists`,
     routes: `${c.rows} rows for ${c.types} types${c.ambiguous ? `, ${c.ambiguous} ambiguous` : ''}`,
     write: `${c.written} written, ${c.removed} removed, ${c.unchanged} unchanged → ${out}`,

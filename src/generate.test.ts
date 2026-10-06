@@ -3,6 +3,7 @@
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -79,6 +80,32 @@ describe('generate', () => {
     });
     expect(result.errors.map((e) => [e.step, e.code])).toEqual([['load', 'invalid-route-element']]);
     expect(existsSync(p.config.out)).toBe(false);
+  });
+
+  test('checks content offline: a refused file fails the load step and writes nothing', async () => {
+    const p = project();
+    const content = join(p.root, 'content');
+    mkdirSync(content);
+    writeFileSync(
+      join(content, 'clinic.json'),
+      JSON.stringify({ resourceType: 'Organization', id: 'main-clinic', name: 'Main Clinic' }),
+    );
+    writeFileSync(
+      join(content, 'search.json'),
+      JSON.stringify({ resourceType: 'SearchParameter' }),
+    );
+    const refused = await generate({
+      ...p,
+      config: { ...p.config, content: [join(content, '*.json')] },
+    });
+    expect(refused.errors.map((e) => [e.step, e.code])).toEqual([['load', 'invalid-content']]);
+    expect(existsSync(p.config.out)).toBe(false);
+
+    const ok = await generate({
+      ...p,
+      config: { ...p.config, content: [join(content, 'clinic.json')] },
+    });
+    expect(ok.steps.find((s) => s.name === 'load')?.counts.content).toBe(1);
   });
 
   test('passes the value-set size limit to the emitter', async () => {

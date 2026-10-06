@@ -281,6 +281,11 @@
   codes is listed and left to Medplum. That project feature also stops
   Medplum's own bot creation, so `push` cannot install the checker there (see
   the research notes).
+  `content` in the config lists reference content files (#155), and
+  `generate` checks them offline before emitting anything: one Questionnaire,
+  CodeSystem, ValueSet or Organization per file, keyed by URL or `id`, valid
+  against base R4 and any selected profile it claims, with named errors that
+  say why a SearchParameter or Subscription is not content.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
