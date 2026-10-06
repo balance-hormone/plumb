@@ -490,7 +490,8 @@ Next, in order. Each gets a design note before it is built.
    strict mode or AccessPolicy, so a project's tests cannot see what its
    server will do. Plumb's own real-server harness starts a strict Medplum and
    pushes a config into it; a project gets the same, with its config pushed
-   and its seed data loaded, for its own tests.
+   and its seed data loaded, for its own tests. See
+   [design 08](design/08-test-environments.md).
 2. **Reference content as code.** `push` converges Questionnaires, CodeSystems
    and ValueSets, Organizations, SearchParameters and Subscriptions, found
    again by tag as policies are, and `generate` types what they define: a
