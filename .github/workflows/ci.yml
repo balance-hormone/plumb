@@ -120,6 +120,9 @@ jobs:
             ${{ runner.os }}-build-cache-node-modules-
       - name: Install
         run: npm ci
+      # createTestProject pushes the checker as Plumb ships it, from dist.
+      - name: Build
+        run: npm run build
       - name: Server tests
         run: npx vitest run test/server
         env:

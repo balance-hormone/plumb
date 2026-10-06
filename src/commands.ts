@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseArgs, parseEnv } from 'node:util';
 import type * as TS from 'typescript5';
 import { type CheckResult, checkProject } from './check.js';
+import { bundledChecker, packageVersion } from './checker/install.js';
 import { type ConfigError, loadConfig, resolveEnvironment } from './config.js';
 import {
   type Checked,
@@ -74,27 +74,6 @@ const OK = 0;
 const PROBLEMS = 1;
 const USAGE_ERROR = 2;
 
-/** Plumb's package directory, the one above this module in source or in dist. */
-// Built, dist/esm and dist/cjs each hold a package.json naming only their
-// module type, so the walk stops at the one naming Plumb.
-function packageDir(): string {
-  let dir = dirname(fileURLToPath(import.meta.url));
-  while (manifest(dir)?.name !== 'plumb-fhir') {
-    if (dir === dirname(dir)) throw new Error('plumb: cannot find the plumb-fhir package.json.');
-    dir = dirname(dir);
-  }
-  return dir;
-}
-
-function manifest(dir: string): { name?: string; version?: string } | undefined {
-  const file = join(dir, 'package.json');
-  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : undefined;
-}
-
-function version(): string {
-  return manifest(packageDir())?.version ?? '';
-}
-
 const time = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
 /** What a step did, as one line: its name, its counts and its time. */
@@ -130,7 +109,7 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
     return OK;
   }
   if (values.version) {
-    io.stdout(`${version()}\n`);
+    io.stdout(`${packageVersion()}\n`);
     return OK;
   }
   const command = positionals.length === 1 ? positionals[0] : undefined;
@@ -288,10 +267,7 @@ async function envOptions(command: string, values: Values, io: CliIo) {
     config: config.config,
     environment: environment.environment,
     lockPath: join(root, 'plumb.lock'),
-    checker: {
-      code: readFileSync(join(packageDir(), 'dist/checker.cjs'), 'utf8'),
-      version: version(),
-    },
+    checker: bundledChecker(),
     cacheDir: io.cacheDir,
     fetch: io.fetch,
     onStep: (step: EnvStep<string>) => printStep(step, printer(io, quiet), quiet),

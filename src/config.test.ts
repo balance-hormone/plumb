@@ -332,7 +332,8 @@ describe('loadConfig', () => {
       strictMode: false,
       features: ['bots'],
       settings: { intakeEnabled: true },
-      seed: ['./test/seed/*.json'],
+      // Resolved against the config's folder, keeping the glob.
+      seed: [result.ok && join(dirname(result.configPath), 'test/seed/*.json')],
     });
   });
 

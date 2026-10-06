@@ -219,7 +219,7 @@ const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 /**
  * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
  * Node's type stripping, or the project's own tsx for what Node cannot load.
- * `local`, `fsh` and `out` come back as absolute
+ * `local`, `fsh`, `out` and `test.seed` come back as absolute
  * paths, resolved against the config file's folder; with `fsh`, `local` is its
  * SUSHI output.
  */
@@ -265,6 +265,9 @@ export async function loadConfig(options: {
       ...config,
       out: resolve(base, config.out),
       ...(config.check ? { check: resolveCheck(base, config.check) } : {}),
+      ...(config.test?.seed
+        ? { test: { ...config.test, seed: config.test.seed.map((p) => resolve(base, p)) } }
+        : {}),
       ...(fsh ? { fsh } : {}),
       ...(local ? { local } : {}),
     },

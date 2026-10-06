@@ -1,12 +1,25 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { spawnSync } from 'node:child_process';
-import { MEDPLUM_VERSION } from '@medplum/core';
+import { globSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { MEDPLUM_VERSION, MedplumClient, normalizeErrorString } from '@medplum/core';
+import type { Bundle, Project, ProjectMembership } from '@medplum/fhirtypes';
+import { bundledChecker } from './checker/install.js';
 import type { PlumbConfig } from './config.js';
+import type { EnvStep } from './connect.js';
+import { type PushResult, push } from './push.js';
 
 // One server per machine, found again by its compose project name.
 const PROJECT = 'plumb-medplum';
 const BASE_URL = 'http://localhost:8103/';
+// Seeded on the server's first boot. It works only on a server Plumb started,
+// so a test project is never made anywhere else.
+const SUPER_ADMIN = {
+  clientId: '00000000-0000-4000-8000-000000000001',
+  clientSecret: 'plumb-test-super-admin',
+};
 
 export type StartServerResult =
   | { ok: true; baseUrl: string; version: string; started: boolean }
@@ -52,6 +65,140 @@ export function startServer(config: Pick<PlumbConfig, 'test'> = {}): StartServer
 /** Removes the server and its data, if `startServer` started it; one already running is left. */
 export function stopServer(server: { started: boolean }): void {
   if (server.started) docker([...COMPOSE, 'down', '--volumes']);
+}
+
+/** A project on the test server, reached as its admin client. */
+export interface TestProject {
+  baseUrl: string;
+  projectId: string;
+  clientId: string;
+  clientSecret: string;
+}
+
+export interface TestProjectOptions {
+  /** The project's `plumb.lock`, as `generate` wrote it. */
+  lockPath: string;
+  cacheDir?: string;
+  /** Overrides `test.strictMode`. */
+  strictMode?: boolean;
+  /** Overrides `test.features`. */
+  features?: string[];
+  /** Overrides `test.seed`; paths and globs resolve against the working directory. */
+  seed?: string[];
+  /** Where `{ env }` secrets are read from; `process.env` by default. */
+  env?: Record<string, string | undefined>;
+  onStep?: (step: EnvStep<string>) => void;
+}
+
+export type CreateTestProjectResult =
+  | ({ ok: true; push: PushResult } & TestProject)
+  | {
+      ok: false;
+      push: PushResult;
+      error: { code: 'push-failed' | 'seed-refused'; message: string };
+    };
+
+/**
+ * Makes a project on the test server as its super admin, pushes the config
+ * into it as `push` does into any environment, then loads the seed Bundles in
+ * order through the project's admin client.
+ */
+export async function createTestProject(
+  config: PlumbConfig,
+  options: TestProjectOptions,
+): Promise<CreateTestProjectResult> {
+  const project = await newProject(
+    options.strictMode ?? config.test?.strictMode ?? true,
+    options.features ?? config.test?.features ?? ['bots'],
+  );
+  const result = await push({
+    // `test.settings` merge over `project.settings`, as an environment's do.
+    config: {
+      ...config,
+      environments: { test: { ...ENV_REFS, baseUrl: BASE_URL, settings: config.test?.settings } },
+    },
+    environment: { name: 'test', ...project },
+    lockPath: options.lockPath,
+    cacheDir: options.cacheDir,
+    checker: bundledChecker(),
+    reportPath: join(mkdtempSync(join(tmpdir(), 'plumb-test-')), 'validate-test.json'),
+    env: options.env ?? process.env,
+    onStep: options.onStep,
+  });
+  if (!result.ok) {
+    const failed = result.errors.map((e) => `${e.step}: ${e.message}`).join('\n');
+    return {
+      ok: false,
+      push: result,
+      error: { code: 'push-failed', message: `The push into the test project failed.\n${failed}` },
+    };
+  }
+  const refused = await loadSeed(project, options.seed ?? config.test?.seed ?? []);
+  if (refused)
+    return { ok: false, push: result, error: { code: 'seed-refused', message: refused } };
+  return { ok: true, push: result, ...project };
+}
+
+// The test environment's credentials are passed resolved; these names are never read.
+const ENV_REFS = { clientId: { env: '' }, clientSecret: { env: '' } };
+
+async function newProject(strictMode: boolean, features: string[]): Promise<TestProject> {
+  const admin = new MedplumClient({ baseUrl: BASE_URL });
+  await admin.startClientLogin(SUPER_ADMIN.clientId, SUPER_ADMIN.clientSecret);
+  const project = await admin.createResource({
+    resourceType: 'Project',
+    name: `plumb-test-${crypto.randomUUID()}`,
+    strictMode,
+    // Medplum's own list of feature names; the config takes any, as Medplum may add one.
+    features: features as Project['features'],
+  });
+  const client = await admin.post(`admin/projects/${project.id}/client`, {
+    name: 'Plumb test admin',
+  });
+  const membership = await admin.searchOne('ProjectMembership', {
+    profile: `ClientApplication/${client.id}`,
+  });
+  await admin.updateResource({ ...(membership as ProjectMembership), admin: true });
+  return {
+    baseUrl: BASE_URL,
+    projectId: project.id,
+    clientId: client.id,
+    clientSecret: client.secret,
+  };
+}
+
+/** Loads each seed file in order; returns why one was refused, naming its entry. */
+async function loadSeed(project: TestProject, patterns: string[]): Promise<string | undefined> {
+  const medplum = new MedplumClient({ baseUrl: project.baseUrl });
+  await medplum.startClientLogin(project.clientId, project.clientSecret);
+  for (const pattern of patterns) {
+    const files = globSync(resolve(pattern)).sort();
+    if (files.length === 0) return `Seed ${pattern} matches no file.`;
+    for (const file of files) {
+      const refused = await loadSeedFile(medplum, file);
+      if (refused) return refused;
+    }
+  }
+  return undefined;
+}
+
+async function loadSeedFile(medplum: MedplumClient, file: string): Promise<string | undefined> {
+  const bundle = JSON.parse(readFileSync(file, 'utf8')) as Bundle;
+  if (bundle.resourceType !== 'Bundle' || !['transaction', 'batch'].includes(bundle.type)) {
+    return `Seed ${file} is not a transaction or batch Bundle.`;
+  }
+  let response: Bundle;
+  try {
+    response = await medplum.executeBatch(bundle);
+  } catch (err) {
+    // A transaction is refused whole, with the server's issue.
+    return `Seed ${file} was refused: ${normalizeErrorString(err)}`;
+  }
+  // A batch answers each entry on its own.
+  const failed = response.entry?.findIndex((e) => !e.response?.status.startsWith('2')) ?? -1;
+  if (failed < 0) return undefined;
+  const outcome = response.entry?.[failed]?.response?.outcome;
+  return `Seed ${file}, entry ${failed}, was refused: ${normalizeErrorString(outcome)}`;
 }
 
 const COMPOSE = ['compose', '-p', PROJECT];
@@ -112,8 +259,8 @@ services:
       MEDPLUM_DEFAULT_BOT_RUNTIME_VERSION: vmcontext
       # Seeded on first boot, and used only to create test projects. The
       # server is Plumb's own and listens on localhost.
-      MEDPLUM_DEFAULT_SUPER_ADMIN_CLIENT_ID: 00000000-0000-4000-8000-000000000001
-      MEDPLUM_DEFAULT_SUPER_ADMIN_CLIENT_SECRET: plumb-test-super-admin
+      MEDPLUM_DEFAULT_SUPER_ADMIN_CLIENT_ID: ${SUPER_ADMIN.clientId}
+      MEDPLUM_DEFAULT_SUPER_ADMIN_CLIENT_SECRET: ${SUPER_ADMIN.clientSecret}
     # The image has no shell or curl, so the check is Node's own fetch.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('${BASE_URL}healthcheck').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
