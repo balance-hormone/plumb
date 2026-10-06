@@ -16,7 +16,7 @@ import { PLUMB_SYSTEM } from './project.js';
 type MigrateStepName = string;
 
 /** What a run did to a migration's records: counts only, never a record or an id. */
-export interface Counts {
+interface Counts {
   read: number;
   changed: number;
   unchanged: number;
@@ -24,10 +24,10 @@ export interface Counts {
   failed: number;
 }
 
-export type LedgerStatus = 'running' | 'paused' | 'errored' | 'applied';
+type LedgerStatus = 'running' | 'paused' | 'errored' | 'applied';
 
 /** What the ledger holds for one migration in one project. */
-export interface LedgerState {
+interface LedgerState {
   status: LedgerStatus;
   /** The SHA-256 of the module the run applied. */
   hash: string;
@@ -44,13 +44,13 @@ export interface LedgerState {
 }
 
 /** The checker's verdict on the changed records, summed over a run. */
-export interface ForecastReport {
+interface ForecastReport {
   checked: number;
   failing: number;
   reasons: { path: string; message: string; count: number }[];
 }
 
-export interface MigrationReport {
+interface MigrationReport {
   /** Before this run: no ledger entry is pending. */
   status: LedgerStatus | 'pending';
   /** Skipped, as applied, or run in this invocation. */

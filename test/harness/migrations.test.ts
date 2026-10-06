@@ -149,7 +149,8 @@ function client(records: Patient[], writes: (string | number)[] = [], next?: str
       calls.writes.push(args);
       const answer = writes.shift() ?? 'v2';
       if (typeof answer === 'number') {
-        const id = answer === 412 ? 'precondition-failed' : 'invalid';
+        const id =
+          answer === 412 ? 'precondition-failed' : answer === 429 ? 'too-many-requests' : 'invalid';
         const text = answer === 412 ? 'Precondition Failed' : 'Missing required property';
         throw Object.assign(new Error(text), {
           outcome: {
@@ -267,6 +268,11 @@ describe('handleMigrations', () => {
     const none = client([patient('b', { birthDate: '1970-01-01' })]);
     await run([birthdate], none.medplum, { forecast });
     expect(none.calls.bots).toEqual([]);
+  });
+
+  test("over the project's rate limit, the page stops, for plumb migrate to run it again", async () => {
+    const { medplum } = client([patient('a')], [429]);
+    await expect(run([birthdate], medplum, { write: true })).rejects.toThrow();
   });
 
   test('a migration the bot does not have is refused', async () => {

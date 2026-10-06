@@ -182,6 +182,8 @@ async function migrateRecord(
       return { kind: 'changed', resource, versionId: saved.meta?.versionId ?? '' };
     } catch (err) {
       const outcome = (err as { outcome?: { id?: string } } | undefined)?.outcome;
+      // Over the project's rate limit: the page stops, and plumb migrate runs it again.
+      if (outcome?.id === 'too-many-requests') throw err;
       if (outcome?.id !== 'precondition-failed') return { kind: 'failed', reason: messageOf(err) };
       if (attempt > 0) return { kind: 'conflict' };
       record = await medplum.readResource(record.resourceType, record.id ?? '');
