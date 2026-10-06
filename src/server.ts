@@ -159,6 +159,8 @@ services:
       MEDPLUM_REDIS_PASSWORD: medplum
       MEDPLUM_BINARY_STORAGE: file:./binary/
       MEDPLUM_SUPPORT_EMAIL: support@example.com
+      # A test run logs in far more often than people do; Medplum allows 160 token requests a window.
+      MEDPLUM_DEFAULT_AUTH_RATE_LIMIT: 100000
       # Bots run on vmcontext here; hosted Medplum runs them on Lambda.
       MEDPLUM_VM_CONTEXT_BOTS_ENABLED: 'true'
       # Bots created without a runtime, as push creates the checker, get this one.
