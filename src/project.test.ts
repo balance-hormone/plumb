@@ -43,6 +43,25 @@ const CI_DEPLOY = held('b', {
 });
 
 describe('planPolicies', () => {
+  test('a Bot entry naming bots by key becomes criteria on their identifiers', () => {
+    const runner = { resource: [{ resourceType: 'Bot', bots: ['send-reminder', 'intake'] }] };
+    const [change] = planPolicies({ accessPolicies: { runner } }, []).changes;
+    expect(change).toMatchObject({
+      resource: {
+        resource: [
+          {
+            resourceType: 'Bot',
+            criteria: `Bot?identifier=${PLUMB_SYSTEM}|send-reminder,${PLUMB_SYSTEM}|intake`,
+          },
+        ],
+      },
+    });
+    const held = (change as { resource: AccessPolicy }).resource;
+    expect(planPolicies({ accessPolicies: { runner } }, [{ ...held, id: 'a' }]).changes).toEqual(
+      [],
+    );
+  });
+
   test('creates each policy from empty, tagged with its key and named by it unless given', () => {
     const plan = planPolicies(CONFIG, []);
     expect(plan).toEqual({

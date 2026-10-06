@@ -3,6 +3,7 @@
 import { deepEquals, type MedplumClient } from '@medplum/core';
 import type {
   AccessPolicy,
+  AccessPolicyResource,
   ClientApplication,
   Project,
   ProjectDefaultProfile,
@@ -11,7 +12,12 @@ import type {
   Reference,
   Resource,
 } from '@medplum/fhirtypes';
-import { lockdownWarnings, type PlumbConfig, type ProjectConfig } from './config.js';
+import {
+  type AccessPolicyEntry,
+  lockdownWarnings,
+  type PlumbConfig,
+  type ProjectConfig,
+} from './config.js';
 
 /**
  * The `meta.tag` system of what `push` manages, with the config key as code,
@@ -336,6 +342,7 @@ export function planPolicies(
     const desired: AccessPolicy = {
       resourceType: 'AccessPolicy',
       ...config,
+      ...(config.resource ? { resource: config.resource.map(botCriteria) } : {}),
       name: config.name ?? key,
     };
     const untagged = held.filter((p) => tagOf(p) === undefined && p.name === desired.name);
@@ -365,6 +372,13 @@ export function planPolicies(
       ),
   );
   return plan;
+}
+
+/** A `bots` entry as the criteria Medplum matches: each bot by its identifier, never its id. */
+function botCriteria({ bots, ...entry }: AccessPolicyEntry): AccessPolicyResource {
+  if (!bots) return entry;
+  const identifiers = bots.map((key) => `${PLUMB_SYSTEM}|${key}`).join(',');
+  return { ...entry, criteria: `Bot?identifier=${identifiers}` };
 }
 
 /**
