@@ -38,6 +38,13 @@ import {
   planProject,
   planSummary as projectSummary,
 } from './project.js';
+import {
+  applySubscriptions,
+  describeSubscription,
+  planSubscriptions,
+  type SubscriptionPlan,
+  subscriptionsSummary,
+} from './subscriptions.js';
 
 type Definition = StructureDefinition | ValueSet | CodeSystem;
 
@@ -52,6 +59,7 @@ type PushStepName =
   | 'content'
   | 'project'
   | 'bots'
+  | 'subscriptions'
   | 'check';
 
 /**
@@ -83,6 +91,8 @@ export interface PushResult extends EnvResult<PushStepName> {
   content?: ContentPlan;
   /** The bots' planned changes, when the config declares bots. */
   bots?: BotPlan;
+  /** The Subscriptions' planned changes, when the config declares any. */
+  subscriptions?: SubscriptionPlan;
 }
 
 export interface PushOptions extends EnvOptions, ProjectOptions {
@@ -251,20 +261,27 @@ function driftOf(result: PushResult): string[] {
   const content = pending(result.content?.changes);
   const project = pending(result.project?.changes);
   const bots = pending(result.bots?.changes);
-  const blocked = (result.content?.blocked.length ?? 0) + (result.project?.blocked.length ?? 0);
+  const subscriptions = pending(result.subscriptions?.changes);
+  const blocked =
+    (result.content?.blocked.length ?? 0) +
+    (result.project?.blocked.length ?? 0) +
+    (result.subscriptions?.blocked.length ?? 0);
   return [
     profiles > 0 && `${profiles} profile${profiles === 1 ? '' : 's'}`,
     terminology > 0 && `${terminology} terminology`,
     content > 0 && `${content} content`,
     project > 0 && `${project} project change${project === 1 ? '' : 's'}`,
     bots > 0 && `${bots} bot${bots === 1 ? '' : 's'}`,
+    subscriptions > 0 && `${subscriptions} subscription${subscriptions === 1 ? '' : 's'}`,
     blocked > 0 && `${blocked} blocked`,
   ].filter((d) => typeof d === 'string');
 }
 
 /**
- * The content step, then the project's own, then the bots, each only when the
- * config declares it: a bot's policy and secrets come from the project.
+ * The content step, then the project's own, then the bots, then the
+ * Subscriptions, each only when the config declares it: a bot's policy and
+ * secrets come from the project, and nothing fires at a bot before its code
+ * is deployed.
  */
 async function converge(
   medplum: MedplumClient,
@@ -277,7 +294,56 @@ async function converge(
   const project =
     content &&
     (!declaresProject(options.config) || (await projectStep(medplum, options, result, step)));
-  return project && (!options.config.bots || (await botsStep(medplum, options, result, step)));
+  const bots =
+    project && (!options.config.bots || (await botsStep(medplum, options, result, step)));
+  return (
+    bots &&
+    (!options.config.subscriptions || (await subscriptionsStep(medplum, options, result, step)))
+  );
+}
+
+/**
+ * Plans the Subscriptions, then writes them unless the plan is blocked or this
+ * is a dry run. Returns whether it succeeded.
+ */
+async function subscriptionsStep(
+  medplum: MedplumClient,
+  options: PushOptions,
+  result: PushResult,
+  step: Pick<ReturnType<typeof steps<PushStepName, PushResult>>, 'finish' | 'fail'>,
+): Promise<boolean> {
+  try {
+    result.subscriptions = await planSubscriptions(
+      medplum,
+      options.config.subscriptions ?? {},
+      options,
+    );
+  } catch (err) {
+    step.fail('subscriptions', [
+      { code: 'subscriptions-failed', message: normalizeErrorString(err) },
+    ]);
+    return false;
+  }
+  const plan = result.subscriptions;
+  const blocked = plan.blocked.length > 0;
+  step.finish(
+    'subscriptions',
+    subscriptionsSummary(plan),
+    [...plan.changes.map(describeSubscription), ...plan.blocked],
+    blocked,
+  );
+  const pending = plan.changes.some((c) => !('kept' in c && c.kept));
+  if (blocked || options.dryRun || !pending) return !blocked;
+  try {
+    const written = await applySubscriptions(plan, medplum, options.env);
+    step.finish('subscriptions', `applied ${written} change${written === 1 ? '' : 's'}`);
+  } catch (err) {
+    step.fail('subscriptions', [
+      { code: 'subscriptions-failed', message: normalizeErrorString(err) },
+    ]);
+    return false;
+  }
+  return true;
 }
 
 /**

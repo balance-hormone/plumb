@@ -332,6 +332,15 @@
   so a policy is the same in every environment, and `unknown-bot` names a key
   `bots` lacks. A real-server test shows a client granted one bot running it
   and refused the other.
+  `push` runs a `subscriptions` step last, after the bots are deployed
+  (#171): each Subscription is found by Plumb's tag with its key, so a
+  changed criteria updates it in place, and delivers to `Bot/<id>` resolved
+  from the bot's key or to its `url`. Secret and header values are compared
+  with their variables but never kept in the plan, and a header value holding
+  `:` is refused, since Medplum cuts it short there. One the server turned
+  `off` with an `error` is reported and set back to `active`; `--prune` turns
+  a removed one off. Real-server tests show a matching write running the bot,
+  seen in its AuditEvent, and a console edit turning `--check` red.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
