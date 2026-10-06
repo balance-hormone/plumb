@@ -18,22 +18,24 @@ const shared = {
   sourcemap: true,
   packages: 'external',
 };
+// CJS has no import.meta, so its url comes from __filename, as ESM's would.
+const cjs = {
+  ...shared,
+  format: 'cjs',
+  define: { 'import.meta.url': 'importMetaUrl' },
+  banner: { js: "const importMetaUrl = require('node:url').pathToFileURL(__filename).href;" },
+};
 
 await Promise.all([
   build({ ...shared, entryPoints: ['src/index.ts'], format: 'esm', outfile: 'dist/esm/index.mjs' }),
-  build({ ...shared, entryPoints: ['src/index.ts'], format: 'cjs', outfile: 'dist/cjs/index.cjs' }),
+  build({ ...cjs, entryPoints: ['src/index.ts'], outfile: 'dist/cjs/index.cjs' }),
   build({
     ...shared,
     entryPoints: ['src/testing.ts'],
     format: 'esm',
     outfile: 'dist/esm/testing.mjs',
   }),
-  build({
-    ...shared,
-    entryPoints: ['src/testing.ts'],
-    format: 'cjs',
-    outfile: 'dist/cjs/testing.cjs',
-  }),
+  build({ ...cjs, entryPoints: ['src/testing.ts'], outfile: 'dist/cjs/testing.cjs' }),
   build({
     ...shared,
     entryPoints: ['src/cli.ts'],

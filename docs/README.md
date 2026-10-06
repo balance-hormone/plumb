@@ -256,6 +256,12 @@
   the compose file piped to Compose so ESM and CJS need no path to it. A
   running server is reused and left running. The `test` config block is typed
   and checked, and Plumb's own server tests start the server this way.
+  `createTestProject` (#142) makes a project as the test server's super
+  admin, with `test.strictMode` and `test.features`, runs the unchanged
+  `push` into it with `test.settings` merged over `project.settings`, and
+  loads the `test.seed` Bundles in order, naming a refused file and entry.
+  The checker it pushes is the one Plumb ships, so CI's server job builds
+  first.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in

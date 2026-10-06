@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createReference, type MedplumClient } from '@medplum/core';
 import type {
   AccessPolicy,
@@ -121,4 +124,33 @@ async function updatePolicy(medplum: MedplumClient, bot: Bot, policy: AccessPoli
   if (JSON.stringify(current.resource) === JSON.stringify(policy.resource)) return false;
   await medplum.updateResource({ ...current, resource: policy.resource });
   return true;
+}
+
+/** Plumb's package directory, the one above this module in source or in dist. */
+// Built, dist/esm and dist/cjs each hold a package.json naming only their
+// module type, so the walk stops at the one naming Plumb.
+function packageDir(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  while (manifest(dir)?.name !== 'plumb-fhir') {
+    if (dir === dirname(dir)) throw new Error('plumb: cannot find the plumb-fhir package.json.');
+    dir = dirname(dir);
+  }
+  return dir;
+}
+
+function manifest(dir: string): { name?: string; version?: string } | undefined {
+  const file = join(dir, 'package.json');
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : undefined;
+}
+
+export function packageVersion(): string {
+  return manifest(packageDir())?.version ?? '';
+}
+
+/** The checker as this Plumb ships it, `dist/checker.cjs`, for push to deploy. */
+export function bundledChecker(): Pick<CheckerOptions, 'code' | 'version'> {
+  return {
+    code: readFileSync(join(packageDir(), 'dist/checker.cjs'), 'utf8'),
+    version: packageVersion(),
+  };
 }

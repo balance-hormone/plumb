@@ -73,10 +73,16 @@ export async function newProject(seed?: Bundle, { strictMode = true } = {}): Pro
   };
 }
 
-/** Links `linked` into `project`, which only a super admin can do. */
-export async function linkProject(project: string, linked: string): Promise<void> {
+/** The test server's super admin, which reads every Project field. */
+export async function superAdmin(): Promise<MedplumClient> {
   const admin = new MedplumClient({ baseUrl: BASE_URL });
   await admin.startClientLogin(...SUPER_ADMIN);
+  return admin;
+}
+
+/** Links `linked` into `project`, which only a super admin can do. */
+export async function linkProject(project: string, linked: string): Promise<void> {
+  const admin = await superAdmin();
   const current = await admin.readResource('Project', project);
   await admin.updateResource({
     ...current,
