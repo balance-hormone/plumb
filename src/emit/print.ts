@@ -1035,13 +1035,16 @@ function printStamps(stamps: Record<string, string[]>): string {
 }
 
 const MIGRATIONS = `${MARKER}. Do not edit.
-import type { Resource, ResourceType } from '@medplum/fhirtypes';
+import type { Bundle, Identifier, Resource, ResourceType } from '@medplum/fhirtypes';
 
 /** One RFC 6902 operation. */
 export type JsonPatchOperation =
-  | { op: 'add' | 'replace' | 'test'; path: string; value: unknown }
+  | { op: 'add'; path: string; value: unknown }
+  | { op: 'replace'; path: string; value: unknown }
+  | { op: 'test'; path: string; value: unknown }
   | { op: 'remove'; path: string }
-  | { op: 'move' | 'copy'; from: string; path: string };
+  | { op: 'move'; from: string; path: string }
+  | { op: 'copy'; from: string; path: string };
 
 /** A data migration: the records it reads, and what it changes in each. */
 export interface MigrationDefinition<T extends ResourceType = ResourceType> {
@@ -1055,7 +1058,7 @@ export interface MigrationDefinition<T extends ResourceType = ResourceType> {
    * over finished records changes nothing. The record is stale, so it is the
    * base type, not a profile's.
    */
-  transform: (resource: Extract<Resource, { resourceType: T }>) => JsonPatchOperation[] | undefined;
+  transform(resource: Extract<Resource, { resourceType: T }>): JsonPatchOperation[] | undefined;
   /** The ids of migrations that must be applied first. */
   dependsOn?: string[];
   description?: string;
@@ -1065,7 +1068,266 @@ export interface MigrationDefinition<T extends ResourceType = ResourceType> {
 export function defineMigration<T extends ResourceType>(migration: MigrationDefinition<T>): MigrationDefinition<T> {
   return migration;
 }
+
+/** What the runner needs of a client: a MedplumClient fits. */
+export interface MigrationClient {
+  search(resourceType: ResourceType, query: string): Promise<Bundle>;
+  readResource(resourceType: ResourceType, id: string): Promise<Resource>;
+  updateResource(resource: Resource, options: { headers: Record<string, string> }): Promise<Resource>;
+  executeBot(identifier: Identifier, body: unknown, contentType: string): Promise<unknown>;
+}
+
+/** One page of one migration, as \`plumb migrate\` asks the bot to run it. */
+export interface MigrationPage {
+  /** The migration's id. */
+  id: string;
+  /** When the run started, as an instant: a record written since is not read again. */
+  start: string;
+  /** Write the changes; otherwise only count them. */
+  write?: boolean;
+  /** Records per page: Medplum pages by cursor from 20, and returns at most 1,000. */
+  count?: number;
+  /** The server's cursor from the previous page; the first page has none. */
+  cursor?: string;
+  /** Plumb's checker, and what it needs to check the changed records against the selected profiles. */
+  forecast?: { checker: Identifier; profiles: string[]; definitions: string };
+}
+
+/** The checker's verdict on a page's changed records. */
+export interface MigrationForecast {
+  /** Records stamped with a selected profile, and of those, the ones failing one. */
+  stamped: number;
+  failing: number;
+  profiles: Record<
+    string,
+    { checked: number; failing: string[]; reasons: { path: string; message: string; count: number }[] }
+  >;
+}
+
+/** What one page did: counts, reasons and the versions written. No record's content. */
+export interface MigrationPageResult {
+  read: number;
+  changed: number;
+  unchanged: number;
+  /** Changed by someone else between the read and the write, twice: left for the next run. */
+  conflict: number;
+  failed: number;
+  reasons: { message: string; count: number }[];
+  forecast?: MigrationForecast;
+  /** The id and new version of each record written. */
+  written: { id: string; versionId: string }[];
+  /** The cursor for the next page, absent on the last. */
+  next?: string;
+}
+
+type Outcome =
+  | { kind: 'unchanged' | 'conflict' }
+  | { kind: 'failed'; reason: string }
+  | { kind: 'changed'; resource: Resource; versionId?: string };
+
+/**
+ * The migration bot's handler: runs one page of the migration the input
+ * names. Each record is transformed and patched in memory, and with
+ * \`write\`, written in full against the version read, so a concurrent edit is
+ * read again rather than overwritten: Medplum 5.1.0 ignores If-Match on a
+ * PATCH, and every release honours it on an update.
+ */
+export function handleMigrations(migrations: MigrationDefinition[]) {
+  return async (
+    medplum: MigrationClient,
+    event: { input: MigrationPage },
+  ): Promise<MigrationPageResult> => {
+    const page = event.input;
+    const migration = migrations.find((m) => m.id === page.id);
+    if (!migration) throw new Error('This bot has no migration ' + page.id + ': deploy its current build.');
+    const bundle = await medplum.search(migration.resourceType, query(migration, page));
+    const records = (bundle.entry ?? []).flatMap((e) => (e.resource ? [e.resource] : []));
+    const result: MigrationPageResult = {
+      read: records.length,
+      changed: 0,
+      unchanged: 0,
+      conflict: 0,
+      failed: 0,
+      reasons: [],
+      written: [],
+    };
+    const changed: Resource[] = [];
+    for (const record of records) {
+      const outcome = await migrateRecord(medplum, migration, record, page.write === true);
+      result[outcome.kind]++;
+      if (outcome.kind === 'failed') {
+        const reason = result.reasons.find((r) => r.message === outcome.reason);
+        if (reason) reason.count++;
+        else result.reasons.push({ message: outcome.reason, count: 1 });
+      }
+      if (outcome.kind === 'changed') {
+        changed.push(outcome.resource);
+        if (outcome.versionId) result.written.push({ id: record.id ?? '', versionId: outcome.versionId });
+      }
+    }
+    if (page.forecast && changed.length > 0) {
+      const { checker, profiles, definitions } = page.forecast;
+      const verdict = (await medplum.executeBot(
+        checker,
+        { resourceType: migration.resourceType, profiles, definitions, resources: changed },
+        'application/json',
+      )) as MigrationForecast;
+      result.forecast = { stamped: verdict.stamped, failing: verdict.failing, profiles: verdict.profiles };
+    }
+    const next = /[?&]_cursor=([^&]*)/.exec(bundle.link?.find((l) => l.relation === 'next')?.url ?? '');
+    if (next?.[1]) result.next = decodeURIComponent(next[1]);
+    return result;
+  };
+}
+
+/** The migration's search, less what the run has written, in the order Medplum pages by cursor. */
+function query(migration: MigrationDefinition, page: MigrationPage): string {
+  const count = Math.min(Math.max(page.count ?? 100, 20), 1000);
+  const params: [string, string][] = [
+    ...Object.entries(migration.search ?? {}),
+    ['_lastUpdated', 'lt' + page.start],
+    ['_sort', '_lastUpdated'],
+    ['_count', String(count)],
+  ];
+  if (page.cursor) params.push(['_cursor', page.cursor]);
+  return params.map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
+}
+
+async function migrateRecord(
+  medplum: MigrationClient,
+  migration: MigrationDefinition,
+  stored: Resource,
+  write: boolean,
+): Promise<Outcome> {
+  let record = stored;
+  for (let attempt = 0; ; attempt++) {
+    const operations = migration.transform(record);
+    if (!operations) return { kind: 'unchanged' };
+    let resource: Resource;
+    try {
+      resource = applyJsonPatch(record, operations);
+    } catch (err) {
+      return { kind: 'failed', reason: 'The patch does not apply: ' + messageOf(err) };
+    }
+    if (sameJson(resource, record)) return { kind: 'unchanged' };
+    if (!write) return { kind: 'changed', resource };
+    try {
+      const saved = await medplum.updateResource(resource, {
+        headers: { 'If-Match': 'W/"' + (record.meta?.versionId ?? '') + '"' },
+      });
+      return { kind: 'changed', resource, versionId: saved.meta?.versionId ?? '' };
+    } catch (err) {
+      const outcome = (err as { outcome?: { id?: string } } | undefined)?.outcome;
+      if (outcome?.id !== 'precondition-failed') return { kind: 'failed', reason: messageOf(err) };
+      if (attempt > 0) return { kind: 'conflict' };
+      record = await medplum.readResource(record.resourceType, record.id ?? '');
+    }
+  }
+}
+
+/** Medplum's reason for a refusal, or the error's own message. */
+function messageOf(err: unknown): string {
+  const issues = (err as { outcome?: { issue?: { details?: { text?: string }; diagnostics?: string }[] } })
+    ?.outcome?.issue;
+  const text = (issues ?? []).map((i) => i.details?.text ?? i.diagnostics ?? '').filter(Boolean);
+  return text.length > 0 ? text.join('; ') : err instanceof Error ? err.message : String(err);
+}
+
+/** RFC 6902 applied to a copy; throws when an operation does not apply. */
+function applyJsonPatch<T>(target: T, operations: JsonPatchOperation[]): T {
+  let doc: unknown = JSON.parse(JSON.stringify(target));
+  for (const operation of operations) {
+    if (operation.op === 'test') {
+      if (!sameJson(valueAt(doc, operation.path), operation.value)) {
+        throw new Error('test failed at ' + operation.path);
+      }
+    } else if (operation.op === 'remove') {
+      doc = put(doc, operation.path, undefined, 'remove');
+    } else if (operation.op === 'add' || operation.op === 'replace') {
+      doc = put(doc, operation.path, clone(operation.value), operation.op);
+    } else {
+      const value = clone(valueAt(doc, operation.from));
+      if (operation.op === 'move') doc = put(doc, operation.from, undefined, 'remove');
+      doc = put(doc, operation.path, value, 'add');
+    }
+  }
+  return doc as T;
+}
+
+const clone = (value: unknown): unknown => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+
+/** A JSON Pointer's tokens, unescaped. */
+const tokens = (pointer: string): string[] =>
+  pointer === '' ? [] : pointer.slice(1).split('/').map((t) => t.replaceAll('~1', '/').replaceAll('~0', '~'));
+
+function valueAt(doc: unknown, pointer: string): unknown {
+  let value = doc;
+  for (const token of tokens(pointer)) {
+    if (typeof value !== 'object' || value === null || !Object.hasOwn(value, token)) {
+      throw new Error('nothing at ' + pointer);
+    }
+    value = (value as Record<string, unknown>)[token];
+  }
+  return value;
+}
+
+/** Adds, replaces or removes the value at a pointer, returning the document. */
+function put(doc: unknown, pointer: string, value: unknown, op: 'add' | 'replace' | 'remove'): unknown {
+  const path = tokens(pointer);
+  const last = path.pop();
+  if (last === undefined) {
+    if (op === 'remove') throw new Error('cannot remove the whole record');
+    return value;
+  }
+  const parent = valueAt(doc, path.length === 0 ? '' : '/' + path.map(escape).join('/'));
+  if (Array.isArray(parent)) {
+    const index = last === '-' && op === 'add' ? parent.length : Number(last);
+    const end = op === 'add' ? parent.length : parent.length - 1;
+    if (!/^(0|[1-9][0-9]*|-)$/.test(last) || !(index >= 0 && index <= end)) {
+      throw new Error('no index ' + last + ' at ' + pointer);
+    }
+    parent.splice(index, op === 'add' ? 0 : 1, ...(op === 'remove' ? [] : [value]));
+  } else if (typeof parent === 'object' && parent !== null) {
+    const record = parent as Record<string, unknown>;
+    if (op !== 'add' && !Object.hasOwn(record, last)) throw new Error('nothing at ' + pointer);
+    if (op === 'remove') delete record[last];
+    else record[last] = value;
+  } else {
+    throw new Error('nothing to change at ' + pointer);
+  }
+  return doc;
+}
+
+const escape = (token: string) => token.replaceAll('~', '~0').replaceAll('/', '~1');
+
+/** Whether two JSON values are equal, whatever the order of their keys. */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((k) => Object.hasOwn(b, k) && sameJson((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+  );
+}
 `;
+
+/**
+ * `_migrator.ts`, the migration bot's handler: every module the config lists,
+ * by its import path from `out`. Not exported from the index, since the
+ * modules import the index themselves.
+ */
+function printMigrator(modules: string[]): string {
+  const imports = modules.map((path, i) => `import m${i} from ${quote(path)};`);
+  const list = modules.map((_, i) => `m${i}`).join(', ');
+  return `${MARKER}. Do not edit.
+import { handleMigrations } from './_migrations.js';
+${imports.join('\n')}${imports.length > 0 ? '\n' : ''}
+/** The migration bot's handler: its entry exports it, as \`export { handler } from './_migrator.js'\`. */
+export const handler = handleMigrations([${list}]);
+`;
+}
 
 /**
  * Every file Plumb writes to `out`: one per profile and per Questionnaire in
@@ -1080,7 +1342,7 @@ export function printFiles(
   questionnaires: { name: string; file: string }[] = [],
   operations: string[] = [],
   bots?: string,
-  migrations = false,
+  migrations?: string[],
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -1106,9 +1368,10 @@ export function printFiles(
   }
   if (migrations) {
     index.appendNoWrap(
-      "export { defineMigration, type JsonPatchOperation, type MigrationDefinition } from './_migrations.js';",
+      "export { defineMigration, handleMigrations, type JsonPatchOperation, type MigrationClient, type MigrationDefinition, type MigrationForecast, type MigrationPage, type MigrationPageResult } from './_migrations.js';",
     );
     files.set('_migrations.ts', MIGRATIONS);
+    files.set('_migrator.ts', printMigrator(migrations));
   }
   if (bots) {
     index.appendNoWrap(

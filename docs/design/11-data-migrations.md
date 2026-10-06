@@ -73,14 +73,16 @@ shapes a rule in this design. Each is to be pinned by a real-server test
 [research notes](../research/medplum-server-behaviour.md) with the first
 issue.
 
-- **`If-Match` guards PATCH and PUT.** The router reads
-  `If-Match: W/"<versionId>"` for update, patch and their conditional forms,
-  and the repository answers 412 when the stored version differs. Batch
-  entries honour `request.ifMatch` too. `MedplumClient.patchResource` and
-  `updateResource` pass headers through their options. JSON Patch's `test` op
-  also works (Medplum vendors `rfc6902`), but a failed `test` is a plain 400,
-  indistinguishable from a validation failure, so the runner uses `If-Match`.
-- **A PATCH validates its result** against base R4 and every profile in its
+- **`If-Match` guards an update on every release, a PATCH only on later
+  ones.** On `main` the router reads `If-Match: W/"<versionId>"` for update,
+  patch and their conditional forms, and the repository answers 412 when the
+  stored version differs. Medplum 5.1.0 ignores it on a PATCH and applies the
+  patch (found by the server tests on 5.1.0), so the runner patches in memory
+  and writes the whole record with PUT and `If-Match`, which every release
+  honours. `MedplumClient.updateResource` passes headers through its options.
+  JSON Patch's `test` op works too, but a failed `test` is a plain 400,
+  indistinguishable from a validation failure.
+- **A write validates its result** against base R4 and every profile in its
   `meta.profile`, as a create or update does: refused under strict mode,
   logged only without it. A profile the server has not loaded is skipped. A
   patch may change `meta.profile`; one that removes it gets the project's
@@ -112,8 +114,9 @@ issue.
   both win.
 - **`$validate` checks against the profiles the project has loaded.** A
   migration runs before `push` loads the stricter profile, so `$validate`
-  cannot forecast against it. The forecast validates as the checker does: the
-  profiles' definitions as input, Medplum's validator bundled in the bot.
+  cannot forecast against it. Plumb's checker already validates against the
+  selected profiles from definitions in its input, so the migration bot asks
+  it, inside the project.
 
 ## What is declared
 
@@ -167,10 +170,14 @@ export default defineConfig({
   migration never collide on a number, and ids sort in the order they were
   written. `plumb migrate new <name>` scaffolds one.
 - **`bot` names a key of `bots`.** The bot's bundle is the project's own: a
-  one-line entry exporting the generated handler, built as its other bots
-  are, with `@medplum/core` bundled in. The forecast indexes the profiles'
-  definitions into the bundle's own copy, never the server's, whose index
-  serves real writes; the checker is built the same way for the same reason.
+  one-line entry, `export { handler } from './fhir/generated/_migrator.js'`,
+  built as its other bots are. `generate` writes `_migrator.ts`, importing
+  each module `modules` lists, so a new module makes the output stale until
+  it is generated. The runner needs nothing from `@medplum/core` at run time:
+  it carries its own JSON Patch, since 5.1.0's `@medplum/core` has none, and
+  leaves validation to the checker. Its policy grants the checker by key,
+  `{ resourceType: 'Bot', bots: ['checker'] }`, which a policy may name
+  although `bots` does not declare it.
 - **`synthetic: true`** marks an environment that holds no real patient data,
   where the runner may also run in the CLI's own process (Running locally,
   below). A test project is synthetic. The flag names the property that
@@ -220,11 +227,13 @@ one page per call:
 2. **Transform** each record. `undefined` counts as unchanged.
 3. **Apply** the patch in memory. A patch that fails to apply is a failure
    for that record, never a write.
-4. **Forecast** (dry run and write alike): validate the patched record
-   against the selected profiles it is or would be stamped with, from the
-   definitions in the input, as the checker does.
-5. **Write** (with `--write` only): PATCH with `If-Match` on the version
-   read. A 412 means the record changed since it was read: read it again and
+4. **Forecast** (dry run and write alike): send the page's changed records,
+   as patched, to Plumb's checker with `Bot/$execute`, which validates them
+   against the selected profiles they are stamped with, from the definitions
+   in the input, passed through unopened. The records go from bot to bot
+   inside Medplum, never to the CLI.
+5. **Write** (with `--write` only): PUT the patched record with `If-Match`
+   on the version read. A 412 means the record changed since it was read: read it again and
    transform once more; a second 412 counts it as a conflict, left for the
    next run. A 400 counts it as failed, with Medplum's reason.
 6. **Return** counts (read, changed, unchanged, conflict, failed, would pass,
@@ -342,9 +351,9 @@ this environment; `bots-disabled`, from design 10.
 
 Against the Docker Medplum server, in a test project per file:
 
-- **Medplum's behaviour,** each claim in Checked first: a PATCH with a stale
-  `If-Match` is a 412; a PATCH validates against `meta.profile` under strict
-  mode; an unchanged PATCH writes no version; a cursor scan by
+- **Medplum's behaviour,** each claim in Checked first: a PUT with a stale
+  `If-Match` is a 412; a PUT validates against `meta.profile` under strict
+  mode; an unchanged PUT writes no version; a cursor scan by
   `_lastUpdated` sees a record written mid-scan again; a second `If-Match`
   update of the ledger loses.
 - **A migration converges:** a dry run writes nothing, ledger included; a
