@@ -41,6 +41,16 @@
         "default": "./dist/cjs/testing.cjs"
       }
     },
+    "./vitest": {
+      "import": {
+        "types": "./dist/esm/vitest.d.ts",
+        "default": "./dist/esm/vitest.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/vitest.d.ts",
+        "default": "./dist/cjs/vitest.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "main": "dist/cjs/index.cjs",

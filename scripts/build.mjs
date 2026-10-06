@@ -38,6 +38,13 @@ await Promise.all([
   build({ ...cjs, entryPoints: ['src/testing.ts'], outfile: 'dist/cjs/testing.cjs' }),
   build({
     ...shared,
+    entryPoints: ['src/vitest.ts'],
+    format: 'esm',
+    outfile: 'dist/esm/vitest.mjs',
+  }),
+  build({ ...cjs, entryPoints: ['src/vitest.ts'], outfile: 'dist/cjs/vitest.cjs' }),
+  build({
+    ...shared,
     entryPoints: ['src/cli.ts'],
     format: 'esm',
     outfile: 'dist/esm/cli.mjs',

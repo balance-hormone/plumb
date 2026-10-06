@@ -9,13 +9,13 @@ import { bundledChecker } from '../../src/checker/install.js';
 import type { PlumbConfig } from '../../src/config.js';
 import { fetchPackages } from '../../src/packages.js';
 import { push } from '../../src/push.js';
+import { superAdmin } from '../../src/server.js';
 import {
   type CreateTestProjectResult,
   createTestProject,
   type TestProject,
 } from '../../src/testing.js';
 import { connect, server } from './medplum.js';
-import { superAdmin } from './setup.js';
 
 const PATIENT = 'http://example.org/fhir/plumb-test/StructureDefinition/cardinality-patient';
 const SYNTHETIC = join(import.meta.dirname, '../fixtures/profiles/fsh-generated/resources');

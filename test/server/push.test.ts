@@ -15,7 +15,7 @@ import { loadProfiles } from '../../src/loader.js';
 import { fetchPackages } from '../../src/packages.js';
 import { type PushOptions, push } from '../../src/push.js';
 import { connect, server } from './medplum.js';
-import { newProject, type TestServer } from './setup.js';
+import { newProject, type TestProject } from './setup.js';
 
 const PATIENT = 'http://example.org/fhir/plumb-test/StructureDefinition/cardinality-patient';
 const SYNTHETIC = join(import.meta.dirname, '../fixtures/profiles/fsh-generated/resources');
@@ -23,7 +23,7 @@ const READ = ['read', 'vread', 'search', 'history'];
 
 // Push loads profiles, so it has a project of its own; its tests share one checker bot.
 describe.skipIf(!server)('push installs the checker bot', { timeout: 60_000 }, () => {
-  let project: TestServer;
+  let project: TestProject;
   let options: PushOptions;
   beforeAll(async () => {
     project = await newProject();

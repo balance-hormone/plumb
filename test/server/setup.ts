@@ -1,31 +1,30 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { MedplumClient } from '@medplum/core';
 import type { Bundle } from '@medplum/fhirtypes';
-import type { TestProject } from 'vitest/node';
-import { startServer, stopServer } from '../../src/testing.js';
+import type { TestProject as VitestProject } from 'vitest/node';
+import {
+  newProject as newServerProject,
+  startServer,
+  stopServer,
+  superAdmin,
+} from '../../src/server.js';
+import { connectAs, type TestProject } from '../../src/testing.js';
+
+export type { TestProject };
 
 // The mock client enforces neither profiles, strict mode nor access policies, so
 // server claims are tested against Medplum itself, in Docker. It runs in CI's
 // server job, or locally with PLUMB_SERVER=1; each run gets a project of its own.
-const BASE_URL = 'http://localhost:8103/';
-// Seeded by the test server on its first boot.
-const SUPER_ADMIN = ['00000000-0000-4000-8000-000000000001', 'plumb-test-super-admin'] as const;
-
-export interface TestServer {
-  baseUrl: string;
-  projectId: string;
-  clientId: string;
-  clientSecret: string;
-}
+// Push's own tests need projects nothing has been pushed into, so this harness
+// makes them as createTestProject does, without its push.
 
 declare module 'vitest' {
   interface ProvidedContext {
-    medplum: TestServer | undefined;
+    medplum: TestProject | undefined;
   }
 }
 
-export default async function setup(project: TestProject) {
+export default async function setup(project: VitestProject) {
   project.provide('medplum', undefined);
   if (!process.env.PLUMB_SERVER) return;
   const server = startServer({ test: { server: process.env.PLUMB_MEDPLUM_SERVER } });
@@ -46,38 +45,10 @@ export default async function setup(project: TestProject) {
  * data. Tests that count what a project holds make their own; tests of what a
  * loose project stores make one with `strictMode: false`.
  */
-export async function newProject(seed?: Bundle, { strictMode = true } = {}): Promise<TestServer> {
-  const admin = new MedplumClient({ baseUrl: BASE_URL });
-  await admin.startClientLogin(...SUPER_ADMIN);
-  const project = await admin.createResource({
-    resourceType: 'Project',
-    name: `plumb-test-${crypto.randomUUID()}`,
-    strictMode,
-    features: ['bots'],
-  });
-  const client = await admin.post(`admin/projects/${project.id}/client`, { name: 'Plumb CI' });
-  const membership = await admin.searchOne('ProjectMembership', {
-    profile: `ClientApplication/${client.id}`,
-  });
-  if (!membership) throw new Error('The CI client has no membership.');
-  await admin.updateResource({ ...membership, admin: true });
-
-  const ci = new MedplumClient({ baseUrl: BASE_URL });
-  await ci.startClientLogin(client.id, client.secret);
-  if (seed) await ci.executeBatch(seed);
-  return {
-    baseUrl: BASE_URL,
-    projectId: project.id,
-    clientId: client.id,
-    clientSecret: client.secret,
-  };
-}
-
-/** The test server's super admin, which reads every Project field. */
-export async function superAdmin(): Promise<MedplumClient> {
-  const admin = new MedplumClient({ baseUrl: BASE_URL });
-  await admin.startClientLogin(...SUPER_ADMIN);
-  return admin;
+export async function newProject(seed?: Bundle, { strictMode = true } = {}): Promise<TestProject> {
+  const created = await newServerProject(strictMode, ['bots']);
+  if (seed) await (await connectAs(created)).executeBatch(seed);
+  return created;
 }
 
 /** Links `linked` into `project`, which only a super admin can do. */
