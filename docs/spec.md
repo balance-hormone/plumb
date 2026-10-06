@@ -12,12 +12,35 @@ This spec is deliberately agnostic. It names no organization's profiles, data
 model or migration. An adopter's own work lives in its own repository and
 consumes Plumb the way any Medplum project would.
 
-Plumb began as a wider toolkit. The other tools it sketched are parked as idea
-notes in [`future/`](future/): a [conformance check](future/conformance-check.md),
-[project config as code](future/project-config-as-code.md),
-[data migrations](future/data-migrations.md) and
-[operation contracts](future/operation-contracts.md). They are not part of
-this spec.
+## Direction
+
+Profile types were the first deliverable. The goal they serve is wider:
+**the repository is the source of truth for everything in a Medplum project
+except patient data**, with types flowing from it to every call site and
+checks proving the server matches it. Building on Medplum gets easy when a
+project can be read, reviewed and rebuilt from its repository, and when a
+mistake fails in the editor or in CI instead of in front of a user.
+
+A project has five layers, and each follows the same four steps: **declare**
+it in the repository, **generate** types from it, **converge** the server on
+it, idempotently, and **verify** that the server and the stored data match.
+
+| Layer | What it holds | Where it stands |
+| --- | --- | --- |
+| Schema | Profiles, extensions, value sets | Built: v0.1 to v0.5, designs [01](design/01-generator.md) to [05](design/05-sushi.md) |
+| Config | Settings, secrets, defaults, AccessPolicies, clients | Built: v0.6, [design 06](design/06-project-config.md) |
+| Reference content | Questionnaires, terminology, Organizations, SearchParameters, Subscriptions | Next |
+| Behaviour | Bots, their operations and the subscriptions that trigger them | Later; [operation contracts](future/operation-contracts.md) |
+| Data over time | Migrations when a profile or a routing row changes | Later; [data migrations](future/data-migrations.md) |
+
+Drizzle and the T3 stack are reference points, not the target. Plumb borrows
+Drizzle's committed, reviewable generated code and its `push`, and tRPC's one
+contract inferred on both sides. It does not borrow Drizzle's ORM: the Medplum
+SDK is the client, and Plumb narrows its types rather than wrapping it. Nor
+does it promise more end-to-end safety than the server enforces: a type that
+claims a rule Medplum never checks is a type that lies.
+
+Tools not yet picked up are idea notes in [`future/`](future/).
 
 ## Problem Statement
 
@@ -55,15 +78,33 @@ base definitions only.
 4. **Agnostic to the data model.** Any IG (US Core, IPS, CARIN, Da Vinci, a
    project's own) and any set of local profiles. Plumb's own tests use only
    published IGs and synthetic data.
-5. **Small.** One dev-only package, a few hundred lines on top of Medplum's own
-   profile parser and validator.
+5. **The repository is the source of truth.** What a second environment needs
+   to be rebuilt (profiles, config, reference content, bots, migrations) is
+   declared in the project's repository and reviewed as a diff, never set by
+   hand in the console.
+6. **Converge, never assume.** `push` brings an existing project to what the
+   repository declares, finds what it manages again by a tag, changes only
+   that, and a second run with no change is an empty plan. It never creates a
+   project or deletes what it does not manage.
+7. **Every server claim proven against a real server.** What Plumb says the
+   server does is tested against a running Medplum, and projects using Plumb
+   can test their own code the same way.
+8. **Small for what it does.** One dev-only package, built on Medplum's own
+   parser, validator and SDK. A layer is added only when it removes work a
+   Medplum project does by hand today.
 
 ## Non-goals
 
-- A second base R4 type tree, or a second validator.
+- A second base R4 type tree, or a second validator. Input validation, in the
+  browser or at an API edge, runs Medplum's own validator, not a generated
+  mirror of it.
 - A query builder, ORM or client. The Medplum SDK is already typed.
-- Talking to a Medplum server. Plumb v0.1's only network use is fetching
-  missing IG packages from the FHIR package registry.
+- A server runtime. Bots stay Medplum's only server-side code; Plumb types and
+  registers them.
+- A rival to Medplum's own tools. Where `@medplum/cli` or the marketplace
+  covers a job, Plumb defers to it or emits its format.
+- Patient data in the repository. Reference content is declared; clinical
+  records are not.
 - FHIR versions other than R4, and FHIR servers other than Medplum.
 - Any organization's profiles.
 
@@ -433,26 +474,41 @@ Done in 2.4s
   docs name them, and fixing them belongs upstream, not in a second
   validator.
 
-## Later releases of the same tool
+## Roadmap
 
-These reuse the same parsed profiles and are specified when they are picked up.
+Built since v0.1: the conformance check and gated `push`
+([design 02](design/02-conformance-check.md)), routing and `createProfiled`
+([design 03](design/03-routing-and-create.md)), typed reads
+([design 04](design/04-typed-reads.md)), SUSHI in `generate`
+([design 05](design/05-sushi.md)), project config as code
+([design 06](design/06-project-config.md)) and `plumb check`
+([design 07](design/07-check.md)).
 
-- **Routing and `create`.** Generated routing rows wherever a profile pins a
-  fixed or pattern value on its key (a LOINC code, a category), config rows
-  where it keys on value-set membership, the most specific profile winning.
-  `createProfiled` stamps the default plus the routed profile, because a stamp
-  suppresses Medplum's `defaultProfile`. It is generated into `out` with the
-  types, so apps still take no runtime dependency on Plumb. See
-  [design 03](design/03-routing-and-create.md).
-- **Typed reads.** A read or search helper per profile that returns the profile
-  type, asserts the stamp, and refuses `_elements`, `_summary` and `_history`.
-  A stamp proves a record passed its profile only if it was written while the
-  project was strict, so each read also checks the paths the type requires.
-  See [design 04](design/04-typed-reads.md).
-- **Zod schemas** from the same parse, for forms and input edges. A passing
-  parse means the input looks right, not that the server will accept it.
-- **Agent summaries,** one short Markdown file per profile next to the
-  generated code.
+Next, in order. Each gets a design note before it is built.
+
+1. **Test environments.** Medplum's `MockClient` enforces no profile, default,
+   strict mode or AccessPolicy, so a project's tests cannot see what its
+   server will do. Plumb's own real-server harness starts a strict Medplum and
+   pushes a config into it; a project gets the same, with its config pushed
+   and its seed data loaded, for its own tests.
+2. **Reference content as code.** `push` converges Questionnaires, CodeSystems
+   and ValueSets, Organizations, SearchParameters and Subscriptions, found
+   again by tag as policies are, and `generate` types what they define: a
+   Questionnaire's answers, a custom search parameter's name.
+3. **Behaviour as code.** Bot registrations, typed handlers, operation
+   contracts and the subscriptions that trigger them, declared together
+   because each references the others. The OperationDefinition is generated
+   from the contract.
+4. **Data migrations.** Report, fix, then enforce: `validate` finds what a
+   tightened profile breaks, and an idempotent migration fixes it.
+5. **Input validation.** Forms and API edges need checks outside Node, partial
+   drafts and per-field errors. They run Medplum's validator on the selected
+   profiles, exposed through Standard Schema so form and server libraries can
+   use it. Generated Zod schemas were considered and set aside: they would be
+   a second validator, drifting from the server in exactly the rules it does
+   not check.
+6. **Agent summaries,** one short Markdown file per profile next to the
+   generated code.
 
 ## Testing Decisions
 
@@ -487,9 +543,9 @@ confirm the license of any other IG first.
    each is reviewed against its profile before it is committed.
 3. **Compatibility.** Generated output type-checks under the oldest supported
    TypeScript and under a Medplum-style `tsconfig`.
-4. **No Medplum server in v0.1.** v0.1 makes no claim about the server. The
-   real-server tests return with the
-   [conformance check](future/conformance-check.md), which does.
+4. **Real-server tests.** v0.1 made no claim about the server. Since v0.2,
+   every server claim is tested against a running Medplum
+   ([`../test/server`](../test/server/)).
 
 ## Out of Scope
 
@@ -562,4 +618,16 @@ not yet vouched for unless they link a maintainer-labelled issue.
 
 - **The copyright line** in `NOTICE` and the SPDX headers, confirmed by the
   copyright holder.
+- **How profiles are authored.** Plumb reads FSH and published IGs, and many
+  Medplum projects write no profile at all: their schema is a set of
+  conventions (identifier systems, tags, extension URLs). Declaring those
+  conventions, and extensions, in TypeScript would lower the barrier most;
+  a TypeScript profile language would compete with FSH, the standard. The lean
+  is the first, not the second.
+- **Medplum's marketplace.** Its unmerged `defineManifest()` covers bots,
+  operations, migrations and reference data, which overlaps the next three
+  layers. Plumb tracks it (`medplum/medplum#9406`) and, once it merges, emits
+  its manifests rather than a rival format.
+- **The order of the roadmap** is checked against what adopters hit hardest
+  before each layer starts.
 
