@@ -5,10 +5,11 @@ import { globSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { MEDPLUM_VERSION, MedplumClient, normalizeErrorString } from '@medplum/core';
-import type { Bundle, Project, ProjectMembership } from '@medplum/fhirtypes';
+import type { Bundle, Project, ProjectMembership, Reference } from '@medplum/fhirtypes';
 import { bundledChecker } from './checker/install.js';
 import type { PlumbConfig } from './config.js';
 import type { EnvStep } from './connect.js';
+import { PLUMB_SYSTEM } from './project.js';
 import { type PushResult, push } from './push.js';
 
 // One server per machine, found again by its compose project name.
@@ -139,12 +140,76 @@ export async function createTestProject(
   return { ok: true, push: result, ...project };
 }
 
+/** Who `connectAs` logs in as; the project's admin client when omitted. */
+export type ConnectAs =
+  | { client: string }
+  | { accessPolicy: string; parameters?: Record<string, string | Reference> };
+
+export class ConnectAsError extends Error {
+  readonly code: 'unknown-client' | 'unknown-policy';
+  constructor(code: ConnectAsError['code'], message: string) {
+    super(message);
+    this.name = 'ConnectAsError';
+    this.code = code;
+  }
+}
+
+/**
+ * A client logged in to a test project: as its admin client, as a client the
+ * config declares, or as a new client whose membership has one of the
+ * config's AccessPolicies. Keys are found by the tag `push` gives what it
+ * manages, so AccessPolicies are tested by acting as them.
+ */
+export async function connectAs(project: TestProject, as?: ConnectAs): Promise<MedplumClient> {
+  const admin = await login(project.baseUrl, project.clientId, project.clientSecret);
+  if (!as) return admin;
+  if ('client' in as) {
+    const client = await tagged(admin, 'ClientApplication', as.client);
+    if (!client?.id || !client.secret) {
+      throw new ConnectAsError('unknown-client', `No client "${as.client}" in project.clients.`);
+    }
+    return login(project.baseUrl, client.id, client.secret);
+  }
+  const policy = await tagged(admin, 'AccessPolicy', as.accessPolicy);
+  if (!policy?.id) {
+    throw new ConnectAsError(
+      'unknown-policy',
+      `No AccessPolicy "${as.accessPolicy}" in project.accessPolicies.`,
+    );
+  }
+  const client = await admin.post(`admin/projects/${project.projectId}/client`, {
+    name: `plumb-test-${as.accessPolicy}`,
+  });
+  const membership = (await admin.searchOne('ProjectMembership', {
+    profile: `ClientApplication/${client.id}`,
+  })) as ProjectMembership;
+  const parameter = Object.entries(as.parameters ?? {}).map(([name, value]) =>
+    typeof value === 'string' ? { name, valueString: value } : { name, valueReference: value },
+  );
+  await admin.updateResource({
+    ...membership,
+    access: [{ policy: { reference: `AccessPolicy/${policy.id}` }, parameter }],
+  });
+  return login(project.baseUrl, client.id, client.secret);
+}
+
+const tagged = <T extends 'ClientApplication' | 'AccessPolicy'>(
+  medplum: MedplumClient,
+  type: T,
+  key: string,
+) => medplum.searchOne(type, { _tag: `${PLUMB_SYSTEM}|${key}` });
+
+async function login(baseUrl: string, clientId: string, clientSecret: string) {
+  const medplum = new MedplumClient({ baseUrl });
+  await medplum.startClientLogin(clientId, clientSecret);
+  return medplum;
+}
+
 // The test environment's credentials are passed resolved; these names are never read.
 const ENV_REFS = { clientId: { env: '' }, clientSecret: { env: '' } };
 
 async function newProject(strictMode: boolean, features: string[]): Promise<TestProject> {
-  const admin = new MedplumClient({ baseUrl: BASE_URL });
-  await admin.startClientLogin(SUPER_ADMIN.clientId, SUPER_ADMIN.clientSecret);
+  const admin = await login(BASE_URL, SUPER_ADMIN.clientId, SUPER_ADMIN.clientSecret);
   const project = await admin.createResource({
     resourceType: 'Project',
     name: `plumb-test-${crypto.randomUUID()}`,
@@ -169,8 +234,7 @@ async function newProject(strictMode: boolean, features: string[]): Promise<Test
 
 /** Loads each seed file in order; returns why one was refused, naming its entry. */
 async function loadSeed(project: TestProject, patterns: string[]): Promise<string | undefined> {
-  const medplum = new MedplumClient({ baseUrl: project.baseUrl });
-  await medplum.startClientLogin(project.clientId, project.clientSecret);
+  const medplum = await connectAs(project);
   for (const pattern of patterns) {
     const files = globSync(resolve(pattern)).sort();
     if (files.length === 0) return `Seed ${pattern} matches no file.`;
