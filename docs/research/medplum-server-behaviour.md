@@ -377,6 +377,48 @@ What it means for Plumb:
 - **Other project context:** `checkReferencesOnWrite`, and the
   `validate-terminology` feature, which turns on binding checks.
 
+## Test projects: what upstream offers
+
+Checked for [design 08](../design/08-test-environments.md) against `main` at
+`398038d` on 2026-10-06 (release 5.2.1), and v5.1.42 where noted: does anything
+upstream turn a repository into a configured test project? No.
+
+- **`@medplum/mock`'s `MockClient`** stores resources in an in-memory
+  `MemoryRepository` (`@medplum/fhir-router`). Neither package reads
+  `strictMode`, `defaultProfile` or an AccessPolicy, or calls the validator.
+  Medplum's own bot testing guide (`docs/bots/unit-testing-bots.mdx`) lists
+  `$validate`, `Bot/$execute`, authentication and project admin calls among
+  what it does not replicate.
+- **`@medplum/cli`'s `project`** command lists, shows, switches and invites;
+  nothing creates a project, pushes configuration or loads data.
+- **Medplum's compose files** are for running Medplum, not for tests.
+  `docker-compose.yml` starts only Postgres and Redis, for a server run from
+  source; `docker-compose.full-stack.yml` adds the server and app on `latest`,
+  with no super-admin client. Neither ships in an npm package. Server images
+  are tagged by release (`medplum/medplum-server:5.1.0`, `5.1.42`, `5.2.1`
+  all exist), so an image can follow the installed `@medplum/core`.
+- **The server's test helpers** (`createTestProject`, `initTestAuth`,
+  `getSuperAdminTestProject` in `src/test.setup.ts`, and a Vitest
+  `globalSetup` in `src/test.global-setup.ts`) run in-process against the
+  system repository, not over HTTP, and `@medplum/server` is not published
+  to npm. Medplum's CI runs Postgres and Redis as GitHub services and the
+  server tests in-process; `@medplum/e2e` drives a server and app started by
+  hand with Playwright.
+- **Building blocks Plumb already uses:** `MEDPLUM_DEFAULT_SUPER_ADMIN_CLIENT_ID`
+  and `_SECRET` seed a super-admin client on first boot (`seed.ts`,
+  `createSuperAdmin`, unchanged since v5.1.42), and the admin endpoint creates
+  a project's clients.
+- **`Project/$init`** makes a strict project with the server's default
+  features, a default client and four untagged AccessPolicies set as
+  `defaultAccessPolicies` (the same in v5.1.42). Those policies are not the
+  config's, so `push` would leave them unless `--adopt`; a super admin's plain
+  `createResource` gives the empty project `push` expects, as `test/server`
+  does now.
+- **`Project/$clone`** (super admin only) copies up to 1,000 resources of each
+  type into a new project, client secrets included. It could copy a project
+  pushed once, but a copy is not a project converged by `push`, which is what a
+  test environment tests. It stays an option if per-run pushes prove slow.
+
 ## Contributing upstream
 
 - Medplum requires a **DCO** (`Signed-off-by` on every commit), not a CLA.
