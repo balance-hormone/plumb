@@ -11,7 +11,7 @@ import { CHECKER_BUILD } from '../../src/checker/bundle.js';
 import { fetchPackages } from '../../src/packages.js';
 import { type PushOptions, push } from '../../src/push.js';
 import { connect, server } from './medplum.js';
-import { newProject, type TestServer } from './setup.js';
+import { newProject, type TestProject } from './setup.js';
 
 const PLUMB = 'http://example.org/fhir/plumb-test/StructureDefinition';
 const PATIENT = `${PLUMB}/cardinality-patient`;
@@ -30,7 +30,7 @@ const encounter = (name: string) => encounters.find((f) => f.name === name)?.res
 // Push writes profiles, so this file has a project of its own. Each push waits
 // on the checker's async jobs, polled once a second.
 describe.skipIf(!server)('push loads profiles through the gate', { timeout: 60_000 }, () => {
-  let project: TestServer;
+  let project: TestProject;
   let medplum: MedplumClient;
   let local: string;
   let options: PushOptions;

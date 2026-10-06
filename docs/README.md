@@ -267,6 +267,12 @@
   the config's AccessPolicies, with its parameters. It finds each key by the
   tag `push` gives what it manages, so it needs no config, and an unknown key
   throws `unknown-client` or `unknown-policy`.
+  `plumb-fhir/vitest` (#144) is a `globalSetup` that starts the server, makes
+  one project per run from `plumb.config.ts` and hands it to `testProject()`
+  through an environment variable, so `plumb-fhir/test` depends on no test
+  runner. Without Docker it fails in CI and warns locally. Plumb's own
+  harness starts its server and makes its projects with the same functions;
+  its push tests still need projects nothing was pushed into.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in

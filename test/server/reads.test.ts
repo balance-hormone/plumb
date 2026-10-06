@@ -13,7 +13,7 @@ import type {
 import { beforeAll, describe, expect, test } from 'vitest';
 import { type GeneratedRoutes, generatedRoutes, type Reader } from '../harness/routes.js';
 import { connect, server } from './medplum.js';
-import { newProject, type TestServer } from './setup.js';
+import { newProject, type TestProject } from './setup.js';
 
 const PLUMB = 'http://example.org/fhir/plumb-test/StructureDefinition';
 const PARENT = `${PLUMB}/parent-observation`;
@@ -35,7 +35,7 @@ async function rejection(promise: Promise<unknown>): Promise<ReadError> {
 // what its profile requires, on Medplum itself. A loose project, so a stamped
 // record can be stored without what its profile requires.
 describe.skipIf(!server)('typed reads on a real server', { timeout: 60_000 }, () => {
-  let project: TestServer;
+  let project: TestProject;
   let medplum: MedplumClient;
   let r: GeneratedRoutes;
   let subject: { reference: string };

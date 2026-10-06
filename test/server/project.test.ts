@@ -12,7 +12,7 @@ import { fetchPackages } from '../../src/packages.js';
 import { applyProject, PLUMB_SYSTEM, type ProjectOptions, planProject } from '../../src/project.js';
 import { type PushOptions, push } from '../../src/push.js';
 import { connect, server } from './medplum.js';
-import { linkProject, newProject, type TestServer } from './setup.js';
+import { linkProject, newProject, type TestProject } from './setup.js';
 
 const CONFIG: ProjectConfig = {
   accessPolicies: {
@@ -26,7 +26,7 @@ const tagOf = (p: AccessPolicy | ClientApplication) =>
 
 // Each test file has a project of its own, so what it holds is only what these tests wrote.
 describe.skipIf(!server)('the project step converges AccessPolicies', { timeout: 60_000 }, () => {
-  let project: TestServer;
+  let project: TestProject;
   beforeAll(async () => {
     project = await newProject();
   }, 60_000);
@@ -144,7 +144,7 @@ describe.skipIf(!server)('the project step converges AccessPolicies', { timeout:
 
 /** Push's options for a project, with the checker bundle built once per file. */
 let code: string | undefined;
-async function pushOptions(project: TestServer, config: PlumbConfig): Promise<PushOptions> {
+async function pushOptions(project: TestProject, config: PlumbConfig): Promise<PushOptions> {
   const lockPath = join(mkdtempSync(join(tmpdir(), 'plumb-project-')), 'plumb.lock');
   await fetchPackages({ igs: [], lockPath });
   code ??= (await build({ ...CHECKER_BUILD, write: false })).outputFiles[0]?.text ?? '';
@@ -203,7 +203,7 @@ describe.skipIf(!server)(
   "push writes the Project's settings, secrets and defaults",
   { timeout: 60_000 },
   () => {
-    let project: TestServer;
+    let project: TestProject;
     let options: PushOptions;
     const SECRET = 'synthetic-secret-value';
     beforeAll(async () => {

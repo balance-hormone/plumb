@@ -20,7 +20,7 @@ import { type ValidateEnvOptions, validateEnvironment } from '../../src/conforma
 import { fetchPackages } from '../../src/packages.js';
 import { push } from '../../src/push.js';
 import { server } from './medplum.js';
-import { newProject, type TestServer } from './setup.js';
+import { newProject, type TestProject } from './setup.js';
 
 const PLUMB = 'http://example.org/fhir/plumb-test/StructureDefinition';
 const PATIENT = `${PLUMB}/cardinality-patient`;
@@ -52,7 +52,7 @@ const named = (meta?: Patient['meta']): Patient => ({
 // Counts are exact, so this file has a project of its own. Each run waits on
 // several async jobs, polled once a second.
 describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
-  let project: TestServer;
+  let project: TestProject;
   let medplum: MedplumClient;
   let options: ValidateEnvOptions;
   let failingId: string;

@@ -7,7 +7,7 @@ import type { Observation, Project, StructureDefinition } from '@medplum/fhirtyp
 import { beforeAll, describe, expect, test } from 'vitest';
 import { type GeneratedRoutes, generatedRoutes } from '../harness/routes.js';
 import { connect, server } from './medplum.js';
-import { newProject, type TestServer } from './setup.js';
+import { newProject, type TestProject } from './setup.js';
 
 const PLUMB = 'http://example.org/fhir/plumb-test/StructureDefinition';
 const PARENT = `${PLUMB}/parent-observation`;
@@ -24,7 +24,7 @@ describe.skipIf(!server)(
   'createProfiled and updateProfiled on a real server',
   { timeout: 60_000 },
   () => {
-    let project: TestServer;
+    let project: TestProject;
     let medplum: MedplumClient;
     let r: GeneratedRoutes;
     let subject: { reference: string };
