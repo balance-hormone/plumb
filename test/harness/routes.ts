@@ -146,7 +146,7 @@ export async function generatedRoutes(
   };
 }
 
-function typecheck(files: Map<string, string>, source: string): string[] {
+export function typecheck(files: Map<string, string>, source: string): string[] {
   // Inside node_modules, so the check resolves @medplum/* from the project.
   mkdirSync(join(ROOT, 'node_modules/.cache'), { recursive: true });
   const dir = mkdtempSync(join(ROOT, 'node_modules/.cache/plumb-routes-'));

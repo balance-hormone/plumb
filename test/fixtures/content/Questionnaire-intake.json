@@ -1,0 +1,39 @@
+{
+  "resourceType": "Questionnaire",
+  "url": "http://example.org/fhir/plumb-test/Questionnaire/intake",
+  "version": "0.1.0",
+  "name": "Intake",
+  "title": "Synthetic intake",
+  "status": "active",
+  "item": [
+    {
+      "linkId": "reason",
+      "text": "Reason for visit",
+      "type": "choice",
+      "answerOption": [
+        {
+          "valueCoding": {
+            "system": "http://example.org/fhir/plumb-test/CodeSystem/visit-reason",
+            "code": "new"
+          }
+        },
+        {
+          "valueCoding": {
+            "system": "http://example.org/fhir/plumb-test/CodeSystem/visit-reason",
+            "code": "follow-up"
+          }
+        }
+      ]
+    },
+    {
+      "linkId": "vitals",
+      "type": "group",
+      "item": [
+        { "linkId": "weight-kg", "text": "Weight (kg)", "type": "decimal" },
+        { "linkId": "measured", "type": "dateTime" }
+      ]
+    },
+    { "linkId": "allergies", "type": "string", "repeats": true },
+    { "linkId": "referral", "type": "reference" }
+  ]
+}
