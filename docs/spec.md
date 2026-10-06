@@ -31,7 +31,7 @@ it, idempotently, and **verify** that the server and the stored data match.
 | Config | Settings, secrets, defaults, AccessPolicies, clients | Built: v0.6, [design 06](design/06-project-config.md) |
 | Reference content | Questionnaires, terminology, Organizations | Built: v0.11, [design 09](design/09-reference-content.md) |
 | Behaviour | Bots, their operations and Subscriptions | Designed: v0.12 and v0.13, [design 10](design/10-behaviour.md) |
-| Data over time | Migrations when a profile or a routing row changes | Later; [data migrations](future/data-migrations.md) |
+| Data over time | Migrations when a profile or a routing row changes | Designed: v0.14, [design 11](design/11-data-migrations.md) |
 
 Drizzle and the T3 stack are reference points, not the target. Plumb borrows
 Drizzle's committed, reviewable generated code and its `push`, and tRPC's one
@@ -244,8 +244,8 @@ Named after the tools developers already know:
   conformance check (Postgres's `VALIDATE CONSTRAINT` checks stored rows, and
   `check` is taken by `--check`), `plumb push --env` for project config (as
   `prisma db push` and `drizzle-kit push`), and `plumb migrate new` and
-  `plumb migrate deploy` for data migrations (as `prisma migrate dev` and
-  `migrate deploy`).
+  `plumb migrate --env` for data migrations (as `prisma migrate dev` and
+  `migrate deploy`; a dry run unless `--write`, as Sanity's migrations are).
 
 ### Config
 
@@ -495,7 +495,9 @@ Next, in order. Each gets a design note before it is built.
    bots and triggers in v0.12, operation contracts and typed handlers in
    v0.13.
 2. **Data migrations.** Report, fix, then enforce: `validate` finds what a
-   tightened profile breaks, and an idempotent migration fixes it.
+   tightened profile breaks, and an idempotent migration fixes it, run inside
+   the project by a declared bot. See [design 11](design/11-data-migrations.md),
+   proposed for v0.14.
 3. **Input validation.** Forms and API edges need checks outside Node, partial
    drafts and per-field errors. They run Medplum's validator on the selected
    profiles, exposed through Standard Schema so form and server libraries can
