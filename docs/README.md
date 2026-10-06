@@ -379,14 +379,17 @@
   The goldens now include `_bots.ts` and `_operations.ts`, which caught the
   generated `OperationClient` naming `URL`, a DOM or `@types/node` global;
   it is typed without it.
+  The README covers operations and typed bots, design 10 is marked
+  implemented with what differs as built, and the changelog gains v0.13
+  (#177). **v0.13 is complete.**
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
-  (built), then reference content, behaviour and data over time. Next, in
-  order: behaviour as code,
-  data migrations, input validation through Medplum's own validator (in place
-  of generated Zod schemas). See [`spec.md`](spec.md), Direction and Roadmap.
+  (built), reference content (built), behaviour (built) and data. Next, in
+  order: data migrations, then input validation through Medplum's own
+  validator (in place of generated Zod schemas). See [`spec.md`](spec.md),
+  Direction and Roadmap.
 - Ideas not yet designed are notes in [`future/`](future/); data migrations
-  are next after behaviour.
+  are next, and need a design note first.
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
 
@@ -418,8 +421,8 @@
   - [09: reference content as code](design/09-reference-content.md) (implemented
     in v0.11): Questionnaires, terminology and Organizations through `push`,
     and typed Questionnaire answers
-  - [10: behaviour as code](design/10-behaviour.md) (bots and triggers
-    implemented in v0.12; operations next): bots,
+  - [10: behaviour as code](design/10-behaviour.md) (implemented in v0.12
+    and v0.13): bots,
     schedules, webhooks and Subscriptions through `push` by key, and operation
     contracts with typed callers and handlers
 - [`future/`](future/): ideas not yet designed, each with its sketch and

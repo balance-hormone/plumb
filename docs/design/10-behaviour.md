@@ -1,6 +1,6 @@
 # Design 10: Behaviour as Code
 
-**Status: v0.12 implemented** (#167 to #173); v0.13 (#174 to #177) is next.
+**Status: implemented** in v0.12 (#167 to #173) and v0.13 (#174 to #177).
 Accepted on 2026-10-06. The first item on the
 [spec's roadmap](../spec.md#roadmap). It supersedes the
 [operation contracts](../future/operation-contracts.md) sketch.
@@ -21,6 +21,32 @@ As built in v0.12, these details differ from or add to the text below:
   name; its `reason` is its key, and the order of Medplum's extensions is not
   drift (#171).
 - **A test project has `cron` by default when a bot has a schedule** (#172).
+
+As built in v0.13:
+
+- **The bot returns what Medplum's out parameters map, not `Parameters`.**
+  Medplum 5.1.0 maps every bot return through the OperationDefinition's out
+  parameters; only later releases pass `Parameters` through. So a handler
+  returns a resource as is, for the `return` parameter, and JSON as
+  `{ result }`, for the `result` one, which every release maps alike; the
+  wire below depends on the generated out parameters after all. Found by the
+  real-server tests on 5.1.0 (#174, #175).
+- **The contract code is in `_operations.ts`,** not `_plumb.ts`: it imports
+  `asProfiled` from `_reads.ts`, which imports `_plumb.ts` (#174).
+- **A contract's sides are never inferred** from a caller's input or a
+  handler's return, which would widen the contract to fit; the generated code
+  blocks it as TypeScript 5.4's `NoInfer` does, on 5.0 (#174).
+- **`OperationClient` names no `URL`,** a DOM or `@types/node` global, so a
+  project with neither compiles the generated code (#174).
+- **Contracts load and are checked when `push` starts,** not with the config,
+  and also refuse a type or instance operation without its resource and a
+  pattern that matches no file (#175).
+- **A profile output's parameter is the profile's type,** with the profile as
+  its `targetProfile` (#175).
+- **`defineBot` does not type an operation's input:** `generate` does not load
+  contract modules, so `handleOperation` types it (#176). Its event,
+  `PlumbBotEvent`, is `@medplum/core`'s `BotEvent` less `responseStream`,
+  which needs Node's stream types.
 
 Builds on [design 06](06-project-config.md)'s project config, whose
 AccessPolicies, secrets and tags it reuses, on

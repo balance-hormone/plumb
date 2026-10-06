@@ -27,6 +27,24 @@ Bots and triggers ([design 10](docs/design/10-behaviour.md), first half).
   `test.bots` build when one is named, with `cron` on when a bot has a
   schedule (#172).
 
+Operations and typed handlers ([design 10](docs/design/10-behaviour.md),
+second half).
+
+- **Operation contracts:** with `operations` in the config, `generate`
+  writes `defineOperation`, `callOperation`, `handleOperation` and
+  `OperationError`. Each side is a resource type, a selected profile or any
+  Standard Schema value, checked at run time on both ends (#174).
+- **`push` writes each contract's OperationDefinition** in an `operations`
+  step, naming the bot by its id in each environment, with
+  `invalid-operation` checked before anything is written and
+  `shadowed-operation` for one Plumb did not write (#175).
+- **Typed bot handlers:** `defineBot('<key>', handler)` types `event.input`
+  by the bot's Subscriptions, schedule and webhook, and `event.secrets` by
+  its declared keys (#176).
+- **Works with Medplum 5.1.0,** which maps a bot's return through the
+  OperationDefinition's out parameters rather than passing `Parameters`
+  through (#174).
+
 ## 0.11.0 (2026-10-06)
 
 Reference content as code ([design 09](docs/design/09-reference-content.md)).
