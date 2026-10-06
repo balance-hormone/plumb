@@ -785,6 +785,85 @@ full access. So:
 - a policy other than the one `push` runs under that writes
   StructureDefinition, since that bypasses the profile gate.
 
+## Test against a real server
+
+`MockClient` keeps everything in memory and enforces none of what
+`plumb.config.ts` declares: no profile, no `defaultProfile`, no strict mode,
+no AccessPolicy. Keep it for unit tests. For the claims only a server can
+check, a test environment gives each test run a real Medplum, in Docker,
+with a project `push` has converged from the same config.
+
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: { globalSetup: ['plumb-fhir/vitest'] },
+});
+```
+
+The global setup starts Medplum, Postgres and Redis, makes one strict
+project for the run, pushes the config into it (profiles, then `project`),
+and loads the seed data. A server already running is reused and left
+running; one it started is removed at the end of the run. Tests reach the
+project with `testProject()`, and log in to it with `connectAs`:
+
+```ts
+import { connectAs, testProject } from 'plumb-fhir/test';
+import { expect, test } from 'vitest';
+
+test('the front desk cannot read observations', async () => {
+  const medplum = await connectAs(testProject(), { accessPolicy: 'front-desk' });
+  await expect(medplum.searchResources('Observation')).rejects.toThrow(/forbidden/i);
+});
+
+// With a defaultProfile for Patient that requires birthDate.
+test('a patient without a birth date is refused', async () => {
+  const medplum = await connectAs(testProject());
+  await expect(
+    medplum.createResource({ resourceType: 'Patient', name: [{ family: 'Synthetic' }] }),
+  ).rejects.toThrow(/birthDate/);
+});
+```
+
+`connectAs(project)` logs in as the project's admin client;
+`{ client: 'kiosk' }` as a client from `project.clients`; and
+`{ accessPolicy: 'front-desk', parameters }` as a new client whose membership
+has that policy, with its parameters (`{ patient: { reference: 'Patient/…' } }`
+for a `%patient` policy). AccessPolicies are tested by acting as them. A key
+the config does not declare throws `unknown-client` or `unknown-policy`.
+
+What the test project has beyond what `push` writes goes in `test`:
+
+```ts
+// in plumb.config.ts
+test: {
+  server: '5.1.42',             // optional; the installed @medplum/core's release by default
+  strictMode: true,             // the default; false rehearses a loose project
+  features: ['bots'],           // the default
+  settings: { intakeEnabled: true }, // merged over project.settings
+  seed: ['./test/seed/*.json'], // transaction or batch Bundles, loaded in order
+},
+```
+
+The test server's super admin sets `strictMode` and `features`, which
+`project` cannot. Seed files load after the push, so a seed resource that
+breaks its profile fails the setup, naming the file and the entry. Keep seed
+data synthetic. Secrets resolve from the environment as `push` resolves them.
+
+- **Docker** is the one requirement. Without it the setup fails in CI and,
+  locally, warns, and `testProject()` throws. The first run pulls the images,
+  about a minute; a project and its push take seconds.
+- **Other runners** call the plain functions from their own global setup:
+  `startServer`, `createTestProject` and `stopServer` from `plumb-fhir/test`.
+  `plumb-fhir/vitest` hands the project to the tests in the
+  `PLUMB_TEST_PROJECT` environment variable, which `testProject()` reads.
+- **Bots run on Medplum's `vmcontext` runtime** in the test server. Hosted
+  Medplum runs them on AWS Lambda, so a test environment cannot show Lambda's
+  differences.
+- **The super admin exists only in the server Plumb starts,** so a test
+  project is never made on any other server.
+
 ## Keep `@medplum/*` in step with your server
 
 The types and `validateProfiled` use the `@medplum/*` packages you install.

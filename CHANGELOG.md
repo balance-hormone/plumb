@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+Test environments ([design 08](docs/design/08-test-environments.md)): a
+project's own tests run against a real Medplum, with its config pushed.
+
+- **`plumb-fhir/vitest`** is a Vitest `globalSetup`: it starts Medplum,
+  Postgres and Redis in Docker, makes one strict project per run, runs
+  `push` into it with the project's own config, and loads the seed. A server
+  already running is reused and left running (#141, #142, #144).
+- **`plumb-fhir/test`** exports `testProject()`, the run's project, and
+  `connectAs`, which logs in as the project's admin client, a client from
+  `project.clients`, or a new client whose membership has one of the
+  config's AccessPolicies, with its parameters (#143, #144). For other
+  runners it exports `startServer`, `createTestProject` and `stopServer`.
+- **`test` in the config** sets the server release (the installed
+  `@medplum/core`'s by default), `strictMode`, `features`, settings merged
+  over `project.settings`, and the seed Bundles. A seed entry the server
+  refuses fails the setup by file and entry (#141, #142).
+- **The README tests against a real server:** when to keep `MockClient`,
+  the Vitest setup, AccessPolicies tested by acting as them, seed data, and
+  the Docker requirement (#145).
+
 ## 0.9.0 (2026-10-05)
 
 Faster and more useful `validate`, and config and credentials that fit a
