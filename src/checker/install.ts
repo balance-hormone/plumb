@@ -16,10 +16,13 @@ import { PLUMB_SYSTEM } from '../project.js';
 /** How `push` finds its checker bot again, whatever it is named. */
 export const CHECKER_IDENTIFIER = { system: PLUMB_SYSTEM, value: 'checker' };
 
-export const findChecker = (medplum: MedplumClient) =>
-  medplum.searchOne('Bot', {
+export const findChecker = async (medplum: MedplumClient) => {
+  const found = await medplum.searchResources('Bot', {
     identifier: `${CHECKER_IDENTIFIER.system}|${CHECKER_IDENTIFIER.value}`,
   });
+  // A linked project's checker is found too, and is not this project's.
+  return found.find((bot) => bot.meta?.project === medplum.getProject()?.id);
+};
 
 /** `$deploy` records the filename on the Bot, so it names the version and bundle deployed. */
 export function checkerFilename(code: string, version: string): string {

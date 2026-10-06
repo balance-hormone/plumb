@@ -9,6 +9,7 @@ import type {
   ProjectMembership,
   ProjectSetting,
   Reference,
+  Resource,
 } from '@medplum/fhirtypes';
 import { lockdownWarnings, type PlumbConfig, type ProjectConfig } from './config.js';
 
@@ -315,7 +316,7 @@ async function withMemberships(
   return clients;
 }
 
-const tagOf = (resource: AccessPolicy | ClientApplication) =>
+export const tagOf = (resource: Resource) =>
   resource.meta?.tag?.find((t) => t.system === PLUMB_SYSTEM)?.code;
 
 /** The plan for the policies a project holds, found by Plumb's tag and never by id. */
@@ -371,7 +372,7 @@ export function planPolicies(
  * the one untagged resource with its name. Nothing when there is neither, or
  * why the key is blocked.
  */
-function claim<T>(
+export function claim<T>(
   type: string,
   key: string,
   name: string,
@@ -475,7 +476,7 @@ function withTag<T extends AccessPolicy | ClientApplication>(
 }
 
 /** The top-level fields that differ, leaving out the server's id and meta. */
-function differing(desired: AccessPolicy, current: AccessPolicy): string[] {
+export function differing(desired: Resource, current: Resource): string[] {
   const want = new Map(Object.entries(desired));
   const have = new Map(Object.entries(current));
   const keys = new Set([...want.keys(), ...have.keys()]);
