@@ -118,8 +118,10 @@ export async function callOperation<I extends OperationSide, O extends Operation
 
 /**
  * A bot's handler for an operation: the input is checked before `handler`
- * runs, and its return before it goes back, as `Parameters` Medplum passes
- * through untouched. A failed check throws, which Medplum answers with a 400.
+ * runs, and its return before it goes back. A resource is returned as is,
+ * which Medplum sends back through the `return` out parameter; JSON as
+ * `{ result }`, a string Medplum maps to the `result` out parameter, as
+ * every release does. A failed check throws, which Medplum answers with a 400.
  */
 export function handleOperation<I extends OperationSide, O extends OperationSide, Client>(
   operation: OperationContract<I, O>,
@@ -127,15 +129,15 @@ export function handleOperation<I extends OperationSide, O extends OperationSide
     medplum: Client,
     input: SideOutput<Fixed<I>>,
   ) => SideInput<Fixed<O>> | Promise<SideInput<Fixed<O>>>,
-): (medplum: Client, event: { input: unknown }) => Promise<Parameters> {
+): (medplum: Client, event: { input: unknown }) => Promise<Resource | { result: string }> {
   return async (medplum, event) => {
     const input = await checked(operation.code, operation.input, 'input', event.input);
     const output = await handler(medplum, input as SideOutput<Fixed<I>>);
     await checked(operation.code, operation.output, 'output', output);
     // The handler's own value, not the schema's output, so the caller's check reads it as written.
     return typeof operation.output === 'object'
-      ? { resourceType: 'Parameters', parameter: [{ name: 'result', valueString: JSON.stringify(output) }] }
-      : { resourceType: 'Parameters', parameter: [{ name: 'return', resource: output as Resource }] };
+      ? { result: JSON.stringify(output) }
+      : (output as Resource);
   };
 }
 
