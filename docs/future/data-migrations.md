@@ -1,8 +1,7 @@
 # Idea: Data Migrations
 
-**Status: on the roadmap,** after behaviour as code
-([`../spec.md`](../spec.md), Roadmap). Its design note will supersede this
-sketch.
+**Status: picked up** by [design 11](../design/11-data-migrations.md),
+accepted for v0.14. This sketch is kept for its history.
 
 ## Problem
 
