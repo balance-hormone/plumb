@@ -474,6 +474,110 @@ Read for [design 09](../design/09-reference-content.md) from `main` at
   the matcher cannot evaluate never fire. The author's AccessPolicy is logged
   but not enforced for `rest-hook`.
 
+## Behaviour
+
+Read for [design 10](../design/10-behaviour.md) from `main` at `a245d5016`
+(5.2.1) on 2026-10-06. Paths are under `packages/server/src` unless named.
+
+**Bots**
+
+- **Creating.** `admin/bot.ts` (`POST admin/projects/:id/bot`, project admin,
+  project taken from the login, not the path) and `Bot/$init` (admin
+  membership) both call `createBot` (`fhir/operations/botinit.ts`), which
+  writes the Bot with the caller's repository and a ProjectMembership
+  (`user` and `profile` the Bot, `accessPolicy` as given) with the system
+  repository. `$init`'s OperationDefinition has no `runtimeVersion`, so it
+  always uses the server default (`defaultBotRuntimeVersion`, `awslambda`);
+  the admin endpoint passes the body through. A plain `POST /Bot` writes no
+  membership, and nothing removes one when a Bot is deleted.
+- **A bot without a membership:** `$execute`, custom operations and CDS fall
+  back to the caller's membership (`bots/utils.ts`
+  `getBotProjectMembership`); Subscription and cron runs throw `Could not
+  find project membership for bot` (`workers/subscription.ts`,
+  `workers/cron.ts`); pre-commit skips it; it cannot be a webhook. A project
+  admin cannot create one: the admin policy makes a membership's `project`
+  and `user` read-only (`fhir/accesspolicy.ts`), and both are required.
+- **`$deploy`** (`fhir/operations/deploy.ts`) takes `{ code, filename }`,
+  needs a Bot read and update and a Binary create, and the `bots` feature.
+  With `code` it always writes a new Binary and Bot version; on Lambda
+  (`cloud/aws/deploy.ts`) it always publishes a new function version and
+  writes `timeout` when the Bot has none (the function's, or 10). The
+  filename's extension picks CommonJS or ESM (`bots/utils.ts`
+  `getJsFileExtension`). Nothing waits for a new function to leave AWS's
+  Pending state.
+- **Reads rewrite attachments:** `executableCode.url` and `sourceCode.url`
+  read back as presigned URLs (`fhir/response.ts`), and are written back as
+  `Binary/<id>` (`fhir/rewrite.ts`).
+- **The event** both runtimes pass is `{ bot, requester, input, contentType,
+  secrets, traceId, headers }` (`bots/vmcontext.ts`, the Lambda wrapper in
+  `cloud/aws/deploy.ts`); `BotEvent<T>` in `@medplum/core` types it.
+  `secrets` are `ProjectSetting` objects from `Project.secret`, plus
+  `systemSecret` for a `system` bot (`getBotSecrets`); there are no per-bot
+  secrets. vmcontext evaluates CommonJS calling `exports.handler`, with
+  `require` resolving the server's own packages, and needs the server's
+  `vmContextBotsEnabled`.
+- **Schedules** (`workers/cron.ts`) register from the dispatch worker on each
+  Bot write, only with the project's `cron` feature (skipped at debug level
+  otherwise). An unchanged `cronString` is a no-op; an invalid one on a Bot is
+  ignored. `cronTiming` wins over `cronString`, and converts lossily. The
+  `Cron` resource (#10188, 5.1.38) validates its `cronString` on write and is
+  project-admin only.
+- **Webhooks** (`webhook/routes.ts`): `POST /webhook/<membership id>`,
+  unauthenticated; the membership must belong to a Bot and have a policy, and
+  the Bot must have `publicWebhook`, or it is a 403. `rawBody` passes the body
+  as a string; every header reaches `event.headers`. Signatures are the bot's
+  to check, whatever `webhook/README.md` says.
+- **`@medplum/cli`** keys bots by id in `medplum.config.json` and uploads
+  files as they are; it has no declarative or idempotent flow.
+
+**Subscriptions**
+
+- **Matching** (`@medplum/core` `subscriptions/index.ts`
+  `resourceMatchesSubscriptionCriteria`): channel type (`rest-hook` with an
+  endpoint, or `websocket`), the criteria's resource type, the
+  `fhir-path-criteria-expression` extension (`%previous` is `{}` on create),
+  `subscription-supported-interaction`, then `matchesSearchRequest`
+  (`search/match.ts`). That returns false for a parameter not in the global
+  schema (chained parameters, `_has`, a project's own SearchParameters) and
+  for number, quantity, composite and special types; string matching is a
+  substring; most modifiers are read as equality. All of it is exported from
+  `@medplum/core`, so it can be run offline once the base definitions and
+  search parameters are indexed.
+- **Nothing validates criteria on write** for `rest-hook`; a criteria that
+  throws while parsing is logged at debug level and skipped.
+- **Delivery to a bot** (`execBot`) passes the resource, or
+  `{ deletedResource }` on delete, and ignores the run's result: a bot that
+  fails counts as delivered, so it is not retried and does not count towards
+  auto-disable. **URL delivery** retries to `subscription-max-attempts`
+  (default 4, at most 18), signs with `subscription-secret`
+  (`https://www.medplum.com/...`, note the `www`) as `X-Signature`, parses
+  `channel.header` as `key: value` split on every `:`, and skips `http` and
+  private hosts unless the server allows them.
+- **Status:** only `active` fires. Auto-disable
+  (`workers/subscription-failure-tracker.ts`) sets `status: off` and an
+  `error`. A Subscription fires only for resources in its own project.
+- **No `identifier`** on an R4 Subscription. Medplum's examples upsert by
+  `url` (the endpoint), which collides when one bot has several.
+
+**Custom operations**
+
+- Unchanged since the [section above](#custom-fhir-operations), with two
+  additions: an object returned with no matching `out` parameter comes back as
+  empty `Parameters` (`fhir/operations/utils/parameters.ts`
+  `buildOutputParameters`), and the operation's code is taken from the URL
+  with its query string, so a `GET` with parameters looks like a bug
+  (`fhir/operations/custom.ts`; only a bare `GET` is tested). The parameter
+  helpers are in the server, not in `@medplum/core`.
+- **AccessPolicy criteria** match with `matchesSearchRequest`
+  (`@medplum/core` `access.ts`), so `Bot?identifier=<system>|<value>` grants
+  a bot by identifier.
+
+**Marketplace,** since the [section above](#the-marketplace-in-progress):
+the Stage 2 install is PR `#9490` and `@medplum/package-types` PR `#10557`,
+both open. The manifest declares bots by identifier (upserted with
+`PUT Bot?identifier=`) and operations as conditional `PUT
+OperationDefinition?url=`; it has no Subscriptions.
+
 ## Contributing upstream
 
 - Medplum requires a **DCO** (`Signed-off-by` on every commit), not a CLA.
