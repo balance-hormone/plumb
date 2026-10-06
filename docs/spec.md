@@ -29,8 +29,8 @@ it, idempotently, and **verify** that the server and the stored data match.
 | --- | --- | --- |
 | Schema | Profiles, extensions, value sets | Built: v0.1 to v0.5, designs [01](design/01-generator.md) to [05](design/05-sushi.md) |
 | Config | Settings, secrets, defaults, AccessPolicies, clients | Built: v0.6, [design 06](design/06-project-config.md) |
-| Reference content | Questionnaires, terminology, Organizations, SearchParameters, Subscriptions | Next |
-| Behaviour | Bots, their operations and the subscriptions that trigger them | Later; [operation contracts](future/operation-contracts.md) |
+| Reference content | Questionnaires, terminology, Organizations | Next; [design 09](design/09-reference-content.md) |
+| Behaviour | Bots, their operations and Subscriptions | Later; [operation contracts](future/operation-contracts.md) |
 | Data over time | Migrations when a profile or a routing row changes | Later; [data migrations](future/data-migrations.md) |
 
 Drizzle and the T3 stack are reference points, not the target. Plumb borrows
@@ -492,12 +492,14 @@ Next, in order. Each gets a design note before it is built.
    pushes a config into it; a project gets the same, with its config pushed
    and its seed data loaded, for its own tests. See
    [design 08](design/08-test-environments.md), implemented in v0.10.
-2. **Reference content as code.** `push` converges Questionnaires, CodeSystems
-   and ValueSets, Organizations, SearchParameters and Subscriptions, found
-   again by tag as policies are, and `generate` types what they define: a
-   Questionnaire's answers, a custom search parameter's name.
+2. **Reference content as code.** `push` converges Questionnaires, CodeSystems,
+   ValueSets and Organizations, canonical ones by URL and the rest by tag,
+   loads the terminology the selected profiles bind, and `generate` types a
+   Questionnaire's answers. Medplum ignores a project's own SearchParameters,
+   so custom search parameters wait on Medplum; Subscriptions move to
+   behaviour. See [design 09](design/09-reference-content.md).
 3. **Behaviour as code.** Bot registrations, typed handlers, operation
-   contracts and the subscriptions that trigger them, declared together
+   contracts and Subscriptions, to bots or URLs, declared together
    because each references the others. The OperationDefinition is generated
    from the contract.
 4. **Data migrations.** Report, fix, then enforce: `validate` finds what a
