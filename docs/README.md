@@ -95,7 +95,7 @@
   typed reads ([design 04](design/04-typed-reads.md)), v0.5 SUSHI in
   `generate` ([design 05](design/05-sushi.md)), v0.6 project config as
   code ([design 06](design/06-project-config.md)), which extends v0.2's
-  `push`. Later: Zod schemas, agent summaries.
+  `push`.
 - **v0.2:** the server tests in [`../test/server`](../test/server/)
   start Medplum, Postgres and Redis in Docker and give each run a strict
   project with an admin CI client and synthetic data. CI runs them on Node 22
@@ -249,6 +249,12 @@
   query, with `--full` for the old full pass and progress on long runs
   (#127); and `--unstamped` forecasts what would fail once unstamped records
   are stamped, routed as the generated `route` does (#123).
+- **Direction:** the repository is the source of truth for everything in a
+  Medplum project except patient data, in five layers: schema and config
+  (built), then reference content, behaviour and data over time. Next, in
+  order: test environments, reference content as code, behaviour as code,
+  data migrations, input validation through Medplum's own validator (in place
+  of generated Zod schemas). See [`spec.md`](spec.md), Direction and Roadmap.
 - Other tools are parked as idea notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
