@@ -1,7 +1,21 @@
 # Design 09: Reference Content as Code
 
-**Status: accepted** on 2026-10-06, for v0.11. The second item on the
-[spec's roadmap](../spec.md#roadmap). Builds on
+**Status: implemented** in v0.11 (#154 to #158), accepted on 2026-10-06. The second item on the
+[spec's roadmap](../spec.md#roadmap).
+
+As built, four details differ from the text below:
+
+- **"Bound" is the loader's rule:** required bindings, and extensible ones on
+  a `code`, the bindings the types narrow; `validate-terminology` reads only
+  required ones (#154).
+- **`generate` checks content in its `load` step,** not a step of its own
+  (#155).
+- **An untagged Organization `--adopt` can take over is matched by name**
+  (#156).
+- **`readAnswers` is written into `_plumb.ts` only with a Questionnaire,** so
+  no project gets an unused export (#157).
+
+Builds on
 [design 02](02-conformance-check.md)'s `push`, which loads profiles by
 canonical URL, and [design 06](06-project-config.md)'s project config, which
 finds what it manages by a tag. Read design 06 first: this extends its plan,

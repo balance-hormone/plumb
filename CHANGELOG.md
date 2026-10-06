@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+Reference content as code ([design 09](docs/design/09-reference-content.md)).
+
+- **`content` in the config** lists Questionnaire, CodeSystem, ValueSet and
+  Organization files. `generate` and `push` check them offline first, with
+  named errors (`invalid-content`, `duplicate-content`, `content-refused`)
+  that say why a SearchParameter or Subscription is not content (#155).
+- **`push` converges content** in a `content` step after the profiles:
+  found by Plumb's tag, by URL or an Organization's key, updated in place,
+  flagged when changed without a version bump, taken over from an untagged
+  copy with `--adopt`, and retired, never deleted, with `--prune`.
+  `--check` counts content drift (#156).
+- **`push` loads the terminology the selected profiles bind** with them, so a
+  project with `validate-terminology` no longer refuses writes with
+  `ValueSet <url> not found` (#154).
+- **`generate` types Questionnaire answers:** `<Name>Answers`,
+  `<name>Answers(response)`, `<Name>LinkId` and `<Name>Url` for each
+  Questionnaire in `content`, with choice codes as literal unions (#157).
+- **Fixed:** `push` and `validate` found a linked project's checker bot and
+  failed; the test server allows a test run's many logins (#156).
+
 ## 0.10.0 (2026-10-06)
 
 Test environments ([design 08](docs/design/08-test-environments.md)): a

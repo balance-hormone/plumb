@@ -789,6 +789,71 @@ full access. So:
 - a policy other than the one `push` runs under that writes
   StructureDefinition, since that bypasses the profile gate.
 
+## Reference content
+
+A project depends on content that is neither a profile nor patient data: the
+Questionnaires its forms render, the CodeSystems and ValueSets its codes come
+from, the Organizations its resources point at. List the files, one FHIR
+resource each, in `content`, and `push` converges every environment on them:
+
+```ts
+// in plumb.config.ts
+content: ['./fhir/content/*.json', './fsh/fsh-generated/resources/Questionnaire-*.json'],
+```
+
+```text
+✔ content   plan: 3 to create, 1 to update, 0 to retire
+    + CodeSystem    http://example.org/fhir/CodeSystem/visit-reason
+    + ValueSet      http://example.org/fhir/ValueSet/visit-reason
+    + Questionnaire http://example.org/fhir/Questionnaire/intake
+    ~ Organization  main-clinic (address)
+✔ content   applied 4 changes
+```
+
+- **What counts:** Questionnaire, CodeSystem, ValueSet and Organization. A
+  FSH project points at the instances SUSHI writes, never its whole output,
+  which holds examples. Patient data is not content; seed data for tests is
+  `test.seed`. Medplum ignores a project's own SearchParameters, so a file of
+  one is refused, and Subscriptions wait for the bots they trigger.
+- **Checked before anything is written:** `generate` and `push` refuse a file
+  that is not one of the four, has no `url` (or, for an Organization, no
+  `id`), shares one with another file, or fails Medplum's validator against
+  base R4 or a selected profile it claims in `meta.profile`.
+- **Found again by a tag,** as policies are: a Questionnaire, CodeSystem or
+  ValueSet by its `url`, an Organization by its file `id`, which is its key
+  and never its server id. Each is written as the file states it and updated
+  in place; a change under the same `version` is flagged. One the project
+  already holds untagged stops the push until `--adopt` takes it over.
+- **Removal retires, with `--prune`:** a canonical resource becomes
+  `retired` and an Organization inactive, so responses and references keep
+  resolving. Nothing is deleted.
+- **`push --check`** reports content drift with the rest.
+
+The ValueSets and CodeSystems the selected profiles bind are loaded with the
+profiles, whether or not they are in `content`, so a project with Medplum's
+`validate-terminology` feature resolves every binding. That feature also
+stops Medplum creating bots, so `push` cannot install its checker in such a
+project until Medplum fixes it.
+
+Each Questionnaire in `content` gets a generated file. A response is never
+checked against its Questionnaire on the server, so these types are the only
+check its shape gets:
+
+```ts
+import { intakeAnswers, type IntakeLinkId } from './fhir/generated/index.js';
+
+const answers = intakeAnswers(response); // throws for a response to another Questionnaire
+answers.reason?.code; // 'new' | 'follow-up', from the item's answer options
+answers['weight-kg']; // number | undefined
+answers.allergies; // string[] | undefined: a repeating item
+answers['wieght-kg']; // compile error
+```
+
+A choice's codes are a literal union when its answer options, or an
+`answerValueSet` from the packages, `local` or `content`, list them offline
+within `bindings.maxCodes`; otherwise it is any `Coding`. Every answer may be
+missing.
+
 ## Test against a real server
 
 `MockClient` keeps everything in memory and enforces none of what
@@ -921,6 +986,8 @@ the rest. Each generated type's doc comment lists the rules it cannot check.
   longer matches its profile reads typed; `validate` finds it.
   `searchProfiled` reads one page, as `searchResources` does.
 - **Plumb never sets strict mode** or `features`; a super admin does.
+- **Content is the same in every environment.** Two environments that need
+  different Questionnaires or Organizations are two configs.
 - **Every failure blocks `push`:** a baseline of accepted failures comes
   later. Another writer can still load StructureDefinitions around `push`
   unless the [lockdown](#lock-the-project-down) keeps them read-only.
