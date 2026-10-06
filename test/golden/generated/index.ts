@@ -2,6 +2,8 @@
 export type { Require } from './_plumb.js';
 export { createProfiled, type ProfiledClient, type ProfileTypes, type ProfileUrl, RoutingError, route, stampProfiled, updateProfiled } from './_routes.js';
 export { asProfiled, isProfiled, pickProfiled, type ProfiledQuery, type ProfiledReader, ProfileReadError, type ProfileReadFailure, readProfiled, searchProfiled } from './_reads.js';
+export { callOperation, defineOperation, handleOperation, type OperationClient, type OperationContract, OperationError, type OperationSide, type SideInput, type SideOutput, type StandardSchemaV1 } from './_operations.js';
+export { type BotInputs, type BotSecrets, defineBot, type PlumbBotEvent } from './_bots.js';
 export * from './CompositionUvIps.js';
 export * from './ConditionAssertedDate.js';
 export * from './IntakeAnswers.js';

@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
+import { printBots } from '../../src/emit/bots.js';
 import { printFiles } from '../../src/emit/print.js';
 import { printQuestionnaire } from '../../src/emit/questionnaire.js';
 import { routingRows } from '../../src/emit/routes.js';
@@ -54,6 +55,24 @@ test('generated output matches the committed goldens', () => {
       },
     }),
     [printQuestionnaire(INTAKE, () => undefined)],
+    ['./src/operations/*.ts'],
+    // Bots with each kind of trigger, as a config declares them.
+    printBots(
+      {
+        'send-reminder': { file: 'a.cjs', cron: '0 14 * * *', secrets: ['SMS_API_KEY'] },
+        'intake-webhook': { file: 'b.cjs', publicWebhook: true, rawBody: true, policy: 'p' },
+        'lab-watcher': { file: 'c.cjs' },
+        messenger: { file: 'd.cjs' },
+      },
+      {
+        'new-appointment': {
+          criteria: 'Appointment?status=booked',
+          interactions: ['create'],
+          bot: 'send-reminder',
+        },
+        'lab-result': { criteria: 'DiagnosticReport?status=final', bot: 'lab-watcher' },
+      },
+    ),
   );
   if (process.env.GOLDEN_UPDATE) expect(writeFiles(OUT, files).errors).toEqual([]);
   const { stale, errors: folder } = compareFiles(OUT, files);

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkRoutes, type PlumbConfig } from './config.js';
 import { addContentTerminology, loadContent } from './content.js';
+import { printBots } from './emit/bots.js';
 import { printFiles } from './emit/print.js';
 import { printQuestionnaires } from './emit/questionnaire.js';
 import { routingRows } from './emit/routes.js';
@@ -180,6 +181,7 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
     routing,
     questionnaires,
     config.operations,
+    botsFile(config),
   );
 
   if (check) {
@@ -209,3 +211,7 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
 function hashOf(model: ProfileModel): string {
   return `sha256-${createHash('sha256').update(JSON.stringify(model.sd)).digest('base64')}`;
 }
+
+/** `_bots.ts`, when the config declares bots. */
+const botsFile = (config: PlumbConfig) =>
+  config.bots ? printBots(config.bots, config.subscriptions) : undefined;

@@ -369,6 +369,16 @@
   `status`. Real-server tests call bots built around the generated
   `handleOperation` with the generated `callOperation`, with JSON and FHIR
   sides, and see a schema failure come back as a 400 with its issues.
+  `generate` writes `_bots.ts` when the config declares `bots` (#176):
+  `defineBot('<key>', handler)`, whose `event.input` is the union of what the
+  bot's triggers send (each Subscription's resource type, with
+  `{ deletedResource }` when it includes `delete`; `Bot` for a schedule;
+  `string` for a raw webhook body and `unknown` for a parsed one) and whose
+  `event.secrets` has the bot's declared keys. An operation's input is typed
+  by `handleOperation`, from its contract, which `generate` does not load.
+  The goldens now include `_bots.ts` and `_operations.ts`, which caught the
+  generated `OperationClient` naming `URL`, a DOM or `@types/node` global;
+  it is typed without it.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in

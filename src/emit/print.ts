@@ -1034,8 +1034,9 @@ function printStamps(stamps: Record<string, string[]>): string {
 
 /**
  * Every file Plumb writes to `out`: one per profile and per Questionnaire in
- * `content`, the index, the shared helpers, the routes and the reads, and the
- * operation contracts when the config lists `operations`.
+ * `content`, the index, the shared helpers, the routes and the reads, the
+ * operation contracts when the config lists `operations`, and the typed bot
+ * handlers, printed by `printBots`, when it declares `bots`.
  */
 export function printFiles(
   models: ProfileModel[],
@@ -1043,6 +1044,7 @@ export function printFiles(
   routing: RoutingTable = { routes: {}, profiles: [], stamps: {}, managed: [], accepts: {} },
   questionnaires: { name: string; file: string }[] = [],
   operations: string[] = [],
+  bots?: string,
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -1065,6 +1067,12 @@ export function printFiles(
       "export { callOperation, defineOperation, handleOperation, type OperationClient, type OperationContract, OperationError, type OperationSide, type SideInput, type SideOutput, type StandardSchemaV1 } from './_operations.js';",
     );
     files.set('_operations.ts', OPERATIONS);
+  }
+  if (bots) {
+    index.appendNoWrap(
+      "export { type BotInputs, type BotSecrets, defineBot, type PlumbBotEvent } from './_bots.js';",
+    );
+    files.set('_bots.ts', bots);
   }
   for (const q of questionnaires) files.set(`${q.name}Answers.ts`, q.file);
   const names = [
