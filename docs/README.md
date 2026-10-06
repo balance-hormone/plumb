@@ -302,10 +302,11 @@
   `<Name>Url`. Content ValueSets and CodeSystems join the loaded terminology,
   so bindings list them too. `readAnswers` is written into `_plumb.ts` only
   when there is a Questionnaire, so no project gets an unused export.
+  The README covers reference content (#158). **v0.11 is complete.**
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
-  order: reference content as code, behaviour as code,
+  order: behaviour as code,
   data migrations, input validation through Medplum's own validator (in place
   of generated Zod schemas). See [`spec.md`](spec.md), Direction and Roadmap.
 - Other tools are parked as idea notes in [`future/`](future/).
@@ -337,8 +338,8 @@
   - [08: test environments](design/08-test-environments.md) (implemented in v0.10): a
     real Medplum and a project with the config pushed, for a project's own
     tests
-  - [09: reference content as code](design/09-reference-content.md) (accepted,
-    v0.11): Questionnaires, terminology and Organizations through `push`,
+  - [09: reference content as code](design/09-reference-content.md) (implemented
+    in v0.11): Questionnaires, terminology and Organizations through `push`,
     and typed Questionnaire answers
 - [`future/`](future/): parked ideas, each with its design sketch and research.
   - [Conformance check](future/conformance-check.md): the later stages, the
