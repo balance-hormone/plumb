@@ -359,6 +359,16 @@
   not `_plumb.ts`, since it imports `_reads.ts`, which imports `_plumb.ts`.
   The harness runs the generated code and holds callers and handlers to the
   contract in `tsc`, under TypeScript 5.0 too.
+  `push` runs an `operations` step between `bots` and `subscriptions`
+  (#175): the modules `operations` lists load as the config does, are checked
+  offline (`invalid-operation`: a reused or built-in code, an unknown bot, an
+  unselected profile), and each contract becomes an OperationDefinition found
+  by Plumb's tag and code, naming this environment's `Bot/<id>`. An untagged
+  one with the same code, here or in a linked project, is
+  `shadowed-operation`; `--prune` deletes a removed one, since Medplum ignores
+  `status`. Real-server tests call bots built around the generated
+  `handleOperation` with the generated `callOperation`, with JSON and FHIR
+  sides, and see a schema failure come back as a 400 with its issues.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
