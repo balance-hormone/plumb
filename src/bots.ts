@@ -8,9 +8,12 @@ import type { AccessPolicy, Bot, Project, ProjectMembership, Reference } from '@
 import type { BotConfig } from './config.js';
 import { claim, PLUMB_SYSTEM, type ProjectOptions, tagOf } from './project.js';
 
+// @medplum/fhirtypes 5.1.0 has no rawBody on Bot.
+type BotFields = Bot & { rawBody?: boolean };
+
 /** A bot the project holds, with the membership that carries its access. */
 export interface HeldBot {
-  bot: Bot;
+  bot: BotFields;
   membership?: ProjectMembership;
 }
 
@@ -26,7 +29,7 @@ export type BotChange =
       kind: '+';
       key: string;
       /** The Bot's declared fields and identifier. */
-      bot: Bot;
+      bot: BotFields;
       /** The key of the membership's policy. */
       policy?: string;
       admin: boolean;
@@ -42,7 +45,7 @@ export type BotChange =
       /** An untagged bot, given the identifier and taken over with `--adopt`. */
       adopt?: true;
       /** The Bot as the config wants it, keeping what Plumb does not manage. */
-      bot: Bot;
+      bot: BotFields;
       policy?: string;
       admin: boolean;
       deploy?: Deploy;
@@ -77,13 +80,13 @@ const MANAGED = [
   'rawBody',
   'auditEventTrigger',
   'auditEventDestination',
-] as const satisfies (keyof Bot)[];
+] as const satisfies (keyof BotFields)[];
 
 const identifierOf = (bot: Bot) => bot.identifier?.find((i) => i.system === PLUMB_SYSTEM)?.value;
 
 /** The Bot fields as the config declares them, with Medplum's defaults written out. */
-export function declaredBot(key: string, config: BotConfig): Bot {
-  const fields: Bot = {
+export function declaredBot(key: string, config: BotConfig): BotFields {
+  const fields: BotFields = {
     resourceType: 'Bot',
     name: config.name ?? key,
     runtimeVersion: config.runtime ?? 'awslambda',
@@ -96,7 +99,7 @@ export function declaredBot(key: string, config: BotConfig): Bot {
     auditEventTrigger: config.audit?.trigger,
     auditEventDestination: config.audit?.destination,
   };
-  return Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)) as Bot;
+  return Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)) as BotFields;
 }
 
 /** The filename a bundle deploys as: the key and the file's hash, keeping its extension. */
@@ -265,7 +268,7 @@ function planBot(
   const deployed = bot.executableCode?.title;
   const redeploy = deployed !== deploy.filename;
   if (fields.length === 0 && !adopt && !redeploy) return {};
-  const next: Bot = { ...bot, identifier: [...(bot.identifier ?? []), identity] };
+  const next: BotFields = { ...bot, identifier: [...(bot.identifier ?? []), identity] };
   for (const field of MANAGED) {
     if (declared[field] === undefined) delete next[field];
     else Object.assign(next, { [field]: declared[field] });
