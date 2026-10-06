@@ -5,8 +5,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkRoutes, type PlumbConfig } from './config.js';
-import { loadContent } from './content.js';
+import { addContentTerminology, loadContent } from './content.js';
 import { printFiles } from './emit/print.js';
+import { printQuestionnaires } from './emit/questionnaire.js';
 import { routingRows } from './emit/routes.js';
 import { type ProfileModel, transform } from './emit/transform.js';
 import { compareFiles, type Stale, writeFiles } from './emit/write.js';
@@ -147,6 +148,7 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
     loaded.warnings.map((w) => w.message),
   );
 
+  addContentTerminology(loaded, content.files);
   const { models, errors, warnings } = transform(loaded, { maxCodes: config.bindings?.maxCodes });
   if (errors.length > 0) return fail('emit', errors);
   finish(
@@ -171,7 +173,13 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
     routing.warnings,
   );
   const integrity = new Map(fetched.packages.map((p) => [`${p.name}@${p.version}`, p.integrity]));
-  const files = printFiles(models, (m) => integrity.get(m.source) ?? hashOf(m), routing);
+  const questionnaires = printQuestionnaires(content.files, loaded, config.bindings?.maxCodes);
+  const files = printFiles(
+    models,
+    (m) => integrity.get(m.source) ?? hashOf(m),
+    routing,
+    questionnaires,
+  );
 
   if (check) {
     const compared = compareFiles(config.out, files);

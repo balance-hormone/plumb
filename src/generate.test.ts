@@ -108,6 +108,19 @@ describe('generate', () => {
     expect(ok.steps.find((s) => s.name === 'load')?.counts.content).toBe(1);
   });
 
+  test('writes a Questionnaire listed in content as its typed answers', async () => {
+    const p = project();
+    const intake = join(import.meta.dirname, '../test/fixtures/content/Questionnaire-intake.json');
+    const result = await generate({ ...p, config: { ...p.config, content: [intake] } });
+    expect(result.errors).toEqual([]);
+    expect(readFileSync(join(p.config.out, 'IntakeAnswers.ts'), 'utf8')).toContain(
+      'export function intakeAnswers(response: QuestionnaireResponse): IntakeAnswers {',
+    );
+    expect(readFileSync(join(p.config.out, 'index.ts'), 'utf8')).toContain(
+      "export * from './IntakeAnswers.js';",
+    );
+  });
+
   test('passes the value-set size limit to the emitter', async () => {
     const p = project(['bindings-observation']);
     await generate({ ...p, config: { ...p.config, bindings: { maxCodes: 200 } } });

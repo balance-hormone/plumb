@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { printFiles } from '../../src/emit/print.js';
+import { printQuestionnaire } from '../../src/emit/questionnaire.js';
 import { routingRows } from '../../src/emit/routes.js';
 import { transform } from '../../src/emit/transform.js';
 import { compareFiles, writeFiles } from '../../src/emit/write.js';
@@ -23,6 +24,10 @@ const PROFILES = [
 ];
 const PACKAGES = join(import.meta.dirname, '../fixtures/packages');
 const OUT = join(import.meta.dirname, 'generated');
+// A synthetic Questionnaire, as content lists one.
+const INTAKE = JSON.parse(
+  readFileSync(join(import.meta.dirname, '../fixtures/content/Questionnaire-intake.json'), 'utf8'),
+);
 
 test('generated output matches the committed goldens', () => {
   const loaded = loadProfiles({
@@ -48,6 +53,7 @@ test('generated output matches the committed goldens', () => {
         ],
       },
     }),
+    [printQuestionnaire(INTAKE, () => undefined)],
   );
   if (process.env.GOLDEN_UPDATE) expect(writeFiles(OUT, files).errors).toEqual([]);
   const { stale, errors: folder } = compareFiles(OUT, files);

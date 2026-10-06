@@ -72,7 +72,44 @@ function deep(nodes: unknown[], key: string): unknown[] {
 }
 `;
 
-const quote = (text: string) => `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+// Only with Questionnaires in content, so a project without any has no unused export.
+const ANSWERS = `
+import type { QuestionnaireResponse, QuestionnaireResponseItem } from '@medplum/fhirtypes';
+
+/**
+ * A response's answers by linkId, through groups and items nested under
+ * answers, as @medplum/core's getQuestionnaireAnswers reads them: the first
+ * answer's value, or every one for an item in \`repeats\`.
+ */
+export function readAnswers(
+  response: QuestionnaireResponse,
+  url: string,
+  repeats: readonly string[],
+): Record<string, unknown> {
+  const answered = response.questionnaire?.split('|')[0];
+  if (answered !== url) throw new Error(\`The response answers \${answered ?? 'no Questionnaire'}, not \${url}.\`);
+  const answers: Record<string, unknown> = {};
+  const walk = (items: QuestionnaireResponseItem[] = []): void => {
+    for (const item of items) {
+      for (const answer of item.answer ?? []) {
+        const key = Object.keys(answer).find((k) => k.startsWith('value'));
+        const value = key ? (answer as Record<string, unknown>)[key] : undefined;
+        if (value !== undefined && repeats.includes(item.linkId)) {
+          answers[item.linkId] = [...((answers[item.linkId] as unknown[]) ?? []), value];
+        } else if (value !== undefined && !(item.linkId in answers)) {
+          answers[item.linkId] = value;
+        }
+        walk(answer.item);
+      }
+      walk(item.item);
+    }
+  };
+  walk(response.item);
+  return answers;
+}
+`;
+
+export const quote = (text: string) => `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 const indentRest = (text: string, by: string) => text.replaceAll('\n', `\n${by}`);
 const needsParens = (t: TypeExpr) => t.kind === 'union' || t.kind === 'narrow';
 const paren = (t: TypeExpr) => (needsParens(t) ? `(${printExpr(t)})` : printExpr(t));
@@ -795,11 +832,15 @@ function printStamps(stamps: Record<string, string[]>): string {
   return `{\n${urls.map((url) => `  ${quote(url)}: ${printValue(stamps[url])},`).join('\n')}\n}`;
 }
 
-/** Every file Plumb writes to `out`: one per profile, the index, the shared helpers, the routes and the reads. */
+/**
+ * Every file Plumb writes to `out`: one per profile and per Questionnaire in
+ * `content`, the index, the shared helpers, the routes and the reads.
+ */
 export function printFiles(
   models: ProfileModel[],
   hashOf: (model: ProfileModel) => string,
   routing: RoutingTable = { routes: {}, profiles: [], stamps: {}, managed: [], accepts: {} },
+  questionnaires: { name: string; file: string }[] = [],
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -817,11 +858,16 @@ export function printFiles(
   index.appendNoWrap(
     "export { asProfiled, isProfiled, pickProfiled, type ProfiledQuery, type ProfiledReader, ProfileReadError, type ProfileReadFailure, readProfiled, searchProfiled } from './_reads.js';",
   );
-  for (const name of models.map((m) => m.typeName).sort()) {
+  for (const q of questionnaires) files.set(`${q.name}Answers.ts`, q.file);
+  const names = [
+    ...models.map((m) => m.typeName),
+    ...questionnaires.map((q) => `${q.name}Answers`),
+  ];
+  for (const name of names.sort()) {
     index.appendNoWrap(`export * from './${name}.js';`);
   }
   files.set('index.ts', index.toString());
-  files.set('_plumb.ts', HELPERS);
+  files.set('_plumb.ts', questionnaires.length > 0 ? HELPERS + ANSWERS : HELPERS);
   files.set('_routes.ts', printRoutes(routing, new Map(models.map((m) => [m.url, m.typeName]))));
   files.set('_reads.ts', printReads(models, routing));
   return files;

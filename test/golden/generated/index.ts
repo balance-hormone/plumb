@@ -4,6 +4,7 @@ export { createProfiled, type ProfiledClient, type ProfileTypes, type ProfileUrl
 export { asProfiled, isProfiled, pickProfiled, type ProfiledQuery, type ProfiledReader, ProfileReadError, type ProfileReadFailure, readProfiled, searchProfiled } from './_reads.js';
 export * from './CompositionUvIps.js';
 export * from './ConditionAssertedDate.js';
+export * from './IntakeAnswers.js';
 export * from './PGenderIdentity.js';
 export * from './PatientUvIps.js';
 export * from './Pronouns.js';

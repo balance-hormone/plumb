@@ -294,6 +294,14 @@
   `active: false`) rather than deletes. `--check` counts content drift. The
   checker is now found in the target project only: a linked project's
   checker made `push` fail.
+  `generate` writes a file per Questionnaire in `content` (#157):
+  `<Name>Answers`, each answerable `linkId` to its answer's type, with choice
+  codes as a literal union when its options or `answerValueSet` list them
+  offline; `<name>Answers(response)`, which reads a response through nested
+  items and refuses one to another Questionnaire; `<Name>LinkId` and
+  `<Name>Url`. Content ValueSets and CodeSystems join the loaded terminology,
+  so bindings list them too. `readAnswers` is written into `_plumb.ts` only
+  when there is a Questionnaire, so no project gets an unused export.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in

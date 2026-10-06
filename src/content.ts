@@ -338,3 +338,19 @@ export function contentSummary(plan: ContentPlan): string {
   if (plan.blocked.length > 0) return 'refusing: see below';
   return `plan: ${count('+')} to create, ${count('~')} to update, ${count('-')} to retire`;
 }
+
+/**
+ * Adds the content's ValueSets and CodeSystems to what is loaded, as the
+ * project's own terminology, so bindings and Questionnaire choices list them.
+ */
+export function addContentTerminology(
+  loaded: Pick<LoadProfilesResult, 'definitions'>,
+  files: ContentFile[],
+): void {
+  for (const { resource, key } of files) {
+    if (resource.resourceType === 'ValueSet' || resource.resourceType === 'CodeSystem') {
+      if (!loaded.definitions.has(key))
+        loaded.definitions.set(key, { resource, source: 'content' });
+    }
+  }
+}
