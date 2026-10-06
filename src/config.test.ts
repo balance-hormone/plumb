@@ -795,6 +795,24 @@ describe('bots and subscriptions', () => {
     expect(messages[3]).toMatch(/403/);
   });
 
+  test('test.bots names a test build by key, resolved against the config', () => {
+    const ok = withBehaviour(
+      `${BEHAVIOUR} test: { bots: { 'send-reminder': { file: './test/reminder.cjs' } } },`,
+    );
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.config.test?.bots?.['send-reminder']?.file).toBe(
+      join(dirname(ok.configPath), 'test/reminder.cjs'),
+    );
+    const bad = withBehaviour(
+      `${BEHAVIOUR} test: { bots: { nobody: { file: 'a.cjs' }, 'intake-webhook': 'b.cjs' } },`,
+    );
+    expect(paths(bad)).toEqual([
+      ['unknown-bot', 'test.bots.nobody'],
+      ['invalid-type', 'test.bots.intake-webhook'],
+    ]);
+  });
+
   test('policy entries name bots by key: unknown-bot, or invalid-type off a Bot entry', () => {
     const result = load({
       'plumb.config.ts': `export default { igs: [], profiles: [], out: './out',

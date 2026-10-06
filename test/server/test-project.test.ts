@@ -163,3 +163,47 @@ describe.skipIf(!server)('createTestProject', { timeout: 120_000 }, () => {
     });
   });
 });
+
+describe.skipIf(!server)('a test project runs the declared bots', { timeout: 120_000 }, () => {
+  test('on vmcontext, from the test build, triggered through a Subscription', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-test-bots-'));
+    // The Lambda bundle is an ES module vmcontext cannot run; the test build is CommonJS.
+    const lambda = join(dir, 'echo.mjs');
+    writeFileSync(lambda, 'export const handler = async () => ({});');
+    const build = join(dir, 'echo.test.cjs');
+    writeFileSync(build, 'exports.handler = async (medplum, event) => ({ id: event.input.id });');
+    const lockPath = join(dir, 'plumb.lock');
+    await fetchPackages({ igs: [], lockPath });
+    const created = await createTestProject(
+      {
+        igs: [],
+        profiles: [],
+        out: '',
+        bots: { echo: { file: lambda, cron: '0 3 * * *' } },
+        subscriptions: { 'new-patient': { criteria: 'Patient', bot: 'echo' } },
+        test: { bots: { echo: { file: build } } },
+      },
+      { lockPath },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const admin = await superAdmin();
+    expect((await admin.readResource('Project', created.projectId)).features).toEqual([
+      'bots',
+      'cron',
+    ]);
+    const medplum = await connect(created);
+    const bot = await medplum.searchOne('Bot', { name: 'echo' });
+    expect(bot).toMatchObject({ runtimeVersion: 'vmcontext', cronString: '0 3 * * *' });
+    expect(bot?.executableCode?.title).toMatch(/^echo-[0-9a-f]{16}\.cjs$/);
+
+    const written = await medplum.createResource(patient('Grace'));
+    let events: unknown[] = [];
+    for (let i = 0; i < 60 && events.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      events = await medplum.searchResources('AuditEvent', { entity: `Bot/${bot?.id}` });
+    }
+    expect(JSON.stringify(events)).toContain(written.id);
+  });
+});

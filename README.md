@@ -895,6 +895,26 @@ test('a patient without a birth date is refused', async () => {
 });
 ```
 
+The project has the config's bots and Subscriptions too, so a test can
+trigger a bot the way production does:
+
+```ts
+// With bots: { 'send-reminder': … } and subscriptions:
+// { 'new-appointment': { criteria: 'Appointment?status=booked', bot: 'send-reminder' } }
+test('a booked appointment runs send-reminder', async () => {
+  const medplum = await connectAs(testProject());
+  const appointment = await medplum.createResource({
+    resourceType: 'Appointment',
+    status: 'booked',
+    participant: [{ status: 'accepted', actor: { display: 'Synthetic' } }],
+  });
+  const bot = await medplum.searchOne('Bot', { name: 'send-reminder' });
+  const events = async () =>
+    JSON.stringify(await medplum.searchResources('AuditEvent', { entity: `Bot/${bot?.id}` }));
+  await expect.poll(events, { timeout: 15_000 }).toContain(appointment.id);
+});
+```
+
 `connectAs(project)` logs in as the project's admin client;
 `{ client: 'kiosk' }` as a client from `project.clients`; and
 `{ accessPolicy: 'front-desk', parameters }` as a new client whose membership
@@ -909,9 +929,10 @@ What the test project has beyond what `push` writes goes in `test`:
 test: {
   server: '5.1.42',             // optional; the installed @medplum/core's release by default
   strictMode: true,             // the default; false rehearses a loose project
-  features: ['bots'],           // the default
+  features: ['bots'],           // the default, with 'cron' when a bot has a schedule
   settings: { intakeEnabled: true }, // merged over project.settings
   seed: ['./test/seed/*.json'], // transaction or batch Bundles, loaded in order
+  bots: { 'send-reminder': { file: './dist/test/send-reminder.cjs' } }, // a test build
 },
 ```
 
@@ -927,9 +948,12 @@ data synthetic. Secrets resolve from the environment as `push` resolves them.
   `startServer`, `createTestProject` and `stopServer` from `plumb-fhir/test`.
   `plumb-fhir/vitest` hands the project to the tests in the
   `PLUMB_TEST_PROJECT` environment variable, which `testProject()` reads.
-- **Bots run on Medplum's `vmcontext` runtime** in the test server. Hosted
-  Medplum runs them on AWS Lambda, so a test environment cannot show Lambda's
-  differences.
+- **Bots run on Medplum's `vmcontext` runtime** in the test server, whatever
+  their `runtime`. Hosted Medplum runs them on AWS Lambda, so a test
+  environment cannot show Lambda's differences. vmcontext runs CommonJS that
+  assigns `exports.handler`, and its `require` reaches the server's own
+  packages, so a bundle that leaves only `@medplum/*` external runs there;
+  one built for a Lambda layer names a test build in `test.bots`.
 - **The super admin exists only in the server Plumb starts,** so a test
   project is never made on any other server.
 

@@ -65,12 +65,13 @@ export async function createTestProject(
 ): Promise<CreateTestProjectResult> {
   const project = await newProject(
     options.strictMode ?? config.test?.strictMode ?? true,
-    options.features ?? config.test?.features ?? ['bots'],
+    options.features ?? config.test?.features ?? defaultFeatures(config),
   );
   const result = await push({
     // `test.settings` merge over `project.settings`, as an environment's do.
     config: {
       ...config,
+      ...(config.bots ? { bots: testBots(config) } : {}),
       environments: { test: { ...ENV_REFS, baseUrl: BASE_URL, settings: config.test?.settings } },
     },
     environment: { name: 'test', ...project },
@@ -93,6 +94,23 @@ export async function createTestProject(
   if (refused)
     return { ok: false, push: result, error: { code: 'seed-refused', message: refused } };
   return { ok: true, push: result, ...project };
+}
+
+/** `bots`, and `cron` when a bot has a schedule, so the declared bots run as they would. */
+const defaultFeatures = (config: PlumbConfig) =>
+  Object.values(config.bots ?? {}).some((bot) => bot.cron) ? ['bots', 'cron'] : ['bots'];
+
+/**
+ * The bots as the test server runs them: every one on vmcontext, whatever its
+ * `runtime`, from its `test.bots` build when the config names one.
+ */
+function testBots(config: PlumbConfig): PlumbConfig['bots'] {
+  return Object.fromEntries(
+    Object.entries(config.bots ?? {}).map(([key, bot]) => [
+      key,
+      { ...bot, runtime: 'vmcontext' as const, ...config.test?.bots?.[key] },
+    ]),
+  );
 }
 
 /** Who `connectAs` logs in as; the project's admin client when omitted. */

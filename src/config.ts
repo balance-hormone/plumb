@@ -131,12 +131,17 @@ export interface TestConfig {
   server?: string;
   /** `true` by default; `false` rehearses a loose project. */
   strictMode?: boolean;
-  /** The project's features; `['bots']` by default. */
+  /** The project's features; `['bots']` by default, with `cron` when a bot has a schedule. */
   features?: string[];
   /** Merged over `project.settings`, as an environment's are. */
   settings?: Settings;
   /** Transaction or batch Bundles, as paths or globs, loaded in order after the push. */
   seed?: string[];
+  /**
+   * A test build for a bot, by key, for one whose bundle needs packages only a
+   * Lambda layer has: the test server runs every bot on vmcontext.
+   */
+  bots?: Record<string, { file: string }>;
 }
 
 /** What `plumb check` reads: the project's code, for raw access to profiled types. */
@@ -286,7 +291,7 @@ const KEYS = new Set([
 ]);
 const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as const;
 const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
-const TEST_KEYS = ['server', 'strictMode', 'features', 'settings', 'seed'];
+const TEST_KEYS = ['server', 'strictMode', 'features', 'settings', 'seed', 'bots'];
 // A project admin's write to these is silently restored, so declaring one would never take.
 const SUPER_ADMIN_FIELDS = ['strictMode', 'features', 'link', 'systemSetting'];
 // Medplum's member roles; @medplum/fhirtypes 5.1 has no type for them yet.
@@ -348,9 +353,7 @@ export async function loadConfig(options: {
       ...(config.check ? { check: resolveCheck(base, config.check) } : {}),
       ...(config.content ? { content: config.content.map((p) => resolve(base, p)) } : {}),
       ...resolveBots(base, config.bots),
-      ...(config.test?.seed
-        ? { test: { ...config.test, seed: config.test.seed.map((p) => resolve(base, p)) } }
-        : {}),
+      ...(config.test ? { test: resolveTest(base, config.test) } : {}),
       ...(fsh ? { fsh } : {}),
       ...(local ? { local } : {}),
     },
@@ -468,7 +471,12 @@ function check(config: unknown): ConfigError[] {
     ...checkTest(record.test),
   );
   errors.push(...checkContent(record.content));
-  errors.push(...checkBots(record), ...checkBotGrants(record), ...checkSubscriptions(record));
+  errors.push(
+    ...checkBots(record),
+    ...checkBotGrants(record),
+    ...checkTestBots(record),
+    ...checkSubscriptions(record),
+  );
   for (const key of ['local', 'fsh']) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
       errors.push({ code: 'invalid-type', path: key, message: `"${key}" must be a path.` });
@@ -1049,6 +1057,36 @@ function botReferences(field: string, value: unknown, project: Record<string, un
   return [];
 }
 
+/** Each test build names a declared bot and its bundle. */
+function checkTestBots(config: Record<string, unknown>): ConfigError[] {
+  const builds = keysOf(config.test).bots;
+  if (builds === undefined) return [];
+  if (!isObject(builds)) return [notObject('test.bots')];
+  const bots = keysOf(config.bots);
+  return Object.entries(builds).flatMap(([key, build]): ConfigError[] => {
+    const path = `test.bots.${key}`;
+    if (!Object.hasOwn(bots, key)) {
+      return [
+        {
+          code: 'unknown-bot',
+          path,
+          message: `"${path}" names "${key}", which is not a key in bots.`,
+        },
+      ];
+    }
+    if (!isObject(build) || !isText(build.file) || Object.keys(build).some((k) => k !== 'file')) {
+      return [
+        {
+          code: 'invalid-type',
+          path,
+          message: `"${path}" must be { file }, the path of the bot's test build.`,
+        },
+      ];
+    }
+    return [];
+  });
+}
+
 /** Each policy entry that names bots by key: a Bot entry, without its own criteria, naming declared bots. */
 function checkBotGrants(config: Record<string, unknown>): ConfigError[] {
   const policies = keysOf(keysOf(config.project).accessPolicies);
@@ -1454,6 +1492,18 @@ export function resolveEnvironment(
       clientId: env[environment.clientId.env] as string,
       clientSecret: env[environment.clientSecret.env] as string,
     },
+  };
+}
+
+function resolveTest(base: string, test: TestConfig): TestConfig {
+  const bots = Object.entries(test.bots ?? {}).map(([key, bot]) => [
+    key,
+    { file: resolve(base, bot.file) },
+  ]);
+  return {
+    ...test,
+    ...(test.seed ? { seed: test.seed.map((p) => resolve(base, p)) } : {}),
+    ...(test.bots ? { bots: Object.fromEntries(bots) } : {}),
   };
 }
 
