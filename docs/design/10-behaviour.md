@@ -1,6 +1,7 @@
 # Design 10: Behaviour as Code
 
-**Status: proposed,** 2026-10-06. The first item on the
+**Status: accepted** on 2026-10-06; v0.12 is #167 to #173 and v0.13 #174 to
+#177. The first item on the
 [spec's roadmap](../spec.md#roadmap). It supersedes the
 [operation contracts](../future/operation-contracts.md) sketch.
 
@@ -383,7 +384,7 @@ for one to run.
 
 ## Proposed issues
 
-**v0.12: bots and triggers**
+**v0.12: bots and triggers** (#167 to #173)
 
 1. **Research and spec:** the behaviour findings in the research notes, and
    this design on the roadmap. (Lands with this note.)
@@ -397,7 +398,7 @@ for one to run.
 7. **Docs:** a README section, the changelog, and Medplum issues for a failing
    bot counted as delivered and for a `GET` operation with a query string.
 
-**v0.13: operations and typed handlers**
+**v0.13: operations and typed handlers** (#174 to #177)
 
 8. **Contracts:** `defineOperation`, `callOperation` and `handleOperation` in
    `_plumb.ts`, with Standard Schema and FHIR sides.

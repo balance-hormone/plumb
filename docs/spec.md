@@ -491,7 +491,7 @@ Next, in order. Each gets a design note before it is built.
 1. **Behaviour as code.** Bot registrations, typed handlers, operation
    contracts and Subscriptions, to bots or URLs, declared together
    because each references the others. The OperationDefinition is generated
-   from the contract. See [design 10](design/10-behaviour.md), proposed:
+   from the contract. See [design 10](design/10-behaviour.md), accepted:
    bots and triggers in v0.12, operation contracts and typed handlers in
    v0.13.
 2. **Data migrations.** Report, fix, then enforce: `validate` finds what a

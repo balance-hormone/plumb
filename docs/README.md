@@ -303,11 +303,11 @@
   so bindings list them too. `readAnswers` is written into `_plumb.ts` only
   when there is a Questionnaire, so no project gets an unused export.
   The README covers reference content (#158). **v0.11 is complete.**
-- **Design 10** (behaviour as code) is proposed: bots found by identifier and
+- **Design 10** (behaviour as code) is accepted: bots found by identifier and
   deployed by hash, Subscriptions by tag with criteria checked offline
   against Medplum's matcher, access to bots granted by key, and operation
-  contracts whose sides are FHIR types or Standard Schemas, in v0.12 and
-  v0.13.
+  contracts whose sides are FHIR types or Standard Schemas, in the v0.12.0
+  and v0.13.0 milestones.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
@@ -347,7 +347,7 @@
   - [09: reference content as code](design/09-reference-content.md) (implemented
     in v0.11): Questionnaires, terminology and Organizations through `push`,
     and typed Questionnaire answers
-  - [10: behaviour as code](design/10-behaviour.md) (proposed): bots,
+  - [10: behaviour as code](design/10-behaviour.md) (accepted): bots,
     schedules, webhooks and Subscriptions through `push` by key, and operation
     contracts with typed callers and handlers
 - [`future/`](future/): ideas not yet designed, each with its sketch and
