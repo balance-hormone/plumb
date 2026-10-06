@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.0 (2026-10-06)
 
 Data migrations ([design 11](docs/design/11-data-migrations.md)).
 
