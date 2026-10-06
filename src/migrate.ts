@@ -144,6 +144,29 @@ export async function migrateEnvironment(options: MigrateEnvOptions): Promise<Mi
   return step.done();
 }
 
+/**
+ * The migrations on these resource types that the project has not applied,
+ * for push's gate to name when it refuses. A module that does not load is
+ * reported rather than thrown: the gate refuses either way.
+ */
+export async function pendingMigrations(
+  medplum: MedplumClient,
+  modules: string[] | undefined,
+  resourceTypes: string[],
+): Promise<{ pending: { id: string; resourceType: string }[]; error?: string }> {
+  if (!modules || resourceTypes.length === 0) return { pending: [] };
+  const declared = await loadMigrations(modules);
+  if (!declared.ok) return { pending: [], error: declared.errors.map((e) => e.message).join(' ') };
+  const pending: { id: string; resourceType: string }[] = [];
+  for (const migration of inOrder(declared.migrations)) {
+    if (!resourceTypes.includes(migration.resourceType)) continue;
+    const held = await findLedger(medplum, migration.id);
+    if (held && stateOf(held).status === 'applied') continue;
+    pending.push({ id: migration.id, resourceType: migration.resourceType });
+  }
+  return { pending };
+}
+
 /** Where one migration stands in a project, from its ledger entry and its module. */
 interface MigrationStatus {
   /** Edited: applied, but its module has changed since. */
