@@ -24,6 +24,7 @@ const allowedHosts = [
   'github.com',
   'npmjs.com',
   'biomejs.dev',
+  'standardschema.dev',
   'unpkg.com',
   'snomed.info',
   'loinc.org',
