@@ -436,7 +436,8 @@ Read for [design 09](../design/09-reference-content.md) from `main` at
   SearchParameter"; the source does not support it.
 - **Terminology resolves the caller's own project first.**
   `operations/utils/terminology.ts` `findTerminologyResource()` searches by
-  `url` (not retired) through the caller's repository and ranks the own
+  `url` (not retired, since a release after 5.1.0: 5.1.0 resolves retired
+  terminology too) through the caller's repository and ranks the own
   project, then linked projects in `Project.link` order, then base R4, then
   CodeSystem `content`, version, date and id. `$expand`, `$validate-code`,
   `$lookup`, `$import` and the `validate-terminology` feature all use it; a

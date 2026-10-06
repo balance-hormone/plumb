@@ -12,6 +12,15 @@ import {
 import { environmentSettings } from './config.js';
 import { type Checked, checkStored, judge, type ValidateEnvOptions } from './conformance.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
+import {
+  applyContent,
+  type ContentFile,
+  type ContentPlan,
+  contentSummary,
+  describeContent,
+  loadContent,
+  planContent,
+} from './content.js';
 import type { LoadProfilesResult } from './loader.js';
 import {
   applyProject,
@@ -32,6 +41,7 @@ type PushStepName =
   | 'gate'
   | 'apply'
   | 'recheck'
+  | 'content'
   | 'project'
   | 'check';
 
@@ -60,6 +70,8 @@ export interface PushResult extends EnvResult<PushStepName> {
   reportPath?: string;
   /** The project's planned changes, when the config declares a project. */
   project?: ProjectPlan;
+  /** The reference content's planned changes, when the config lists content. */
+  content?: ContentPlan;
 }
 
 export interface PushOptions extends EnvOptions, ProjectOptions {
@@ -87,22 +99,20 @@ export interface PushOptions extends EnvOptions, ProjectOptions {
 export async function push(options: PushOptions): Promise<PushResult> {
   const result: PushResult = { ok: false, steps: [], totalMs: 0, errors: [], plan: [] };
   const step = steps<PushStepName, PushResult>(result, options.onStep);
-  const ready = await loadAndConnect(options, result, step);
+  const ready = await prepare(options, result, step);
   if (!ready) return result;
-  const { loaded, medplum } = ready;
-  if (options.check) return checkDrift(medplum, loaded, options, result, step);
+  const { loaded, medplum, content } = ready;
+  if (options.check) return checkDrift(medplum, loaded, content.files, options, result, step);
 
   const botId = await checkerStep(medplum, ready.resourceTypes, options, result, step);
   if (!botId) return result;
 
   const finish = async (ok: boolean) => {
-    const project =
-      !declaresProject(options.config) || (await projectStep(medplum, options, result, step));
-    result.ok = ok && project;
+    result.ok = (await converge(medplum, content.files, options, result, step)) && ok;
     return step.done();
   };
 
-  const { planned, held } = await planStep(medplum, loaded, result, step);
+  const { planned, held } = await planStep(medplum, loaded, content.files, result, step);
   const changes = result.plan.filter((p) => p.action === 'create' || p.action === 'update');
   if (result.plan.some((p) => p.action === 'shadowed')) return step.done();
   if (changes.length === 0) return finish(true);
@@ -152,6 +162,19 @@ export async function push(options: PushOptions): Promise<PushResult> {
   return finish(!recheck.failed);
 }
 
+/** Loads and connects, then checks the content offline, before anything is written. */
+async function prepare(
+  options: PushOptions,
+  result: PushResult,
+  step: ReturnType<typeof steps<PushStepName, PushResult>>,
+) {
+  const ready = await loadAndConnect(options, result, step);
+  if (!ready) return undefined;
+  const content = loadContent(options.config.content, ready.loaded);
+  if (!content.ok) return void step.fail('load', content.errors);
+  return { ...ready, content };
+}
+
 /** Installs or updates the checker; returns its bot's id, or nothing when that failed. */
 async function checkerStep(
   medplum: MedplumClient,
@@ -178,26 +201,15 @@ const declaresProject = (config: PushOptions['config']) =>
 async function checkDrift(
   medplum: MedplumClient,
   loaded: LoadProfilesResult,
+  files: ContentFile[],
   options: PushOptions,
   result: PushResult,
   step: ReturnType<typeof steps<PushStepName, PushResult>>,
 ): Promise<PushResult> {
-  await planStep(medplum, loaded, result, step);
-  const drifted = result.plan.filter((p) => p.action !== 'unchanged');
-  const profiles = drifted.filter((p) => p.resourceType === 'StructureDefinition').length;
-  const terminology = drifted.length - profiles;
-  const ok =
-    !declaresProject(options.config) ||
-    (await projectStep(medplum, { ...options, dryRun: true }, result, step));
+  await planStep(medplum, loaded, files, result, step);
+  const ok = await converge(medplum, files, { ...options, dryRun: true }, result, step);
   if (!ok && result.errors.length > 0) return step.done();
-  const project = result.project?.changes.filter((c) => !('kept' in c)).length ?? 0;
-  const blocked = result.project?.blocked.length ?? 0;
-  const drift = [
-    profiles > 0 && `${profiles} profile${profiles === 1 ? '' : 's'}`,
-    terminology > 0 && `${terminology} terminology`,
-    project > 0 && `${project} project change${project === 1 ? '' : 's'}`,
-    blocked > 0 && `${blocked} blocked`,
-  ].filter((d) => typeof d === 'string');
+  const drift = driftOf(result);
   const env = options.environment.name;
   step.finish(
     'check',
@@ -207,6 +219,77 @@ async function checkDrift(
   );
   result.ok = drift.length === 0;
   return step.done();
+}
+
+/** What push would write, by kind, as the check's line names it. */
+function driftOf(result: PushResult): string[] {
+  const drifted = result.plan.filter((p) => p.action !== 'unchanged');
+  const profiles = drifted.filter((p) => p.resourceType === 'StructureDefinition').length;
+  const terminology = drifted.length - profiles;
+  const pending = (changes: { kind: string; kept?: true }[] = []) =>
+    changes.filter((c) => !c.kept).length;
+  const content = pending(result.content?.changes);
+  const project = pending(result.project?.changes);
+  const blocked = (result.content?.blocked.length ?? 0) + (result.project?.blocked.length ?? 0);
+  return [
+    profiles > 0 && `${profiles} profile${profiles === 1 ? '' : 's'}`,
+    terminology > 0 && `${terminology} terminology`,
+    content > 0 && `${content} content`,
+    project > 0 && `${project} project change${project === 1 ? '' : 's'}`,
+    blocked > 0 && `${blocked} blocked`,
+  ].filter((d) => typeof d === 'string');
+}
+
+/** The content step, then the project's own, each only when the config declares it. */
+async function converge(
+  medplum: MedplumClient,
+  files: ContentFile[],
+  options: PushOptions,
+  result: PushResult,
+  step: Pick<ReturnType<typeof steps<PushStepName, PushResult>>, 'finish' | 'fail'>,
+): Promise<boolean> {
+  const content = files.length === 0 || (await contentStep(medplum, files, options, result, step));
+  return (
+    content &&
+    (!declaresProject(options.config) || (await projectStep(medplum, options, result, step)))
+  );
+}
+
+/**
+ * Plans the reference content, then writes it unless the plan is blocked or
+ * this is a dry run. Returns whether it succeeded.
+ */
+async function contentStep(
+  medplum: MedplumClient,
+  files: ContentFile[],
+  options: PushOptions,
+  result: PushResult,
+  step: Pick<ReturnType<typeof steps<PushStepName, PushResult>>, 'finish' | 'fail'>,
+): Promise<boolean> {
+  try {
+    result.content = await planContent(medplum, files, options);
+  } catch (err) {
+    step.fail('content', [{ code: 'content-failed', message: normalizeErrorString(err) }]);
+    return false;
+  }
+  const plan = result.content;
+  const blocked = plan.blocked.length > 0;
+  step.finish(
+    'content',
+    contentSummary(plan),
+    [...plan.changes.map(describeContent), ...plan.blocked],
+    blocked,
+  );
+  const pending = plan.changes.some((c) => !('kept' in c && c.kept));
+  if (blocked || options.dryRun || !pending) return !blocked;
+  try {
+    const written = await applyContent(plan, medplum);
+    step.finish('content', `applied ${written} change${written === 1 ? '' : 's'}`);
+  } catch (err) {
+    step.fail('content', [{ code: 'content-failed', message: normalizeErrorString(err) }]);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -261,6 +344,7 @@ async function projectStep(
 async function planStep(
   medplum: MedplumClient,
   loaded: LoadProfilesResult,
+  files: ContentFile[],
   result: PushResult,
   step: { finish: (name: PushStepName, summary: string, w: string[], failed: boolean) => void },
 ) {
@@ -268,8 +352,10 @@ async function planStep(
   // planned. Terminology loads first, so nothing written binds to a ValueSet
   // the server lacks.
   const { terminology, codeless } = boundTerminology(loaded);
+  // Content the config lists is the content step's, tagged as such.
+  const listed = new Set(files.map((f) => f.key));
   const planned: Definition[] = [
-    ...terminology,
+    ...terminology.filter((t) => !listed.has(t.url as string)),
     ...closure(
       loaded.profiles.map((p) => p.url),
       loaded,

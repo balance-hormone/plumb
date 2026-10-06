@@ -286,6 +286,14 @@
   CodeSystem, ValueSet or Organization per file, keyed by URL or `id`, valid
   against base R4 and any selected profile it claims, with named errors that
   say why a SearchParameter or Subscription is not content.
+  `push` gains a `content` step after the profiles and before `project`
+  (#156): CodeSystems, ValueSets, Questionnaires, then Organizations, each
+  found by Plumb's tag with its URL or key as code, tagged on write, updated
+  in place and flagged when changed without a version bump; `--adopt` takes
+  over an untagged match, and `--prune` retires (`status: retired`,
+  `active: false`) rather than deletes. `--check` counts content drift. The
+  checker is now found in the target project only: a linked project's
+  checker made `push` fail.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
