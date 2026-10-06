@@ -615,7 +615,8 @@ as issues (below); not yet filed.
 
 Read for [design 11](../design/11-data-migrations.md) from `main` at
 `427004db6` on 2026-10-06. Paths are under `packages/server/src` unless
-named. Not yet pinned by real-server tests; design 11's first issues add them.
+named. The write, validation, no-op and cursor claims are pinned by
+`test/server/migrations.test.ts`, on Medplum 5.1.0 and 5.1.42.
 
 - **`If-Match` guards PATCH and PUT.** `fhir-router/src/fhirrouter.ts`
   `parseIfMatchHeader()` takes the version inside `W/"…"` for update, patch
@@ -623,7 +624,9 @@ named. Not yet pinned by real-server tests; design 11's first issues add them.
   `preconditionFailed`, a 412, when the stored `versionId` differs. Batch
   entries honour `request.ifMatch` (`fhir-router/src/batch.ts`).
   `MedplumClient.patchResource` and `updateResource` take request options,
-  headers included.
+  headers included. **Medplum 5.1.0 ignores `If-Match` on a PATCH** and
+  applies it; it answers 412 on a PUT. `test/server/migrations.test.ts` runs
+  on both releases, so the runner writes with PUT.
 - **JSON Patch `test` works but reads as a 400.** `@medplum/core` vendors
   `rfc6902` (`core/src/patch/`); `util/patch.ts` `patchObject()` throws
   `badRequest` with `Test failed: …`, indistinguishable by status from a

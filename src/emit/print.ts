@@ -1073,12 +1073,7 @@ export function defineMigration<T extends ResourceType>(migration: MigrationDefi
 export interface MigrationClient {
   search(resourceType: ResourceType, query: string): Promise<Bundle>;
   readResource(resourceType: ResourceType, id: string): Promise<Resource>;
-  patchResource(
-    resourceType: ResourceType,
-    id: string,
-    operations: JsonPatchOperation[],
-    options: { headers: Record<string, string> },
-  ): Promise<Resource>;
+  updateResource(resource: Resource, options: { headers: Record<string, string> }): Promise<Resource>;
   executeBot(identifier: Identifier, body: unknown, contentType: string): Promise<unknown>;
 }
 
@@ -1132,9 +1127,10 @@ type Outcome =
 
 /**
  * The migration bot's handler: runs one page of the migration the input
- * names. Each record is transformed, patched in memory, and with \`write\`,
- * patched on the server against the version read, so a concurrent edit is
- * read again rather than overwritten.
+ * names. Each record is transformed and patched in memory, and with
+ * \`write\`, written in full against the version read, so a concurrent edit is
+ * read again rather than overwritten: Medplum 5.1.0 ignores If-Match on a
+ * PATCH, and every release honours it on an update.
  */
 export function handleMigrations(migrations: MigrationDefinition[]) {
   return async (
@@ -1216,7 +1212,7 @@ async function migrateRecord(
     if (sameJson(resource, record)) return { kind: 'unchanged' };
     if (!write) return { kind: 'changed', resource };
     try {
-      const saved = await medplum.patchResource(record.resourceType, record.id ?? '', operations, {
+      const saved = await medplum.updateResource(resource, {
         headers: { 'If-Match': 'W/"' + (record.meta?.versionId ?? '') + '"' },
       });
       return { kind: 'changed', resource, versionId: saved.meta?.versionId ?? '' };
