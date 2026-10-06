@@ -314,7 +314,7 @@
   order: behaviour as code,
   data migrations, input validation through Medplum's own validator (in place
   of generated Zod schemas). See [`spec.md`](spec.md), Direction and Roadmap.
-- **Design 11** (data migrations) is proposed for v0.14: `defineMigration`
+- **Design 11** (data migrations) is accepted for v0.14: `defineMigration`
   modules run a page at a time by a declared bot, so patient data stays in
   Medplum, dry run unless `--write`, with a ledger in the project and a
   built-in restamp.
@@ -353,7 +353,7 @@
   - [10: behaviour as code](design/10-behaviour.md) (accepted): bots,
     schedules, webhooks and Subscriptions through `push` by key, and operation
     contracts with typed callers and handlers
-  - [11: data migrations](design/11-data-migrations.md) (proposed): stored
+  - [11: data migrations](design/11-data-migrations.md) (accepted): stored
     records fixed by declared migrations, run inside the project, recorded in
     a ledger there
 - [`future/`](future/): ideas not yet designed, each with its sketch and

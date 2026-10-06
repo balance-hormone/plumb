@@ -497,7 +497,7 @@ Next, in order. Each gets a design note before it is built.
 2. **Data migrations.** Report, fix, then enforce: `validate` finds what a
    tightened profile breaks, and an idempotent migration fixes it, run inside
    the project by a declared bot. See [design 11](design/11-data-migrations.md),
-   proposed for v0.14.
+   accepted for v0.14.
 3. **Input validation.** Forms and API edges need checks outside Node, partial
    drafts and per-field errors. They run Medplum's validator on the selected
    profiles, exposed through Standard Schema so form and server libraries can

@@ -1,7 +1,7 @@
 # Idea: Data Migrations
 
 **Status: picked up** by [design 11](../design/11-data-migrations.md),
-proposed for v0.14. This sketch is kept for its history.
+accepted for v0.14. This sketch is kept for its history.
 
 ## Problem
 

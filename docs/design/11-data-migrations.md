@@ -1,6 +1,6 @@
 # Design 11: Data Migrations
 
-**Status: proposed** on 2026-10-06; v0.14 is #189 to #196. The second item
+**Status: accepted** on 2026-10-06; v0.14 is #189 to #196. The second item
 on the
 [spec's roadmap](../spec.md#roadmap). It supersedes the
 [data migrations](../future/data-migrations.md) sketch; the
