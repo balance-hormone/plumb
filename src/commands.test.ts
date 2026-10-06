@@ -477,6 +477,9 @@ describe('plumb migrate new', () => {
     const noEnv = await cli(['migrate'], withMigrations());
     expect(noEnv.code).toBe(2);
     expect(noEnv.stderr).toContain('migrate needs --env <name>');
+    const status = await cli(['migrate', 'status'], withMigrations());
+    expect(status.code).toBe(2);
+    expect(status.stderr).toContain('migrate status needs --env <name>');
     const small = await cli(['migrate', '--env', 'dev', '--page-size', '5'], withMigrations());
     expect(small.code).toBe(2);
     expect(small.stderr).toContain('--page-size must be a whole number from 20 to 1000');
