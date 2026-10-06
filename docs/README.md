@@ -262,6 +262,11 @@
   loads the `test.seed` Bundles in order, naming a refused file and entry.
   The checker it pushes is the one Plumb ships, so CI's server job builds
   first.
+  `connectAs` (#143) logs in to a test project as its admin client, as a
+  client the config declares, or as a new client whose membership has one of
+  the config's AccessPolicies, with its parameters. It finds each key by the
+  tag `push` gives what it manages, so it needs no config, and an unknown key
+  throws `unknown-client` or `unknown-policy`.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
