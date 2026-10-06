@@ -16,6 +16,7 @@ import { writeFiles } from '../../src/emit/write.js';
 import { type MigrateEnvOptions, migrateEnvironment, migrationStatus } from '../../src/migrate.js';
 import { fetchPackages } from '../../src/packages.js';
 import { PLUMB_SYSTEM } from '../../src/project.js';
+import { push } from '../../src/push.js';
 import { server } from './medplum.js';
 import { newProject } from './setup.js';
 
@@ -143,6 +144,23 @@ describe.skipIf(!server)('plumb migrate', { timeout: 120_000 }, () => {
     expect(await ledger(BIRTHDATE)).toBeUndefined();
   });
 
+  const pushed = () => {
+    const { onPage: _onPage, ...shared } = options;
+    return push({ ...shared, reportPath: join(dir, '.plumb', 'validate-test.json') });
+  };
+  const gateNotes = (result: Awaited<ReturnType<typeof push>>) =>
+    result.steps.find((s) => s.name === 'gate')?.warnings ?? [];
+
+  test("push's gate refuses, naming the pending migrations on the failing type", async () => {
+    const refused = await pushed();
+    expect(refused.ok).toBe(false);
+    expect(gateNotes(refused)).toEqual([
+      `pending: ${BIRTHDATE} (Patient)`,
+      `pending: ${GENDER} (Patient)`,
+      'Refusing to load: run plumb migrate --env test --write, or see plumb validate --env test.',
+    ]);
+  });
+
   test('a write stopped after a page is paused, and the next write resumes it', async () => {
     const controller = new AbortController();
     const stopped = await migrateEnvironment({
@@ -171,6 +189,12 @@ describe.skipIf(!server)('plumb migrate', { timeout: 120_000 }, () => {
     expect(applied).toMatchObject({ status: 'applied', pages: 2, counts: { changed: STALE } });
     expect(applied.cursor).toBeUndefined();
     expect(applied.hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test('once the records are migrated, push loads the profile', async () => {
+    const loaded = await pushed();
+    expect(loaded.steps.find((s) => s.name === 'gate')?.failed).toBeUndefined();
+    expect(loaded.plan.map((p) => [p.url, p.action])).toContainEqual([PATIENT, 'create']);
   });
 
   test('an applied migration is not run again', async () => {

@@ -30,6 +30,7 @@ import {
   planContent,
 } from './content.js';
 import type { LoadProfilesResult } from './loader.js';
+import { pendingMigrations } from './migrate.js';
 import {
   applyOperations,
   type Contract,
@@ -164,12 +165,11 @@ export async function push(options: PushOptions): Promise<PushResult> {
   result.gate = await check('gate');
   if (!result.gate) return result;
   const gate = judge(result.gate, loaded.profiles.length);
-  const env = options.environment.name;
   step.finish(
     'gate',
     gate.failed ? failingSummary(result.gate) : 'nothing stored would fail',
     gate.failed
-      ? [`Refusing to load: fix or migrate them first, or see plumb validate --env ${env}.`]
+      ? await refusal(medplum, result.gate, options)
       : options.dryRun
         ? ['Dry run: nothing loaded.']
         : [],
@@ -713,6 +713,31 @@ function planSummary(plan: PlannedDefinition[], selected: Set<string>): string {
 }
 
 /** What fails: `loaded` once the profiles are in the project, before that what would. */
+/** Why the gate refused, naming the pending migrations on each failing type. */
+async function refusal(
+  medplum: MedplumClient,
+  gate: Checked,
+  options: PushOptions,
+): Promise<string[]> {
+  const env = options.environment.name;
+  const types = [
+    ...new Set(
+      Object.values(gate.profiles)
+        .filter((p) => p.failing > 0)
+        .map((p) => p.resourceType),
+    ),
+  ];
+  const found = await pendingMigrations(medplum, options.config.migrations?.modules, types);
+  const lines = found.pending.map((m) => `pending: ${m.id} (${m.resourceType})`);
+  if (found.error) lines.push(`Pending migrations not listed: ${found.error}`);
+  lines.push(
+    found.pending.length > 0
+      ? `Refusing to load: run plumb migrate --env ${env} --write, or see plumb validate --env ${env}.`
+      : `Refusing to load: fix or migrate them first, or see plumb validate --env ${env}.`,
+  );
+  return lines;
+}
+
 function failingSummary(checked: Checked, loaded = false): string {
   const failing = Object.entries(checked.profiles).filter(([, p]) => p.failing > 0);
   if (failing.length === 0) return 'a checked type was not readable';
