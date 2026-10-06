@@ -1,6 +1,16 @@
 # Design 08: Test Environments
 
-**Status: accepted** on 2026-10-06, for v0.10. The first item on the [spec's roadmap](../spec.md#roadmap).
+**Status: implemented** in v0.10 (#140 to #145), accepted on 2026-10-06. The first item on the [spec's roadmap](../spec.md#roadmap).
+
+As built, three details differ from the text below:
+
+- **The compose file is piped to `docker compose -f -`** from the package's
+  code, so source, ESM and CJS need no path to a shipped file (#141).
+- **`plumb-fhir/vitest` hands the project to the tests in the
+  `PLUMB_TEST_PROJECT` environment variable,** not Vitest's `provide`, so
+  `plumb-fhir/test` imports no test runner (#144).
+- **Without Docker, locally,** the setup warns and `testProject()` throws:
+  a global setup cannot skip a project's tests (#144).
 Builds on [design 02](02-conformance-check.md)'s `push` and
 [design 06](06-project-config.md)'s project config: a test environment is a
 project they converge, on a server Plumb starts.

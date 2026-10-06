@@ -273,10 +273,11 @@
   runner. Without Docker it fails in CI and warns locally. Plumb's own
   harness starts its server and makes its projects with the same functions;
   its push tests still need projects nothing was pushed into.
+  The README tests against a real server (#145). **v0.10 is complete.**
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
-  order: test environments, reference content as code, behaviour as code,
+  order: reference content as code, behaviour as code,
   data migrations, input validation through Medplum's own validator (in place
   of generated Zod schemas). See [`spec.md`](spec.md), Direction and Roadmap.
 - Other tools are parked as idea notes in [`future/`](future/).
@@ -305,7 +306,7 @@
     clients
   - [07: `plumb check`](design/07-check.md) (implemented in v0.8): raw
     access found by type, against a baseline
-  - [08: test environments](design/08-test-environments.md) (accepted, v0.10): a
+  - [08: test environments](design/08-test-environments.md) (implemented in v0.10): a
     real Medplum and a project with the config pushed, for a project's own
     tests
 - [`future/`](future/): parked ideas, each with its design sketch and research.
