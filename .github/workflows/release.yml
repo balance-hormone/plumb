@@ -35,7 +35,7 @@ jobs:
           fi
       - name: Install
         run: npm ci
-      # prepublishOnly runs npm run check and npm run build first.
+      # prepublishOnly builds, then runs npm run check: the CLI and e2e tests run dist.
       - name: Publish
         run: npm publish
         env:
