@@ -982,6 +982,15 @@ function checkBots(config: Record<string, unknown>): ConfigError[] {
   return Object.entries(bots).flatMap(([key, bot]): ConfigError[] => {
     const at = `bots.${key}`;
     if (!isObject(bot)) return [notObject(at)];
+    if (key === 'checker') {
+      return [
+        {
+          code: 'invalid-bot',
+          path: at,
+          message: `"${at}" is the key of Plumb's own checker bot.`,
+        },
+      ];
+    }
     const errors = [
       ...unknownKeys(bot, BOT_FIELDS, at),
       ...checkBot(bot, project).map(toError('invalid-bot', at)),

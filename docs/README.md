@@ -317,6 +317,16 @@
   `generate`. `invalid-subscription` covers criteria Medplum's matcher can
   never fire on, read from the definitions its server indexes; a criteria
   table records, row by row, what `matchesSearchRequest` itself does.
+  `push` runs a `bots` step after `project` (#169): each bot is found by its
+  identifier in the target project, created through the admin endpoint so it
+  gets its membership and policy, converged field by field, and deployed only
+  when the file's hash differs from the one in `executableCode.title`.
+  `--adopt` takes over an untagged bot by name, keeping its id and membership;
+  a removed bot keeps its Bot, membership and webhook URL, and `--prune` only
+  clears its schedule. Missing `bots` or `cron` features stop the push before
+  anything is written. Real-server tests show a second push leaving the Bot's
+  version unchanged, a changed file deploying once, and the reported webhook
+  URL running the bot without a token. The key `checker` is Plumb's own.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
