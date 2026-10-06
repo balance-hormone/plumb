@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MedplumClient } from '@medplum/core';
@@ -13,7 +13,7 @@ import { installChecker } from '../../src/checker/install.js';
 import type { PlumbConfig } from '../../src/config.js';
 import { printFiles } from '../../src/emit/print.js';
 import { writeFiles } from '../../src/emit/write.js';
-import { type MigrateEnvOptions, migrateEnvironment } from '../../src/migrate.js';
+import { type MigrateEnvOptions, migrateEnvironment, migrationStatus } from '../../src/migrate.js';
 import { fetchPackages } from '../../src/packages.js';
 import { PLUMB_SYSTEM } from '../../src/project.js';
 import { server } from './medplum.js';
@@ -41,6 +41,7 @@ describe.skipIf(!server)('plumb migrate', { timeout: 120_000 }, () => {
   let medplum: MedplumClient;
   let options: MigrateEnvOptions;
   let config: PlumbConfig;
+  let dir: string;
 
   const ledger = async (id: string) =>
     (await medplum.searchOne('Basic', { _tag: `${PLUMB_SYSTEM}|${id}` })) as Basic | undefined;
@@ -71,7 +72,7 @@ describe.skipIf(!server)('plumb migrate', { timeout: 120_000 }, () => {
       ],
     });
 
-    const dir = mkdtempSync(join(tmpdir(), 'plumb-migrate-'));
+    dir = mkdtempSync(join(tmpdir(), 'plumb-migrate-'));
     mkdirSync(join(dir, 'migrations'));
     writeFileSync(
       join(dir, `migrations/${BIRTHDATE}.ts`),
@@ -211,5 +212,72 @@ describe.skipIf(!server)('plumb migrate', { timeout: 120_000 }, () => {
     const result = await migrateEnvironment({ ...options, ids: [GENDER], write: true });
     expect(result.errors).toEqual([]);
     expect(await state(GENDER)).toMatchObject({ status: 'applied' });
+  });
+
+  const statuses = async () =>
+    Object.fromEntries(
+      Object.entries((await migrationStatus(options)).migrations).map(([id, m]) => [
+        id,
+        [m.status, m.module],
+      ]),
+    );
+
+  test('status reports each migration applied, and passes', async () => {
+    const status = await migrationStatus(options);
+    expect(status.ok).toBe(true);
+    expect(await statuses()).toEqual({
+      [BIRTHDATE]: ['applied', true],
+      [GENDER]: ['applied', true],
+    });
+  });
+
+  test('a module edited after it was applied fails status and a write, until --rerun', async () => {
+    appendFileSync(join(dir, `migrations/${BIRTHDATE}.ts`), '// edited\n');
+    expect((await migrationStatus(options)).ok).toBe(false);
+    expect((await statuses())[BIRTHDATE]).toEqual(['edited', true]);
+    const refused = await migrateEnvironment({ ...options, write: true });
+    expect(refused.errors).toEqual([expect.objectContaining({ code: 'migration-edited' })]);
+
+    const rerun = await migrateEnvironment({ ...options, write: true, rerun: [BIRTHDATE] });
+    expect(rerun.errors).toEqual([]);
+    // Every record already has a birth date, so the fresh pass reads none.
+    expect(rerun.migrations[BIRTHDATE]).toMatchObject({
+      status: 'applied',
+      ran: true,
+      counts: { read: 0 },
+    });
+    expect((await statuses())[BIRTHDATE]).toEqual(['applied', true]);
+  });
+
+  test('a write refuses a migration whose dependency is not applied; status shows it pending', async () => {
+    const later = '20261009-patient-active';
+    writeFileSync(
+      join(dir, `migrations/${later}.ts`),
+      `import { defineMigration } from '../generated/index.js';
+export default defineMigration({
+  id: '${later}',
+  resourceType: 'Patient',
+  dependsOn: ['20261008-patient-language'],
+  transform: () => undefined,
+});
+`,
+    );
+    writeFileSync(
+      join(dir, 'migrations/20261008-patient-language.ts'),
+      migration('20261008-patient-language', 'language:missing', 'language', 'en'),
+    );
+    const refused = await migrateEnvironment({ ...options, ids: [later], write: true });
+    expect(refused.errors).toEqual([expect.objectContaining({ code: 'unmet-dependency' })]);
+    expect(refused.errors[0]?.message).toContain('depends on 20261008-patient-language');
+    expect((await statuses())[later]).toEqual(['pending', true]);
+    rmSync(join(dir, `migrations/${later}.ts`));
+    rmSync(join(dir, 'migrations/20261008-patient-language.ts'));
+  });
+
+  test("an applied migration whose module is gone is listed, and doesn't fail status", async () => {
+    rmSync(join(dir, `migrations/${GENDER}.ts`));
+    const status = await migrationStatus(options);
+    expect(status.migrations[GENDER]).toMatchObject({ status: 'applied', module: false });
+    expect(status.ok).toBe(true);
   });
 });

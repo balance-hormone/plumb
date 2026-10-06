@@ -8,7 +8,7 @@ import { botFilename } from './bots.js';
 import { checkerInput } from './checker/input.js';
 import { CHECKER_IDENTIFIER, checkerFilename, findChecker } from './checker/install.js';
 import { notCurrent, runPage } from './conformance.js';
-import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
+import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
 import { checkMigrations, loadMigrations, type Migration } from './migrations.js';
 import { PLUMB_SYSTEM } from './project.js';
@@ -74,6 +74,8 @@ export interface MigrateEnvOptions extends EnvOptions {
   write?: boolean;
   /** Only these migrations, by id. */
   ids?: string[];
+  /** Applied migrations to run a fresh pass over, by id. */
+  rerun?: string[];
   /** Records per page; 100 by default. */
   pageSize?: number;
   /** The git commit the modules are at, for the ledger. */
@@ -117,19 +119,11 @@ export async function migrateEnvironment(options: MigrateEnvOptions): Promise<Mi
   if (!ready) return result;
   const { loaded, medplum } = ready;
 
-  const declared = await loadMigrations(config.modules);
-  if (!declared.ok) return step.fail('migrations', declared.errors);
-  const invalid = checkMigrations(declared.migrations);
-  if (invalid.length > 0) return step.fail('migrations', invalid);
-  const unknown = (options.ids ?? []).filter((id) => !declared.migrations.some((m) => m.id === id));
-  if (unknown.length > 0) {
-    return step.fail('migrations', [
-      { code: 'unknown-migration', message: `No module declares ${unknown.join(', ')}.` },
-    ]);
-  }
-  const chosen = declared.migrations
-    .filter((m) => !options.ids || options.ids.includes(m.id))
-    .sort((a, b) => a.id.localeCompare(b.id));
+  const declared = await declaredMigrations(config.modules, options);
+  if ('errors' in declared) return step.fail('migrations', declared.errors);
+  const chosen = inOrder(declared.migrations).filter(
+    (m) => !options.ids || options.ids.includes(m.id),
+  );
   step.finish('migrations', `${chosen.length} of ${declared.migrations.length} chosen`);
 
   const checker = await findChecker(medplum);
@@ -145,26 +139,147 @@ export async function migrateEnvironment(options: MigrateEnvOptions): Promise<Mi
   step.finish('migrator', `${config.bot} current (${migrator.executableCode?.title})`);
 
   const run = { medplum, loaded, botId: migrator.id as string, options };
-  for (const migration of chosen) {
-    let report: MigrationReport;
-    try {
-      report = await migrate(run, migration);
-    } catch (err) {
-      return step.fail(migration.id, [
-        {
-          code: (err as { code?: string }).code ?? 'migration-failed',
-          message: normalizeErrorString(err),
-        },
-      ]);
-    }
-    result.migrations[migration.id] = report;
-    const problems =
-      report.counts.failed + report.counts.conflict + (report.forecast?.failing ?? 0);
-    step.finish(migration.id, summary(report, result.write), warnings(report), problems > 0);
-    if (options.signal?.aborted) return step.fail(migration.id, [paused(migration.id)]);
+  await runAll(run, chosen, result, step);
+  result.ok = result.errors.length === 0 && result.steps.every((s) => !s.failed);
+  return step.done();
+}
+
+/** Where one migration stands in a project, from its ledger entry and its module. */
+interface MigrationStatus {
+  /** Edited: applied, but its module has changed since. */
+  status: LedgerStatus | 'pending' | 'edited';
+  /** Whether a module still declares it; an applied one's module may be deleted. */
+  module: boolean;
+  commit?: string;
+  counts?: Counts;
+  lastError?: string;
+}
+
+export interface MigrationStatusResult extends EnvResult<string> {
+  migrations: Record<string, MigrationStatus>;
+}
+
+/**
+ * Each migration's place in a project: pending, running, paused, errored,
+ * applied, or edited since applied, and each ledger entry no module declares.
+ * Anything but applied fails the result, so a nightly run catches an
+ * environment that missed a migration.
+ */
+export async function migrationStatus(
+  options: Pick<EnvOptions, 'config' | 'environment' | 'onStep'>,
+): Promise<MigrationStatusResult> {
+  const result: MigrationStatusResult = {
+    ok: false,
+    steps: [],
+    totalMs: 0,
+    errors: [],
+    migrations: {},
+  };
+  const step = steps<string, MigrationStatusResult>(result, options.onStep);
+  const modules = options.config.migrations?.modules;
+  if (!modules) {
+    return step.fail('migrations', [
+      { code: 'no-migrations', message: 'The config has no "migrations" to report on.' },
+    ]);
   }
+  const declared = await declaredMigrations(modules, {});
+  if ('errors' in declared) return step.fail('migrations', declared.errors);
+  step.finish('migrations', `${declared.migrations.length} declared`);
+  const connected = await connect(options.environment);
+  if (!connected.ok) return step.fail('connect', [connected.error]);
+  step.finish('connect', options.environment.baseUrl);
+
+  const entries = await connected.medplum.searchResources('Basic', {
+    code: `${PLUMB_SYSTEM}|migration`,
+    _count: '1000',
+  });
+  const held = new Map(entries.map((basic) => [tagOf(basic), stateOf(basic)]));
+  const report = (id: string, state: LedgerState | undefined, hash?: string) => {
+    const status: MigrationStatus['status'] = !state
+      ? 'pending'
+      : hash && state.status === 'applied' && state.hash !== hash
+        ? 'edited'
+        : state.status;
+    const found: MigrationStatus = {
+      status,
+      module: hash !== undefined,
+      ...(state?.commit ? { commit: state.commit } : {}),
+      ...(state ? { counts: state.counts } : {}),
+      ...(state?.lastError ? { lastError: state.lastError } : {}),
+    };
+    result.migrations[id] = found;
+    step.finish(id, describe(id, found), [], status !== 'applied');
+  };
+  for (const migration of inOrder(declared.migrations)) {
+    report(migration.id, held.get(migration.id), hashOf(migration));
+    held.delete(migration.id);
+  }
+  for (const [id, state] of [...held].sort(([a], [b]) => a.localeCompare(b))) report(id, state);
   result.ok = result.steps.every((s) => !s.failed);
   return step.done();
+}
+
+function describe(id: string, m: MigrationStatus): string {
+  const at = m.commit ? ` at ${m.commit.slice(0, 7)}` : '';
+  const changed = m.counts ? `, ${m.counts.changed} changed` : '';
+  const text = {
+    pending: 'pending',
+    applied: `applied${at}${changed}`,
+    edited: `applied${at}, then its module was edited: --rerun ${id} runs it again`,
+    running: `running${changed}`,
+    paused: `paused${changed}: --write resumes it`,
+    errored: `errored${m.lastError ? `: ${m.lastError}` : ''}`,
+  }[m.status];
+  return m.module ? text : `${text} (no module)`;
+}
+
+/** The modules' migrations, checked, with every id the options name declared. */
+async function declaredMigrations(
+  modules: string[],
+  options: Pick<MigrateEnvOptions, 'ids' | 'rerun'>,
+): Promise<{ migrations: Migration[] } | { errors: { code: string; message: string }[] }> {
+  const declared = await loadMigrations(modules);
+  if (!declared.ok) return { errors: declared.errors };
+  const invalid = checkMigrations(declared.migrations);
+  if (invalid.length > 0) return { errors: invalid };
+  const unknown = [...(options.ids ?? []), ...(options.rerun ?? [])].filter(
+    (id) => !declared.migrations.some((m) => m.id === id),
+  );
+  if (unknown.length > 0) {
+    const message = `No module declares ${unknown.join(', ')}.`;
+    return { errors: [{ code: 'unknown-migration', message }] };
+  }
+  return { migrations: declared.migrations };
+}
+
+/** Runs each migration in turn, stopping at the first a write must not run, or that fails. */
+async function runAll(
+  run: Run,
+  chosen: Migration[],
+  result: MigrateEnvResult,
+  step: ReturnType<typeof steps<MigrateStepName, MigrateEnvResult>>,
+): Promise<void> {
+  const { medplum, options } = run;
+  const applied = new Set<string>();
+  for (const migration of chosen) {
+    const held = await findLedger(medplum, migration.id);
+    const hash = hashOf(migration);
+    const blocked = await blocker(medplum, migration, held, hash, applied, options);
+    if (blocked && options.write) return void step.fail(migration.id, [blocked]);
+    let report: MigrationReport;
+    try {
+      report = await migrate(run, migration, held, hash);
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? 'migration-failed';
+      return void step.fail(migration.id, [{ code, message: normalizeErrorString(err) }]);
+    }
+    result.migrations[migration.id] = report;
+    const problems = problemsOf(report);
+    if (!report.ran || (options.write && problems === 0)) applied.add(migration.id);
+    const notes = warnings(report, blocked?.message);
+    step.finish(migration.id, summary(report, options.write === true), notes, problems > 0);
+    if (options.signal?.aborted) return void step.fail(migration.id, [paused(migration.id)]);
+  }
 }
 
 interface Run {
@@ -174,9 +289,68 @@ interface Run {
   options: MigrateEnvOptions;
 }
 
-/** One migration's pass: skipped when applied, otherwise run page by page. */
-async function migrate(run: Run, migration: Migration): Promise<MigrationReport> {
-  const held = await findLedger(run.medplum, migration.id);
+/** The migrations in the order `dependsOn` needs, otherwise by id. */
+export function inOrder(migrations: Migration[]): Migration[] {
+  const byId = new Map(migrations.map((m) => [m.id, m]));
+  const ordered: Migration[] = [];
+  const visit = (m: Migration) => {
+    if (ordered.includes(m)) return;
+    for (const id of m.dependsOn ?? []) {
+      const dependency = byId.get(id);
+      // checkMigrations refuses cycles, so the walk ends.
+      if (dependency) visit(dependency);
+    }
+    ordered.push(m);
+  };
+  for (const m of [...migrations].sort((a, b) => a.id.localeCompare(b.id))) visit(m);
+  return ordered;
+}
+
+const hashOf = (migration: Migration) =>
+  createHash('sha256').update(readFileSync(migration.from)).digest('hex');
+
+/**
+ * Why a write must not run the migration: a dependency not applied in this
+ * project, or a module edited since it was applied, unless rerun.
+ */
+async function blocker(
+  medplum: MedplumClient,
+  migration: Migration,
+  held: Basic | undefined,
+  hash: string,
+  applied: Set<string>,
+  options: MigrateEnvOptions,
+): Promise<{ code: string; message: string } | undefined> {
+  for (const id of migration.dependsOn ?? []) {
+    if (applied.has(id)) continue;
+    const ledger = await findLedger(medplum, id);
+    if (ledger && stateOf(ledger).status === 'applied') continue;
+    return {
+      code: 'unmet-dependency',
+      message: `${migration.id} depends on ${id}, which is not applied in ${options.environment.name}.`,
+    };
+  }
+  const state = held && stateOf(held);
+  if (
+    state?.status === 'applied' &&
+    state.hash !== hash &&
+    !options.rerun?.includes(migration.id)
+  ) {
+    return {
+      code: 'migration-edited',
+      message: `${migration.id} was edited after it was applied; --rerun ${migration.id} runs it again.`,
+    };
+  }
+  return undefined;
+}
+
+/** One migration's pass: skipped when applied unless rerun, otherwise run page by page. */
+async function migrate(
+  run: Run,
+  migration: Migration,
+  held: Basic | undefined,
+  hash: string,
+): Promise<MigrationReport> {
   const status = held ? stateOf(held).status : 'pending';
   const report: MigrationReport = {
     status,
@@ -185,9 +359,9 @@ async function migrate(run: Run, migration: Migration): Promise<MigrationReport>
     counts: zero(),
     reasons: [],
   };
-  if (status === 'applied') return report;
+  if (status === 'applied' && !run.options.rerun?.includes(migration.id)) return report;
   report.ran = true;
-  const pass = await begin(run, migration, held);
+  const pass = await begin(run, migration, held, hash);
   report.resumed = pass.state.cursor !== undefined;
   if (report.resumed) report.counts = { ...pass.state.counts };
   const finished = await runPages(run, migration, pass, report);
@@ -202,10 +376,14 @@ interface Pass {
 }
 
 /** A dry run's pass, or a write's, with the lease taken and any interrupted pass resumed. */
-async function begin(run: Run, migration: Migration, held: Basic | undefined): Promise<Pass> {
+async function begin(
+  run: Run,
+  migration: Migration,
+  held: Basic | undefined,
+  hash: string,
+): Promise<Pass> {
   const { options } = run;
   const now = (options.now ?? (() => new Date()))();
-  const hash = createHash('sha256').update(readFileSync(migration.from)).digest('hex');
   const pass: Pass = options.write
     ? await takeLease(run.medplum, migration, held, hash, now, options)
     : { state: { status: 'running', hash, counts: zero(), pages: 0 } };
@@ -447,8 +625,14 @@ function summary(report: MigrationReport, write: boolean): string {
   return `${write ? '' : 'dry run: '}${parts.join(', ')}${report.resumed ? ' (resumed)' : ''}`;
 }
 
-function warnings(report: MigrationReport): string[] {
-  const lines = report.reasons.map((r) => `${r.count} failed: ${r.message}`);
+const problemsOf = (report: MigrationReport) =>
+  report.counts.failed + report.counts.conflict + (report.forecast?.failing ?? 0);
+
+function warnings(report: MigrationReport, blocked?: string): string[] {
+  const lines = [
+    ...(blocked ? [blocked] : []),
+    ...report.reasons.map((r) => `${r.count} failed: ${r.message}`),
+  ];
   const f = report.forecast;
   if (f) {
     lines.push(
