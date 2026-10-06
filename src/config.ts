@@ -78,6 +78,12 @@ export interface PlumbConfig {
   bots?: Record<string, BotConfig>;
   /** Subscriptions `push` converges, by key, each delivering to a bot or a URL. */
   subscriptions?: Record<string, SubscriptionConfig>;
+  /**
+   * Modules, as paths or globs, whose exports made by `defineOperation` are
+   * the project's operations; `generate` writes the contract functions when
+   * any are listed.
+   */
+  operations?: string[];
 }
 
 /** A bot: its built bundle and the Bot's own fields, written as declared. */
@@ -288,6 +294,7 @@ const KEYS = new Set([
   'content',
   'bots',
   'subscriptions',
+  'operations',
 ]);
 const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as const;
 const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
@@ -305,8 +312,8 @@ const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 /**
  * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
  * Node's type stripping, or the project's own tsx for what Node cannot load.
- * `local`, `fsh`, `out`, `content`, `test.seed` and each bot's `file` come
- * back as absolute paths, resolved against the config file's folder; with `fsh`, `local` is its
+ * `local`, `fsh`, `out`, `content`, `operations`, `test.seed` and each bot's
+ * `file` come back as absolute paths, resolved against the config file's folder; with `fsh`, `local` is its
  * SUSHI output.
  */
 export async function loadConfig(options: {
@@ -351,7 +358,8 @@ export async function loadConfig(options: {
       ...config,
       out: resolve(base, config.out),
       ...(config.check ? { check: resolveCheck(base, config.check) } : {}),
-      ...(config.content ? { content: config.content.map((p) => resolve(base, p)) } : {}),
+      ...resolveList(base, config, 'content'),
+      ...resolveList(base, config, 'operations'),
       ...resolveBots(base, config.bots),
       ...(config.test ? { test: resolveTest(base, config.test) } : {}),
       ...(fsh ? { fsh } : {}),
@@ -470,7 +478,10 @@ function check(config: unknown): ConfigError[] {
     ...checkCheck(record.check),
     ...checkTest(record.test),
   );
-  errors.push(...checkContent(record.content));
+  errors.push(
+    ...checkPaths(record.content, 'content'),
+    ...checkPaths(record.operations, 'operations'),
+  );
   errors.push(
     ...checkBots(record),
     ...checkBotGrants(record),
@@ -770,14 +781,14 @@ function checkProject(project: unknown): ConfigError[] {
   ];
 }
 
-function checkContent(content: unknown): ConfigError[] {
-  if (content === undefined) return [];
-  if (Array.isArray(content) && content.every((p) => typeof p === 'string')) return [];
+function checkPaths(paths: unknown, key: 'content' | 'operations'): ConfigError[] {
+  if (paths === undefined) return [];
+  if (Array.isArray(paths) && paths.every((p) => typeof p === 'string')) return [];
   return [
     {
       code: 'invalid-type',
-      path: 'content',
-      message: '"content" must be a list of paths or globs.',
+      path: key,
+      message: `"${key}" must be a list of paths or globs.`,
     },
   ];
 }
@@ -1493,6 +1504,12 @@ export function resolveEnvironment(
       clientSecret: env[environment.clientSecret.env] as string,
     },
   };
+}
+
+/** A list of paths or globs, resolved against the config's folder, when the config has it. */
+function resolveList(base: string, config: PlumbConfig, key: 'content' | 'operations') {
+  const paths = config[key];
+  return paths ? { [key]: paths.map((p) => resolve(base, p)) } : {};
 }
 
 function resolveTest(base: string, test: TestConfig): TestConfig {
