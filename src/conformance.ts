@@ -344,7 +344,10 @@ export function judge(result: Pick<Checked, 'types' | 'profiles'>, selected: num
 }
 
 /** `validate` never installs anything, so a missing or different checker is push's to fix. */
-function notCurrent(bot: Bot | undefined, options: ValidateEnvOptions) {
+export function notCurrent(
+  bot: Bot | undefined,
+  options: Pick<ValidateEnvOptions, 'environment' | 'checker'>,
+) {
   const env = options.environment.name;
   const fix = `Run plumb push --env ${env}.`;
   if (!bot) {
@@ -432,14 +435,24 @@ async function checkType(
 const NOT_READY = /currently in the following state: Pending|An update is in progress for resource/;
 const READY_WAIT_MS = 2_000;
 const READY_TIMEOUT_MS = 60_000;
+// Over the project's FHIR quota, which Medplum counts per minute.
+const QUOTA = /too many requests|too-many-requests/i;
+const QUOTA_WAIT_MS = 60_000;
+const QUOTA_TRIES = 10;
 
-/** One page, as an async job: a page can outlast an HTTP request, not the bot's timeout. */
-export async function runPage(
+/**
+ * One page, as an async job: a page can outlast an HTTP request, not the
+ * bot's timeout. A page over the quota is run again a minute later, so pages
+ * must be safe to repeat.
+ */
+export async function runPage<Result = PageResult>(
   medplum: MedplumClient,
   botId: string,
-  input: ReturnType<typeof checkerInput>,
+  input: object,
   wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-): Promise<PageResult> {
+  bot = 'checker',
+): Promise<Result> {
+  let limited = 0;
   for (let waited = 0; ; waited += READY_WAIT_MS) {
     const job = await medplum.post<AsyncJob>(
       medplum.fhirUrl('Bot', botId, '$execute'),
@@ -449,14 +462,18 @@ export async function runPage(
     );
     const output = job.output?.parameter ?? [];
     const body = output.find((p) => p.name === 'responseBody')?.valueString;
-    if (job.status === 'completed' && body !== undefined) return JSON.parse(body) as PageResult;
+    if (job.status === 'completed' && body !== undefined) return JSON.parse(body) as Result;
     const reason = normalizeErrorString(output.find((p) => p.resource)?.resource);
+    if (QUOTA.test(reason) && ++limited < QUOTA_TRIES) {
+      await wait(QUOTA_WAIT_MS);
+      continue;
+    }
     if (!NOT_READY.test(reason)) {
-      throw new Error(`The checker's job ended ${job.status}: ${reason}`);
+      throw new Error(`The ${bot}'s job ended ${job.status}: ${reason}`);
     }
     if (waited >= READY_TIMEOUT_MS) {
       throw new Error(
-        `The checker bot is still not ready after ${READY_TIMEOUT_MS / 1000}s: ${reason}`,
+        `The ${bot} bot is still not ready after ${READY_TIMEOUT_MS / 1000}s: ${reason}`,
       );
     }
     await wait(READY_WAIT_MS);
