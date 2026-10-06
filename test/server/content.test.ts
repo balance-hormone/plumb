@@ -149,8 +149,13 @@ describe.skipIf(!server)('push converges reference content', { timeout: 120_000 
         _tag: `${PLUMB_SYSTEM}|main-clinic`,
       })) as Organization,
     ).toMatchObject({ active: false });
-    // Terminology lookup skips retired content.
-    await expect(medplum.valueSetExpand({ url: REASONS })).rejects.toThrow(/not found/);
+    // Terminology lookup skips retired content since Medplum 5.1.x; 5.1.0 still resolves it.
+    const expand = medplum.valueSetExpand({ url: REASONS });
+    if (process.env.PLUMB_MEDPLUM_SERVER === '5.1.0') {
+      await expect(expand).resolves.toMatchObject({ status: 'retired' });
+    } else {
+      await expect(expand).rejects.toThrow(/not found/);
+    }
     // Retired content is not retired again.
     expect(step(await push({ ...options, prune: true }))[0]?.summary).toBe(
       'plan: 0 to create, 0 to update, 0 to retire',
