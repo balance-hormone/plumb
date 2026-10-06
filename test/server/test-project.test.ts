@@ -15,6 +15,7 @@ import {
   type TestProject,
 } from '../../src/testing.js';
 import { connect, server } from './medplum.js';
+import { superAdmin } from './setup.js';
 
 const PATIENT = 'http://example.org/fhir/plumb-test/StructureDefinition/cardinality-patient';
 const SYNTHETIC = join(import.meta.dirname, '../fixtures/profiles/fsh-generated/resources');
@@ -97,8 +98,11 @@ describe.skipIf(!server)('createTestProject', { timeout: 120_000 }, () => {
   test('the project is converged, and a second push plans nothing', async () => {
     expect(created.push.errors).toEqual([]);
     const medplum = await connect(project);
-    // A project admin reads super-admin fields from its login, not the Project.
-    expect(medplum.getProject()).toMatchObject({ strictMode: true, features: ['bots'] });
+    // A project admin's read leaves out super-admin fields, and so does 5.1.0's login.
+    expect(await (await superAdmin()).readResource('Project', project.projectId)).toMatchObject({
+      strictMode: true,
+      features: ['bots'],
+    });
     const stored = await medplum.readResource('Project', project.projectId);
     // test.settings merge over project.settings.
     expect(stored.setting).toEqual([
@@ -153,7 +157,7 @@ describe.skipIf(!server)('createTestProject', { timeout: 120_000 }, () => {
       { lockPath, strictMode: false, features: ['bots', 'cron'] },
     );
     if (!loose.ok) throw new Error(loose.error.message);
-    expect((await connect(loose)).getProject()).toMatchObject({
+    expect(await (await superAdmin()).readResource('Project', loose.projectId)).toMatchObject({
       strictMode: false,
       features: ['bots', 'cron'],
     });
