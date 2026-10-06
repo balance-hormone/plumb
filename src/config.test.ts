@@ -322,6 +322,36 @@ describe('loadConfig', () => {
     expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([[code, path]]);
   });
 
+  test('test: a server release, strict mode, features, settings and seed files', () => {
+    const test = `{ server: '5.1.42', strictMode: false, features: ['bots'], settings: { intakeEnabled: true }, seed: ['./test/seed/*.json'] }`;
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', test: ${test} };`,
+    });
+    expect(result.ok && result.config.test).toEqual({
+      server: '5.1.42',
+      strictMode: false,
+      features: ['bots'],
+      settings: { intakeEnabled: true },
+      seed: ['./test/seed/*.json'],
+    });
+  });
+
+  test.each([
+    ['5', 'invalid-type', 'test'],
+    ["{ server: '^5.1.0' }", 'invalid-server-version', 'test.server'],
+    ["{ server: 'latest' }", 'invalid-server-version', 'test.server'],
+    ["{ strictMode: 'yes' }", 'invalid-type', 'test.strictMode'],
+    ["{ features: 'bots' }", 'invalid-type', 'test.features'],
+    ["{ seed: './seed.json' }", 'invalid-type', 'test.seed'],
+    ['{ settings: { limit: {} } }', 'invalid-setting', 'test.settings.limit'],
+    ['{ link: [] }', 'unknown-key', 'test.link'],
+  ])('test: %s', (value, code, path) => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', test: ${value} };`,
+    });
+    expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([[code, path]]);
+  });
+
   test('unknown-key inside bindings, and bindings that is not an object', () => {
     const unknown = load({
       'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', bindings: { max: 5 } };`,

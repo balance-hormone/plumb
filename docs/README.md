@@ -249,6 +249,13 @@
   query, with `--full` for the old full pass and progress on long runs
   (#127); and `--unstamped` forecasts what would fail once unstamped records
   are stamped, routed as the generated `route` does (#123).
+- **v0.10:** nothing upstream turns a repository into a configured test
+  project (#140), so design 08 is built as written. `plumb-fhir/test` exports
+  `startServer` and `stopServer` (#141): Medplum, Postgres and Redis in
+  Docker, at the installed `@medplum/core`'s release or `test.server`, with
+  the compose file piped to Compose so ESM and CJS need no path to it. A
+  running server is reused and left running. The `test` config block is typed
+  and checked, and Plumb's own server tests start the server this way.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in

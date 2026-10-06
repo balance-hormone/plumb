@@ -31,6 +31,16 @@
         "default": "./dist/cjs/index.cjs"
       }
     },
+    "./test": {
+      "import": {
+        "types": "./dist/esm/testing.d.ts",
+        "default": "./dist/esm/testing.mjs"
+      },
+      "require": {
+        "types": "./dist/cjs/testing.d.ts",
+        "default": "./dist/cjs/testing.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "main": "dist/cjs/index.cjs",

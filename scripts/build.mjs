@@ -24,6 +24,18 @@ await Promise.all([
   build({ ...shared, entryPoints: ['src/index.ts'], format: 'cjs', outfile: 'dist/cjs/index.cjs' }),
   build({
     ...shared,
+    entryPoints: ['src/testing.ts'],
+    format: 'esm',
+    outfile: 'dist/esm/testing.mjs',
+  }),
+  build({
+    ...shared,
+    entryPoints: ['src/testing.ts'],
+    format: 'cjs',
+    outfile: 'dist/cjs/testing.cjs',
+  }),
+  build({
+    ...shared,
     entryPoints: ['src/cli.ts'],
     format: 'esm',
     outfile: 'dist/esm/cli.mjs',
