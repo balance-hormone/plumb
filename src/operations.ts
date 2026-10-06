@@ -1,6 +1,5 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { globSync } from 'node:fs';
 import { deepEquals, type MedplumClient } from '@medplum/core';
 import { readJson } from '@medplum/definitions';
 import type {
@@ -9,7 +8,7 @@ import type {
   OperationDefinitionParameter,
   ResourceType,
 } from '@medplum/fhirtypes';
-import { type ConfigError, importConfig } from './config.js';
+import { type ConfigError, importModules } from './config.js';
 import { PLUMB_SYSTEM, type ProjectOptions, tagOf } from './project.js';
 
 const IMPLEMENTATION =
@@ -50,37 +49,18 @@ const isContract = (value: unknown): value is Omit<Contract, 'from'> => {
 export async function loadOperations(
   paths: string[] = [],
 ): Promise<{ ok: true; contracts: Contract[] } | { ok: false; errors: ConfigError[] }> {
-  const contracts: Contract[] = [];
-  const errors: ConfigError[] = [];
-  for (const pattern of paths) {
-    const files = globSync(pattern).sort();
-    if (files.length === 0) {
-      errors.push({
-        code: 'invalid-operation',
-        path: 'operations',
-        message: `"${pattern}" matches no file.`,
-      });
-    }
-    for (const file of files) {
-      const loaded = await loadFile(file);
-      if ('error' in loaded) errors.push(loaded.error);
-      else contracts.push(...loaded.contracts);
-    }
-  }
-  return errors.length > 0 ? { ok: false, errors } : { ok: true, contracts };
-}
-
-/** One module's contracts, or why it does not load. */
-async function loadFile(file: string): Promise<{ contracts: Contract[] } | { error: ConfigError }> {
-  const imported = await importConfig(file);
-  if ('error' in imported) {
-    const { error } = imported;
-    return { error: { ...error, path: 'operations', message: `${file}: ${error.message}` } };
-  }
+  const imported = await importModules(paths, 'operations', 'invalid-operation');
+  if (!imported.ok) return imported;
   return {
-    contracts: Object.entries(imported.module as Record<string, unknown>)
-      .filter(([, value]) => isContract(value))
-      .map(([name, value]) => ({ ...(value as Omit<Contract, 'from'>), from: `${file}#${name}` })),
+    ok: true,
+    contracts: imported.modules.flatMap(({ file, module }) =>
+      Object.entries(module)
+        .filter(([, value]) => isContract(value))
+        .map(([name, value]) => ({
+          ...(value as Omit<Contract, 'from'>),
+          from: `${file}#${name}`,
+        })),
+    ),
   };
 }
 

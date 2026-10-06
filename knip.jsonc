@@ -6,11 +6,12 @@
   "entry": [".claude/hooks/*.mjs", "src/index.ts", "src/testing.ts", "src/vitest.ts", "src/cli.ts"],
   // Golden files are compared as text, the check fixture is compiled by the
   // analyzer under test, the vitest fixture is a project run in a child process,
-  // and the operations fixture is a module push imports by path.
+  // and the operations and migrations fixtures are modules imported by path.
   "ignore": [
     "test/golden/generated/**",
     "test/fixtures/check/**",
     "test/fixtures/vitest/**",
-    "test/fixtures/operations/**"
+    "test/fixtures/operations/**",
+    "test/fixtures/migrations/**"
   ]
 }

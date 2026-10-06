@@ -182,6 +182,7 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
     questionnaires,
     config.operations,
     botsFile(config),
+    config.migrations !== undefined,
   );
 
   if (check) {

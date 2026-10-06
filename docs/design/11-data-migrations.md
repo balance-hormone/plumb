@@ -48,7 +48,7 @@ import { defineMigration } from '../fhir/generated/index.js';
 export default defineMigration({
   id: '20261006-patient-birthdate',
   resourceType: 'Patient',
-  search: { birthdate: ':missing=true' }, // narrows what is read; optional
+  search: { 'birthdate:missing': 'true' }, // narrows what is read; optional
   transform(patient) {                    // pure; undefined means "already done"
     if (patient.birthDate) return undefined;
     return [{ op: 'add', path: '/birthDate', value: unknownBirthDate(patient) }];
@@ -182,7 +182,7 @@ export default defineConfig({
 defineMigration<T extends ResourceType>({
   id: string,
   resourceType: T,
-  search?: Record<string, string>,  // FHIR search parameters, ANDed
+  search?: Record<string, string>,  // FHIR search parameters, ANDed; a modifier goes in the key
   transform: (resource: ResourceOf<T>) => JsonPatch | undefined,
   dependsOn?: string[],
   description?: string,
