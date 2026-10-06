@@ -1,8 +1,8 @@
 # Idea: Operation Contracts
 
-**Status: next on the roadmap,** as part of behaviour as code
-([`../spec.md`](../spec.md), Roadmap). Its design note will supersede this
-sketch, which still assumes Zod contracts.
+**Status: picked up** by [design 10](../design/10-behaviour.md), which
+replaces Zod with Standard Schema or FHIR types on each side. This note keeps
+the original sketch.
 
 ## Problem
 
