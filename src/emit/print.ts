@@ -1034,6 +1034,39 @@ function printStamps(stamps: Record<string, string[]>): string {
   return `{\n${urls.map((url) => `  ${quote(url)}: ${printValue(stamps[url])},`).join('\n')}\n}`;
 }
 
+const MIGRATIONS = `${MARKER}. Do not edit.
+import type { Resource, ResourceType } from '@medplum/fhirtypes';
+
+/** One RFC 6902 operation. */
+export type JsonPatchOperation =
+  | { op: 'add' | 'replace' | 'test'; path: string; value: unknown }
+  | { op: 'remove'; path: string }
+  | { op: 'move' | 'copy'; from: string; path: string };
+
+/** A data migration: the records it reads, and what it changes in each. */
+export interface MigrationDefinition<T extends ResourceType = ResourceType> {
+  /** A date and a name, as \`20261006-patient-birthdate\`, so ids sort as written. */
+  id: string;
+  resourceType: T;
+  /** FHIR search parameters, ANDed, narrowing what is read; a modifier goes in the key. */
+  search?: Record<string, string>;
+  /**
+   * The patch for one record, or undefined when it needs nothing, so a run
+   * over finished records changes nothing. The record is stale, so it is the
+   * base type, not a profile's.
+   */
+  transform: (resource: Extract<Resource, { resourceType: T }>) => JsonPatchOperation[] | undefined;
+  /** The ids of migrations that must be applied first. */
+  dependsOn?: string[];
+  description?: string;
+}
+
+/** Types a migration; returns it unchanged. */
+export function defineMigration<T extends ResourceType>(migration: MigrationDefinition<T>): MigrationDefinition<T> {
+  return migration;
+}
+`;
+
 /**
  * Every file Plumb writes to `out`: one per profile and per Questionnaire in
  * `content`, the index, the shared helpers, the routes and the reads, the
@@ -1047,6 +1080,7 @@ export function printFiles(
   questionnaires: { name: string; file: string }[] = [],
   operations: string[] = [],
   bots?: string,
+  migrations = false,
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -1069,6 +1103,12 @@ export function printFiles(
       "export { callOperation, defineOperation, handleOperation, type OperationClient, type OperationContract, OperationError, type OperationSide, type SideInput, type SideOutput, type StandardSchemaV1 } from './_operations.js';",
     );
     files.set('_operations.ts', OPERATIONS);
+  }
+  if (migrations) {
+    index.appendNoWrap(
+      "export { defineMigration, type JsonPatchOperation, type MigrationDefinition } from './_migrations.js';",
+    );
+    files.set('_migrations.ts', MIGRATIONS);
   }
   if (bots) {
     index.appendNoWrap(

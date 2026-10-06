@@ -8,6 +8,7 @@ export type {
   ConfigErrorCode,
   Environment,
   LoadConfigResult,
+  MigrationsConfig,
   PlumbConfig,
   ProjectConfig,
   RouteRow,

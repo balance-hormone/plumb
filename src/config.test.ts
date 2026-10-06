@@ -1030,6 +1030,58 @@ function coded(system: string, code: string): CodeableConcept {
   return { coding: [{ system, code }] };
 }
 
+const withMigrations = (migrations: string, environment = '') =>
+  load({
+    'plumb.config.ts': `export default { igs: [], profiles: [], out: './out',
+      bots: { migrator: { file: './dist/migrator.cjs' } },
+      migrations: ${migrations},
+      environments: { dev: { baseUrl: 'http://localhost:8103/', clientId: { env: 'ID' }, clientSecret: { env: 'SECRET' }${environment} } } };`,
+  });
+
+describe('migrations', () => {
+  test('loads migrations and synthetic, resolving each module pattern against the config', () => {
+    const result = withMigrations(
+      "{ bot: 'migrator', modules: ['./src/migrations/*.ts'], restamp: true }",
+      ', synthetic: true',
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.migrations).toEqual({
+      bot: 'migrator',
+      modules: [join(dirname(result.configPath), 'src/migrations/*.ts')],
+      restamp: true,
+    });
+    expect(result.config.environments?.dev?.synthetic).toBe(true);
+  });
+
+  test.each([
+    ["{ bot: 'other', modules: ['./m/*.ts'] }", 'invalid-migration', 'migrations.bot'],
+    ["{ modules: ['./m/*.ts'] }", 'invalid-type', 'migrations.bot'],
+    ["{ bot: 'migrator', modules: './m/*.ts' }", 'invalid-type', 'migrations.modules'],
+    ["{ bot: 'migrator', modules: [] }", 'invalid-type', 'migrations.modules'],
+    [
+      "{ bot: 'migrator', modules: ['./m/*.ts'], restamp: 'yes' }",
+      'invalid-type',
+      'migrations.restamp',
+    ],
+    ["{ bot: 'migrator', modules: ['./m/*.ts'], order: [] }", 'unknown-key', 'migrations.order'],
+    ["['./m/*.ts']", 'invalid-type', 'migrations'],
+  ])('%s is %s at %s', (migrations, code, path) => {
+    const result = withMigrations(migrations);
+    expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([[code, path]]);
+  });
+
+  test('synthetic must be a boolean', () => {
+    const result = withMigrations(
+      "{ bot: 'migrator', modules: ['./m/*.ts'] }",
+      ", synthetic: 'yes'",
+    );
+    expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([
+      ['invalid-type', 'environments.dev.synthetic'],
+    ]);
+  });
+});
+
 describe('checkCriteria', () => {
   test.each(CRITERIA)('$criteria', ({ criteria, match, miss, fires }) => {
     // checkCriteria first: it indexes the definitions Medplum's server does.

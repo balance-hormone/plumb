@@ -445,3 +445,40 @@ describe('plumb check', () => {
     expect(stderr).toContain('needs TypeScript 5 or 6');
   });
 });
+
+describe('plumb migrate new', () => {
+  const withMigrations = () => {
+    const root = mkdtempSync(join(tmpdir(), 'plumb-cli-'));
+    writeFileSync(
+      join(root, 'plumb.config.ts'),
+      `export default {
+        igs: [],
+        profiles: [],
+        out: './src/fhir/generated',
+        bots: { migrator: { file: './dist/migrator.cjs' } },
+        migrations: { bot: 'migrator', modules: ['./src/migrations/*.ts'] },
+      };`,
+    );
+    return root;
+  };
+
+  test('scaffolds the migration and names its file', async () => {
+    const { code, stderr, cwd } = await cli(
+      ['migrate', 'new', 'patient-birthdate'],
+      withMigrations(),
+    );
+    expect(code).toBe(0);
+    const [, file] = stderr.match(/^Created (\S+)$/m) ?? [];
+    expect(file).toMatch(/^src\/migrations\/\d{8}-patient-birthdate\.ts$/);
+    expect(existsSync(join(cwd, file as string))).toBe(true);
+  });
+
+  test('exits 2 for a config without migrations, and for a missing name', async () => {
+    const none = await cli(['migrate', 'new', 'patient-birthdate']);
+    expect(none.code).toBe(2);
+    expect(none.stderr).toContain('no "migrations.modules"');
+    const unnamed = await cli(['migrate', 'new'], withMigrations());
+    expect(unnamed.code).toBe(2);
+    expect(unnamed.stderr).toContain('expected generate, validate, push, check or migrate new');
+  });
+});

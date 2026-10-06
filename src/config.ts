@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, globSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -84,6 +84,18 @@ export interface PlumbConfig {
    * any are listed.
    */
   operations?: string[];
+  /** Data migrations: the modules that declare them and the bot that runs them. */
+  migrations?: MigrationsConfig;
+}
+
+/** Where a project's data migrations are declared, and the bot that runs them. */
+export interface MigrationsConfig {
+  /** The key in `bots` of the bot built from the generated runner. */
+  bot: string;
+  /** Modules, as paths or globs, each default-exporting a `defineMigration`. */
+  modules: string[];
+  /** Adds Plumb's restamp migration, for every type with routing rows. */
+  restamp?: boolean;
 }
 
 /** A bot: its built bundle and the Bot's own fields, written as declared. */
@@ -219,6 +231,11 @@ export interface Environment {
   clientSecret: { env: string };
   /** Settings for this environment, merged over `project.settings`. */
   settings?: Settings;
+  /**
+   * The project holds no real patient data, so migrations may run in the
+   * CLI's own process as well as in the project's bot.
+   */
+  synthetic?: boolean;
 }
 
 /** An environment with its credentials read from the environment variables. */
@@ -260,7 +277,8 @@ export type ConfigErrorCode =
   | 'invalid-bot'
   | 'invalid-subscription'
   | 'unknown-bot'
-  | 'invalid-operation';
+  | 'invalid-operation'
+  | 'invalid-migration';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -296,8 +314,9 @@ const KEYS = new Set([
   'bots',
   'subscriptions',
   'operations',
+  'migrations',
 ]);
-const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as const;
+const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings', 'synthetic'] as const;
 const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
 const TEST_KEYS = ['server', 'strictMode', 'features', 'settings', 'seed', 'bots'];
 // A project admin's write to these is silently restored, so declaring one would never take.
@@ -313,7 +332,7 @@ const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 /**
  * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
  * Node's type stripping, or the project's own tsx for what Node cannot load.
- * `local`, `fsh`, `out`, `content`, `operations`, `test.seed` and each bot's
+ * `local`, `fsh`, `out`, `content`, `operations`, `migrations.modules`, `test.seed` and each bot's
  * `file` come back as absolute paths, resolved against the config file's folder; with `fsh`, `local` is its
  * SUSHI output.
  */
@@ -361,6 +380,14 @@ export async function loadConfig(options: {
       ...(config.check ? { check: resolveCheck(base, config.check) } : {}),
       ...resolveList(base, config, 'content'),
       ...resolveList(base, config, 'operations'),
+      ...(config.migrations
+        ? {
+            migrations: {
+              ...config.migrations,
+              modules: config.migrations.modules.map((p) => resolve(base, p)),
+            },
+          }
+        : {}),
       ...resolveBots(base, config.bots),
       ...(config.test ? { test: resolveTest(base, config.test) } : {}),
       ...(fsh ? { fsh } : {}),
@@ -370,12 +397,45 @@ export async function loadConfig(options: {
 }
 
 /**
+ * Imports each module the paths or globs match, as the config is imported.
+ * A pattern that matches nothing, or a module that does not load, is an error
+ * with `code` at `key`.
+ */
+export async function importModules(
+  paths: string[],
+  key: string,
+  code: ConfigErrorCode,
+): Promise<
+  | { ok: true; modules: { file: string; module: Record<string, unknown> }[] }
+  | { ok: false; errors: ConfigError[] }
+> {
+  const modules: { file: string; module: Record<string, unknown> }[] = [];
+  const errors: ConfigError[] = [];
+  for (const pattern of paths) {
+    const files = globSync(pattern).sort();
+    if (files.length === 0) {
+      errors.push({ code, path: key, message: `"${pattern}" matches no file.` });
+    }
+    for (const file of files) {
+      const imported = await importConfig(file);
+      if ('error' in imported) {
+        const { error } = imported;
+        errors.push({ ...error, path: key, message: `${file}: ${error.message}` });
+      } else {
+        modules.push({ file, module: imported.module as Record<string, unknown> });
+      }
+    }
+  }
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, modules };
+}
+
+/**
  * Imports the config, or a module it names, with Node, or with the project's
  * tsx for what Node cannot load: tsx's esbuild breaks in some environments
  * that load the config, such as a jsdom test. Errors Plumb can name come
  * back; others throw.
  */
-export async function importConfig(
+async function importConfig(
   configPath: string,
 ): Promise<{ module: { default?: unknown } } | { error: ConfigError }> {
   const url = pathToFileURL(configPath).href;
@@ -489,6 +549,7 @@ function check(config: unknown): ConfigError[] {
     ...checkBotGrants(record),
     ...checkTestBots(record),
     ...checkSubscriptions(record),
+    ...checkMigrationsConfig(record),
   );
   for (const key of ['local', 'fsh']) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
@@ -638,6 +699,13 @@ function checkEnvironments(environments: unknown): ConfigError[] {
       }
     }
     errors.push(...checkSettings(environment.settings, `${at}.settings`));
+    if (environment.synthetic !== undefined && typeof environment.synthetic !== 'boolean') {
+      errors.push({
+        code: 'invalid-type',
+        path: `${at}.synthetic`,
+        message: `"${at}.synthetic" must be true or false.`,
+      });
+    }
     return errors;
   });
 }
@@ -1070,6 +1138,36 @@ function botReferences(field: string, value: unknown, project: Record<string, un
   return [];
 }
 
+const MIGRATIONS_FIELDS = { bot: 1, modules: 1, restamp: 1 };
+
+function checkMigrationsConfig(config: Record<string, unknown>): ConfigError[] {
+  const { migrations } = config;
+  if (migrations === undefined) return [];
+  if (!isObject(migrations)) return [notObject('migrations')];
+  const errors = unknownKeys(migrations, MIGRATIONS_FIELDS, 'migrations');
+  const invalidType = (field: string, expected: string): ConfigError => ({
+    code: 'invalid-type',
+    path: `migrations.${field}`,
+    message: `"migrations.${field}" must be ${expected}.`,
+  });
+  if (!isText(migrations.bot)) {
+    errors.push(invalidType('bot', 'the key in bots of the bot that runs migrations'));
+  } else if (!Object.hasOwn(keysOf(config.bots), migrations.bot as string)) {
+    errors.push({
+      code: 'invalid-migration',
+      path: 'migrations.bot',
+      message: `"migrations.bot" names "${migrations.bot}", which is not a key in bots.`,
+    });
+  }
+  if (!isListOf(isText)(migrations.modules)) {
+    errors.push(invalidType('modules', 'a list of paths or globs'));
+  }
+  if (migrations.restamp !== undefined && typeof migrations.restamp !== 'boolean') {
+    errors.push(invalidType('restamp', 'true or false'));
+  }
+  return errors;
+}
+
 /** Each test build names a declared bot and its bundle. */
 function checkTestBots(config: Record<string, unknown>): ConfigError[] {
   const builds = keysOf(config.test).bots;
@@ -1285,6 +1383,51 @@ export function checkCriteria(criteria: string): string | undefined {
   for (const filter of request.filters ?? []) {
     const reason = filterProblem(type, filter);
     if (reason) return reason;
+  }
+  return undefined;
+}
+
+// The runner pages through a migration's records with these, and transforms
+// whole records of the one type, so a search cannot set them.
+const RUNNER_PARAMS = [
+  '_sort',
+  '_count',
+  '_cursor',
+  '_offset',
+  '_summary',
+  '_elements',
+  '_include',
+  '_revinclude',
+];
+
+/**
+ * Why a migration's search cannot run as given: an unknown resource type, a
+ * parameter the runner sets, or one Medplum does not index for the type.
+ */
+export function checkSearch(
+  resourceType: string,
+  search: Record<string, string>,
+): string | undefined {
+  indexServerSchema();
+  if (!isResourceType(resourceType)) return `"${resourceType}" is not a resource type`;
+  // Medplum reads these into the request itself, not its filters.
+  const reserved = Object.keys(search).find((key) =>
+    RUNNER_PARAMS.includes(key.split(':')[0] as string),
+  );
+  if (reserved) return `sets "${reserved}", which the runner sets`;
+  const query = new URLSearchParams(search).toString();
+  let request: SearchRequest;
+  try {
+    request = parseSearchRequest(`${resourceType}?${query}`);
+  } catch (err) {
+    return `Medplum cannot parse its search (${normalizeErrorString(err)})`;
+  }
+  for (const { code } of request.filters ?? []) {
+    if (code.startsWith('_has:')) continue;
+    const first = code.split('.')[0] as string;
+    if (!getSearchParameter(resourceType, first)) {
+      return `searches by "${first}", which Medplum does not index for ${resourceType}`;
+    }
   }
   return undefined;
 }

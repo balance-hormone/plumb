@@ -15,6 +15,7 @@ import {
 } from './conformance.js';
 import type { EnvStep } from './connect.js';
 import { type GenerateResult, generate, type Step } from './generate.js';
+import { newMigration } from './migrations.js';
 import { type PushResult, push } from './push.js';
 
 export interface CliIo {
@@ -34,6 +35,7 @@ const USAGE = `Usage: plumb generate [--check] [--config <path>]
        plumb validate --env <name> [--env-file <path>] [--full] [--unstamped] [--resume] [--config <path>]
        plumb push --env <name> [--env-file <path>] [--dry-run | --check] [--prune] [--adopt] [--config <path>]
        plumb check [--update-baseline [--allow-growth]] [--config <path>]
+       plumb migrate new <name> [--config <path>]
 
 generate  Generate TypeScript types that narrow @medplum/fhirtypes from the
           FHIR profiles plumb.config.ts selects.
@@ -45,6 +47,8 @@ push      Install the checker, then load the selected profiles into a Medplum
 check     Find MedplumClient reads and writes of profiled types that go
           around readProfiled, searchProfiled, createProfiled and stampProfiled,
           by the types the compiler infers, against a committed baseline.
+migrate   new: scaffold a dated data migration in the first migrations.modules
+          folder.
 
 Options:
   --check          generate: compare with the committed output instead of writing; fail if stale
@@ -112,12 +116,17 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
     io.stdout(`${packageVersion()}\n`);
     return OK;
   }
+  if (positionals[0] === 'migrate' && positionals[1] === 'new' && positionals.length === 3) {
+    return migrateNewCommand(positionals[2] as string, values, io);
+  }
   const command = positionals.length === 1 ? positionals[0] : undefined;
   if (command === 'generate') return generateCommand(values, io);
   if (command === 'push' || command === 'validate') return envCommand(command, values, io);
   if (command === 'check') return checkCommand(values, io);
   const got = positionals.length === 0 ? 'no command' : `"${positionals.join(' ')}"`;
-  io.stderr(`plumb: expected generate, validate, push or check, got ${got}\n\n${USAGE}`);
+  io.stderr(
+    `plumb: expected generate, validate, push, check or migrate new, got ${got}\n\n${USAGE}`,
+  );
   return USAGE_ERROR;
 }
 
@@ -166,6 +175,16 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
     (e) => e.code === 'sushi-not-installed' || e.code === 'sushi-too-old',
   );
   return result.ok ? OK : setup ? USAGE_ERROR : PROBLEMS;
+}
+
+async function migrateNewCommand(name: string, values: Values, io: CliIo): Promise<number> {
+  const config = await loadConfig({ cwd: io.cwd, configPath: values.config });
+  if (!config.ok) return configErrors(config.errors, values, io);
+  const result = newMigration(config.config, name);
+  if (!result.ok) return configErrors(result.errors, values, io);
+  printer(io, values.quiet ?? false).say(`Created ${relative(io.cwd, result.file)}`);
+  if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
+  return OK;
 }
 
 async function checkCommand(values: Values, io: CliIo): Promise<number> {
