@@ -3,7 +3,7 @@
 import { mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Communication, OperationOutcome, Parameters, Patient } from '@medplum/fhirtypes';
+import type { Communication, OperationOutcome, Patient } from '@medplum/fhirtypes';
 import { describe, expect, test } from 'vitest';
 import { printFiles } from '../../src/emit/print.js';
 import { routingRows } from '../../src/emit/routes.js';
@@ -44,7 +44,7 @@ interface Generated {
   handleOperation: (
     operation: unknown,
     handler: (medplum: unknown, input: unknown) => unknown,
-  ) => (medplum: unknown, event: { input: unknown }) => Promise<Parameters>;
+  ) => (medplum: unknown, event: { input: unknown }) => Promise<unknown>;
   OperationError: new (...args: never[]) => Error & { outcome: OperationOutcome };
 }
 const generated = (await import(join(out, '_operations.ts'))) as Generated;
@@ -113,23 +113,17 @@ function client(response: unknown | (() => never)) {
 }
 
 describe('handleOperation', () => {
-  test('passes the checked input to the handler and returns a resource as `return`', async () => {
+  test('passes the checked input to the handler and returns a resource as is, for `return`', async () => {
     const handler = handleOperation(sendMessage, (_medplum, input) => {
       expect(input).toEqual({ text: 'Hi' });
       return communication;
     });
-    expect(await handler({}, { input: { text: '  Hi ' } })).toEqual({
-      resourceType: 'Parameters',
-      parameter: [{ name: 'return', resource: communication }],
-    });
+    expect(await handler({}, { input: { text: '  Hi ' } })).toBe(communication);
   });
 
-  test('a JSON output goes back as a `result` string', async () => {
+  test('a JSON output goes back as `{ result }`, a string Medplum maps to the `result` parameter', async () => {
     const handler = handleOperation(summarize, () => ({ text: 'All well' }));
-    expect(await handler({}, { input: patient })).toEqual({
-      resourceType: 'Parameters',
-      parameter: [{ name: 'result', valueString: '{"text":"All well"}' }],
-    });
+    expect(await handler({}, { input: patient })).toEqual({ result: '{"text":"All well"}' });
   });
 
   test('a failed check throws an OperationError naming each issue, before or after the handler', async () => {
@@ -151,11 +145,8 @@ describe('handleOperation', () => {
 });
 
 describe('callOperation', () => {
-  test('POSTs the input as JSON to its level, and unwraps the `return` resource', async () => {
-    const medplum = client({
-      resourceType: 'Parameters',
-      parameter: [{ name: 'return', resource: communication }],
-    });
+  test('POSTs the input as JSON to its level, and reads a resource sent back as is', async () => {
+    const medplum = client(communication);
     expect(await callOperation(medplum, sendMessage, { text: 'Hi' })).toEqual(communication);
     expect(medplum.sent).toEqual([
       {
