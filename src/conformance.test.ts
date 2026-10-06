@@ -65,6 +65,24 @@ describe('runPage', () => {
     );
   });
 
+  test("a page over the project's rate limit runs again a minute later", async () => {
+    const { medplum, calls } = client([notReady('Too Many Requests'), done]);
+    const waits: number[] = [];
+    const result = await runPage(medplum, 'bot', {}, async (ms) => {
+      waits.push(ms);
+    });
+    expect(result).toEqual(page);
+    expect(calls()).toBe(2);
+    expect(waits).toEqual([60_000]);
+  });
+
+  test('any other failure throws at once, naming the bot', async () => {
+    const { medplum } = client([notReady('Bot not found')]);
+    await expect(runPage(medplum, 'bot', {}, async () => {}, 'migrator')).rejects.toThrow(
+      "The migrator's job ended completed: Bot not found",
+    );
+  });
+
   test('any other failure throws at once', async () => {
     const { medplum, calls } = client([notReady('Bot not found')]);
     await expect(runPage(medplum, 'bot', {} as never, async () => {})).rejects.toThrow(

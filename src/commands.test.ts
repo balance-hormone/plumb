@@ -473,6 +473,15 @@ describe('plumb migrate new', () => {
     expect(existsSync(join(cwd, file as string))).toBe(true);
   });
 
+  test('plumb migrate exits 2 without --env, or for a page size Medplum cannot page by', async () => {
+    const noEnv = await cli(['migrate'], withMigrations());
+    expect(noEnv.code).toBe(2);
+    expect(noEnv.stderr).toContain('migrate needs --env <name>');
+    const small = await cli(['migrate', '--env', 'dev', '--page-size', '5'], withMigrations());
+    expect(small.code).toBe(2);
+    expect(small.stderr).toContain('--page-size must be a whole number from 20 to 1000');
+  });
+
   test('exits 2 for a config without migrations, and for a missing name', async () => {
     const none = await cli(['migrate', 'new', 'patient-birthdate']);
     expect(none.code).toBe(2);

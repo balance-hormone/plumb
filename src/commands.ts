@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs, parseEnv } from 'node:util';
@@ -15,6 +16,7 @@ import {
 } from './conformance.js';
 import type { EnvStep } from './connect.js';
 import { type GenerateResult, generate, type Step } from './generate.js';
+import { type MigrateEnvResult, migrateEnvironment } from './migrate.js';
 import { newMigration } from './migrations.js';
 import { type PushResult, push } from './push.js';
 
@@ -35,6 +37,7 @@ const USAGE = `Usage: plumb generate [--check] [--config <path>]
        plumb validate --env <name> [--env-file <path>] [--full] [--unstamped] [--resume] [--config <path>]
        plumb push --env <name> [--env-file <path>] [--dry-run | --check] [--prune] [--adopt] [--config <path>]
        plumb check [--update-baseline [--allow-growth]] [--config <path>]
+       plumb migrate --env <name> [<id>…] [--write] [--page-size <n>] [--env-file <path>] [--config <path>]
        plumb migrate new <name> [--config <path>]
 
 generate  Generate TypeScript types that narrow @medplum/fhirtypes from the
@@ -47,8 +50,9 @@ push      Install the checker, then load the selected profiles into a Medplum
 check     Find MedplumClient reads and writes of profiled types that go
           around readProfiled, searchProfiled, createProfiled and stampProfiled,
           by the types the compiler infers, against a committed baseline.
-migrate   new: scaffold a dated data migration in the first migrations.modules
-          folder.
+migrate   Run each pending data migration through the project's migration bot,
+          a page at a time: a dry run unless --write. new: scaffold a dated
+          migration in the first migrations.modules folder.
 
 Options:
   --check          generate: compare with the committed output instead of writing; fail if stale
@@ -64,6 +68,8 @@ Options:
   --dry-run        push: stop after the gate and the project plan, writing nothing
   --prune          push: delete what Plumb manages that the config no longer has
   --adopt          push: tag and converge an untagged resource with a key's name
+  --write          migrate: apply the changes and keep the ledger; Ctrl-C pauses after a page
+  --page-size <n>  migrate: records per page, 20 to 1,000 (default: 100)
   --update-baseline  check: rewrite the baseline from what is found; refuses growth
   --allow-growth     check: let --update-baseline accept new findings
   --config <path>  the config file (default: plumb.config.ts)
@@ -118,6 +124,9 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
   }
   if (positionals[0] === 'migrate' && positionals[1] === 'new' && positionals.length === 3) {
     return migrateNewCommand(positionals[2] as string, values, io);
+  }
+  if (positionals[0] === 'migrate' && positionals[1] !== 'new') {
+    return migrateCommand(positionals.slice(1), values, io);
   }
   const command = positionals.length === 1 ? positionals[0] : undefined;
   if (command === 'generate') return generateCommand(values, io);
@@ -175,6 +184,72 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
     (e) => e.code === 'sushi-not-installed' || e.code === 'sushi-too-old',
   );
   return result.ok ? OK : setup ? USAGE_ERROR : PROBLEMS;
+}
+
+// Kept from running: the command, config or deployed bots need fixing, not the data.
+const SETUP = new Set([
+  'no-migrations',
+  'invalid-migration',
+  'unknown-migration',
+  'checker-missing',
+  'checker-outdated',
+  'migrator-missing',
+  'migrator-not-current',
+]);
+
+async function migrateCommand(ids: string[], values: Values, io: CliIo): Promise<number> {
+  const quiet = values.quiet ?? false;
+  const pageSize = parsePageSize(values['page-size']);
+  if (Number.isNaN(pageSize)) {
+    io.stderr(`plumb: --page-size must be a whole number from 20 to 1000\n\n${USAGE}`);
+    return USAGE_ERROR;
+  }
+  const options = await envOptions('migrate', values, io);
+  if (typeof options === 'number') return options;
+  const { bad, say, problem } = printer(io, quiet);
+  say(`plumb migrate --env ${values.env}${values.write ? ' --write' : ''}`);
+  const controller = new AbortController();
+  const pause = () => controller.abort();
+  process.once('SIGINT', pause);
+  const { root, env: _env, onPage: _onPage, ...shared } = options;
+  let result: MigrateEnvResult;
+  try {
+    result = await migrateEnvironment({
+      ...shared,
+      write: values.write,
+      ...(ids.length > 0 ? { ids } : {}),
+      ...(pageSize ? { pageSize } : {}),
+      ...gitCommit(root),
+      signal: controller.signal,
+      onPage: (id, c) => printer(io, quiet).say(`    ${id}: ${count(c.read)} read`),
+    });
+  } finally {
+    process.removeListener('SIGINT', pause);
+  }
+  for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
+  (result.ok ? say : problem)(
+    `${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}${result.write ? '' : ' (dry run; --write to apply)'}`,
+  );
+  if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
+  return migrateExit(result);
+}
+
+/** A page size within what Medplum pages by cursor, NaN for any other, or undefined. */
+function parsePageSize(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 20 && n <= 1000 ? n : Number.NaN;
+}
+
+function migrateExit(result: MigrateEnvResult): number {
+  if (result.ok) return OK;
+  return result.errors.some((e) => SETUP.has(e.code)) ? USAGE_ERROR : PROBLEMS;
+}
+
+/** The commit the ledger records, when the config is in a git checkout. */
+function gitCommit(cwd: string): { commit?: string } {
+  const git = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' });
+  return git.status === 0 ? { commit: git.stdout.trim() } : {};
 }
 
 async function migrateNewCommand(name: string, values: Values, io: CliIo): Promise<number> {
@@ -446,6 +521,8 @@ function parse(argv: string[]) {
       adopt: { type: 'boolean' },
       'update-baseline': { type: 'boolean' },
       'allow-growth': { type: 'boolean' },
+      write: { type: 'boolean' },
+      'page-size': { type: 'string' },
       json: { type: 'boolean' },
       quiet: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },

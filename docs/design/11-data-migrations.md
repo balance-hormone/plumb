@@ -267,10 +267,17 @@ Each migration has one `Basic` per project, found by Plumb's tag with its
 - **status:** `running`, `paused`, `errored` or `applied`; no record is
   pending;
 - **the module's SHA-256,** and the git commit when known;
-- **the run's start,** its cursor, its counts and its last error;
-- **the `AsyncJob` of each page,** where the written ids and versions are;
+- **the run's start,** its cursor, its pages, its counts and its last error;
 - **a lease:** the time a running run last wrote, so a run whose CLI died is
   taken over once the lease is ten minutes old.
+
+The state is one JSON extension on the `Basic`, so the entry stays one small
+resource however many pages a pass takes. The ids and versions each page
+wrote stay in that page's `AsyncJob`, in the project, not in the ledger.
+Ctrl-C during `--write` stops after the current page and leaves the
+migration `paused`. A pass that ends with records failed or conflicted is
+`errored` with no cursor, so the next `--write` makes a fresh pass, which
+changes only what the transform still finds.
 
 A run takes the lease by updating the `Basic` with `If-Match`; the loser of a
 race gets a 412 and stops with `migration-running`. A `paused` or `errored`
