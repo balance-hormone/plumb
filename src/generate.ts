@@ -179,6 +179,7 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
     (m) => integrity.get(m.source) ?? hashOf(m),
     routing,
     questionnaires,
+    config.operations,
   );
 
   if (check) {

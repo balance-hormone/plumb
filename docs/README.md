@@ -350,6 +350,15 @@
   Medplum issues with real-server reproductions: a Subscription's failing bot
   counting as delivered, and a custom operation called by `GET` with a query
   string not found (#173). **v0.12 is complete.**
+- **v0.13:** `generate` writes `_operations.ts` when the config lists
+  `operations` (#174): `defineOperation`, `callOperation`, `handleOperation`
+  and `OperationError`, so apps and bots take no runtime dependency on Plumb.
+  Each side is a resource type, a selected profile, or any Standard Schema;
+  both ends check at run time, a profile side with `asProfiled`, and output
+  travels as `Parameters` (`return` or a `result` string). A file of its own,
+  not `_plumb.ts`, since it imports `_reads.ts`, which imports `_plumb.ts`.
+  The harness runs the generated code and holds callers and handlers to the
+  contract in `tsc`, under TypeScript 5.0 too.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in

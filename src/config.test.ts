@@ -795,6 +795,16 @@ describe('bots and subscriptions', () => {
     expect(messages[3]).toMatch(/403/);
   });
 
+  test('operations lists contract modules, resolved against the config; anything else is invalid-type', () => {
+    const ok = withBehaviour(`operations: ['./src/operations/*.ts'],`);
+    expect(ok.ok && ok.config.operations).toEqual([
+      join(dirname(ok.configPath), 'src/operations/*.ts'),
+    ]);
+    expect(paths(withBehaviour(`operations: './src/operations'`))).toEqual([
+      ['invalid-type', 'operations'],
+    ]);
+  });
+
   test('test.bots names a test build by key, resolved against the config', () => {
     const ok = withBehaviour(
       `${BEHAVIOUR} test: { bots: { 'send-reminder': { file: './test/reminder.cjs' } } },`,
