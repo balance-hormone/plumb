@@ -1320,14 +1320,54 @@ function sameJson(a: unknown, b: unknown): boolean {
  * by its import path from `out`. Not exported from the index, since the
  * modules import the index themselves.
  */
-function printMigrator(modules: string[]): string {
-  const imports = modules.map((path, i) => `import m${i} from ${quote(path)};`);
-  const list = modules.map((_, i) => `m${i}`).join(', ');
+function printMigrator(modules: string[], restamp: boolean): string {
+  const imports = [
+    ...(restamp ? ["import { restamps } from './_restamp.js';"] : []),
+    ...modules.map((path, i) => `import m${i} from ${quote(path)};`),
+  ];
+  const list = [...modules.map((_, i) => `m${i}`), ...(restamp ? ['...restamps'] : [])].join(', ');
   return `${MARKER}. Do not edit.
 import { handleMigrations } from './_migrations.js';
 ${imports.join('\n')}${imports.length > 0 ? '\n' : ''}
 /** The migration bot's handler: its entry exports it, as \`export { handler } from './_migrator.js'\`. */
 export const handler = handleMigrations([${list}]);
+`;
+}
+
+/**
+ * `_restamp.ts`: Plumb's restamp migration for each type with routing rows,
+ * which sets the stamps Plumb manages as `stampProfiled` would, keeps any
+ * other URL, and leaves a record that routes to no single profile alone.
+ */
+function printRestamp(types: string[]): string {
+  return `${MARKER}. Do not edit.
+import type { Resource, ResourceType } from '@medplum/fhirtypes';
+import type { JsonPatchOperation, MigrationDefinition } from './_migrations.js';
+import { RoutingError, stampProfiled } from './_routes.js';
+
+/** One per type with routing rows; each runs again whenever _routes.ts changes. */
+export const restamps: MigrationDefinition[] = (${printValue(types)} as ResourceType[]).map((resourceType) => ({
+  id: 'plumb-restamp-' + resourceType,
+  resourceType,
+  transform: restamp,
+}));
+
+function restamp(resource: Resource): JsonPatchOperation[] | undefined {
+  let next: Resource;
+  try {
+    next = stampProfiled(resource);
+  } catch (err) {
+    if (err instanceof RoutingError) return undefined;
+    throw err;
+  }
+  const before = resource.meta?.profile ?? [];
+  const after = next.meta?.profile ?? [];
+  if (before.length === after.length && before.every((url, i) => url === after[i])) return undefined;
+  if (!resource.meta) return [{ op: 'add', path: '/meta', value: { profile: after } }];
+  return after.length > 0
+    ? [{ op: 'add', path: '/meta/profile', value: after }]
+    : [{ op: 'remove', path: '/meta/profile' }];
+}
 `;
 }
 
@@ -1345,6 +1385,7 @@ export function printFiles(
   operations: string[] = [],
   bots?: string,
   migrations?: string[],
+  restamp = false,
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -1373,7 +1414,8 @@ export function printFiles(
       "export { defineMigration, handleMigrations, type JsonPatchOperation, type MigrationClient, type MigrationDefinition, type MigrationForecast, type MigrationPage, type MigrationPageResult } from './_migrations.js';",
     );
     files.set('_migrations.ts', MIGRATIONS);
-    files.set('_migrator.ts', printMigrator(migrations));
+    files.set('_migrator.ts', printMigrator(migrations, restamp));
+    if (restamp) files.set('_restamp.ts', printRestamp(Object.keys(routing.routes).sort()));
   }
   if (bots) {
     index.appendNoWrap(

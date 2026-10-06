@@ -61,7 +61,7 @@ plumb migrate --env prod
 ✔ migrator       current (migrator-3c07…)
 ✔ 20261006-patient-birthdate   dry run: 312 read, 312 to change, 0 unchanged
     forecast: 312 would pass the selected profiles, 0 would still fail
-✔ plumb-restamp  dry run: 4,120 read, 18 to restamp, 4,102 unchanged
+✔ plumb-restamp-Patient  dry run: 4,120 read, 18 to restamp, 4,102 unchanged
 Done in 41.2s (dry run; --write to apply)
 ```
 
@@ -250,12 +250,12 @@ page that half-wrote is safe to repeat.
 
 ### Restamping
 
-`restamp: true` adds a migration Plumb provides, `plumb-restamp`, for every
-type with routing rows: it runs the generated `route` over each record and
+`restamp: true` adds a migration Plumb provides, `plumb-restamp-<Type>`, for
+each type with routing rows, generated into `_restamp.ts`: it runs the generated `route` over each record and
 sets the Plumb-managed URLs in `meta.profile`, the type's `defaultProfile`
 less any the routed profile derives from, plus the routed profile, as
 `updateProfiled` stamps them. Other URLs are kept; an unroutable record is
-unchanged and counted. Its ledger records a hash of the routing table, so a
+unchanged and counted. Its ledger records a hash of `_routes.ts`, so a
 change to `routes` or the selected profiles makes it pending again, as
 Flyway reruns a repeatable migration whose checksum changed.
 
@@ -400,7 +400,7 @@ types reject a wrong patch target in the harness's `tsc` run.
    `migration-edited` and its exit code.
 6. **Local:** `--local` on synthetic environments, and `migrate` in
    `plumb-fhir/test`.
-7. **Restamp:** the built-in `plumb-restamp` migration.
+7. **Restamp:** the built-in `plumb-restamp-<Type>` migrations.
 8. **Push:** the gate names the pending migrations on each failing type.
 9. **Docs:** a README section, the changelog, and this design marked
    implemented.
