@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 export type {
   AccessPolicyConfig,
+  BotConfig,
   CheckConfig,
   ConfigError,
   ConfigErrorCode,
@@ -11,6 +12,7 @@ export type {
   ProjectConfig,
   RouteRow,
   Settings,
+  SubscriptionConfig,
   TestConfig,
 } from './config.js';
 export { defineConfig, loadConfig } from './config.js';

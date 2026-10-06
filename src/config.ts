@@ -1,13 +1,29 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { Script } from 'node:vm';
+import {
+  type Filter,
+  getSearchParameter,
+  indexSearchParameterBundle,
+  indexStructureDefinitionBundle,
+  isResourceType,
+  normalizeErrorString,
+  parseFhirPath,
+  parseSearchRequest,
+  type SearchRequest,
+} from '@medplum/core';
+import { readJson, SEARCH_PARAMETER_BUNDLE_FILES } from '@medplum/definitions';
 import type {
   AccessPolicy,
   AccessPolicyResource,
+  Bot,
+  Bundle,
   Coding,
+  SearchParameter,
   StructureDefinition,
 } from '@medplum/fhirtypes';
 import type * as Tsx from 'tsx/esm/api';
@@ -58,6 +74,52 @@ export interface PlumbConfig {
    * CodeSystem, ValueSet and Organization JSON, one resource each.
    */
   content?: string[];
+  /** Bots `push` creates, configures and deploys, by key: the key is the bot's identity. */
+  bots?: Record<string, BotConfig>;
+  /** Subscriptions `push` converges, by key, each delivering to a bot or a URL. */
+  subscriptions?: Record<string, SubscriptionConfig>;
+}
+
+/** A bot: its built bundle and the Bot's own fields, written as declared. */
+export interface BotConfig {
+  /** The project's built bundle, deployed as is. */
+  file: string;
+  /** The key unless given. */
+  name?: string;
+  /** `awslambda` by default, Medplum's own. */
+  runtime?: Bot['runtimeVersion'];
+  /** Seconds; 10 by default, always written, so `$deploy` never fills one in. */
+  timeout?: number;
+  /** The key in `project.accessPolicies` of the bot's own membership's policy. */
+  policy?: string;
+  /** The keys in `project.secrets` the bot reads. */
+  secrets?: string[];
+  /** A schedule, as Medplum's five-field `cronString`. */
+  cron?: string;
+  runAsUser?: boolean;
+  admin?: boolean;
+  publicWebhook?: boolean;
+  rawBody?: boolean;
+  audit?: { trigger?: Bot['auditEventTrigger']; destination?: Bot['auditEventDestination'] };
+}
+
+/** A Subscription, delivering to a bot or to an `https` URL. */
+export interface SubscriptionConfig {
+  /** A search, as `Appointment?status=booked`, that Medplum's matcher can fire on. */
+  criteria: string;
+  /** All three unless given. */
+  interactions?: ('create' | 'update' | 'delete')[];
+  /** A FHIRPath that must be true, with `%previous` and `%current`. */
+  fhirPath?: string;
+  /** The key in `bots` to run. */
+  bot?: string;
+  url?: string;
+  /** The variable holding the key that signs each delivery as `X-Signature`. */
+  secret?: { env: string };
+  /** Each header's value by the variable that holds it, since one usually carries a token. */
+  headers?: Record<string, { env: string }>;
+  /** Delivery attempts to the URL, at most 18; Medplum's default is 4. */
+  maxAttempts?: number;
 }
 
 /**
@@ -175,7 +237,9 @@ export type ConfigErrorCode =
   | 'unknown-access-policy'
   | 'duplicate-key'
   | 'invalid-check'
-  | 'invalid-server-version';
+  | 'invalid-server-version'
+  | 'invalid-bot'
+  | 'invalid-subscription';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -208,6 +272,8 @@ const KEYS = new Set([
   'check',
   'test',
   'content',
+  'bots',
+  'subscriptions',
 ]);
 const ENVIRONMENT_KEYS = ['baseUrl', 'clientId', 'clientSecret', 'settings'] as const;
 const PROJECT_KEYS = ['settings', 'secrets', 'accessPolicies', 'defaultAccessPolicies', 'clients'];
@@ -225,8 +291,8 @@ const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 /**
  * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
  * Node's type stripping, or the project's own tsx for what Node cannot load.
- * `local`, `fsh`, `out`, `content` and `test.seed` come back as absolute
- * paths, resolved against the config file's folder; with `fsh`, `local` is its
+ * `local`, `fsh`, `out`, `content`, `test.seed` and each bot's `file` come
+ * back as absolute paths, resolved against the config file's folder; with `fsh`, `local` is its
  * SUSHI output.
  */
 export async function loadConfig(options: {
@@ -272,6 +338,7 @@ export async function loadConfig(options: {
       out: resolve(base, config.out),
       ...(config.check ? { check: resolveCheck(base, config.check) } : {}),
       ...(config.content ? { content: config.content.map((p) => resolve(base, p)) } : {}),
+      ...resolveBots(base, config.bots),
       ...(config.test?.seed
         ? { test: { ...config.test, seed: config.test.seed.map((p) => resolve(base, p)) } }
         : {}),
@@ -392,6 +459,7 @@ function check(config: unknown): ConfigError[] {
     ...checkTest(record.test),
   );
   errors.push(...checkContent(record.content));
+  errors.push(...checkBots(record), ...checkSubscriptions(record));
   for (const key of ['local', 'fsh']) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
       errors.push({ code: 'invalid-type', path: key, message: `"${key}" must be a path.` });
@@ -850,6 +918,358 @@ function checkClients(clients: unknown, checkPolicyKey: CheckPolicyKey): ConfigE
   });
 }
 
+const isBoolean = (value: unknown) => typeof value === 'boolean';
+const isText = (value: unknown) => typeof value === 'string' && value !== '';
+const isEnv = (value: unknown) => isObject(value) && isText(value.env);
+const oneOf = (values: readonly unknown[]) => (value: unknown) => values.includes(value);
+const isListOf = (valid: (item: unknown) => boolean) => (value: unknown) =>
+  Array.isArray(value) && value.length > 0 && value.every(valid);
+
+const isAudit = (audit: unknown) =>
+  isObject(audit) &&
+  Object.keys(audit).every((key) => key === 'trigger' || key === 'destination') &&
+  (audit.trigger === undefined ||
+    oneOf(['always', 'never', 'on-error', 'on-output'])(audit.trigger)) &&
+  (audit.destination === undefined || isListOf(oneOf(['log', 'resource']))(audit.destination));
+
+// Each field of a bot, with what it must be.
+const BOT_FIELDS: Record<keyof BotConfig, [(value: unknown) => boolean, string]> = {
+  file: [isText, 'the path of the built bundle'],
+  name: [isText, 'a name'],
+  runtime: [oneOf(['awslambda', 'vmcontext', 'fission']), 'awslambda, vmcontext or fission'],
+  timeout: [(v) => Number.isInteger(v) && (v as number) > 0, 'a whole number of seconds'],
+  policy: [isText, 'a key in project.accessPolicies'],
+  secrets: [isListOf(isText), 'a list of keys in project.secrets'],
+  cron: [isText, 'a five-field cron schedule'],
+  runAsUser: [isBoolean, 'true or false'],
+  admin: [isBoolean, 'true or false'],
+  publicWebhook: [isBoolean, 'true or false'],
+  rawBody: [isBoolean, 'true or false'],
+  audit: [
+    isAudit,
+    "{ trigger, destination }, as the Bot's auditEventTrigger and auditEventDestination",
+  ],
+};
+
+const unknownKeys = (record: Record<string, unknown>, known: object, at: string): ConfigError[] =>
+  Object.keys(record)
+    .filter((key) => !Object.hasOwn(known, key))
+    .map((key) => ({
+      code: 'unknown-key',
+      path: `${at}.${key}`,
+      message: `Unknown config key "${at}.${key}".`,
+    }));
+
+const keysOf = (value: unknown) => (isObject(value) ? value : {});
+
+/** A field's path within an entry, or the entry's own for `''`, and what is wrong with it. */
+type Problem = [field: string, message: string];
+
+const toError =
+  (code: ConfigErrorCode, at: string) =>
+  ([field, message]: Problem): ConfigError => {
+    const path = field ? `${at}.${field}` : at;
+    return { code, path, message: `"${path}" ${message}.` };
+  };
+
+function checkBots(config: Record<string, unknown>): ConfigError[] {
+  const { bots } = config;
+  if (bots === undefined) return [];
+  if (!isObject(bots)) return [notObject('bots')];
+  const project = keysOf(config.project);
+  // push adopts an untagged bot by its name, so two bots cannot share one.
+  const names = new Map<string, string>();
+  return Object.entries(bots).flatMap(([key, bot]): ConfigError[] => {
+    const at = `bots.${key}`;
+    if (!isObject(bot)) return [notObject(at)];
+    const errors = [
+      ...unknownKeys(bot, BOT_FIELDS, at),
+      ...checkBot(bot, project).map(toError('invalid-bot', at)),
+    ];
+    const name = isText(bot.name) ? (bot.name as string) : key;
+    const other = names.get(name);
+    if (other !== undefined) {
+      errors.push({
+        code: 'duplicate-key',
+        path: `${at}.name`,
+        message: `"${key}" and "${other}" are both named "${name}".`,
+      });
+    }
+    names.set(name, key);
+    return errors;
+  });
+}
+
+function checkBot(bot: Record<string, unknown>, project: Record<string, unknown>): Problem[] {
+  const problems = Object.entries(BOT_FIELDS).flatMap(([field, [valid, expected]]): Problem[] => {
+    const value = bot[field];
+    if (value === undefined && field !== 'file') return [];
+    return valid(value) ? botReferences(field, value, project) : [[field, `must be ${expected}`]];
+  });
+  if (bot.publicWebhook === true && bot.policy === undefined) {
+    problems.push([
+      'publicWebhook',
+      'needs a policy: Medplum answers a webhook to a bot without one with a 403',
+    ]);
+  }
+  return problems;
+}
+
+/** The keys a bot names and the schedule it runs, once each is well formed. */
+function botReferences(field: string, value: unknown, project: Record<string, unknown>): Problem[] {
+  const missing = (key: string, where: string, at = field): Problem[] =>
+    Object.hasOwn(keysOf(project[where]), key)
+      ? []
+      : [[at, `names "${key}", which is not a key in project.${where}`]];
+  if (field === 'policy') return missing(value as string, 'accessPolicies');
+  if (field === 'secrets') {
+    return (value as string[]).flatMap((secret, i) => missing(secret, 'secrets', `secrets[${i}]`));
+  }
+  if (field === 'cron' && !isValidCron(value as string)) {
+    return [[field, 'is not a schedule Medplum runs: it ignores an invalid one']];
+  }
+  return [];
+}
+
+const SUBSCRIPTION_FIELDS = {
+  criteria: 0,
+  interactions: 0,
+  fhirPath: 0,
+  bot: 0,
+  url: 0,
+  secret: 0,
+  headers: 0,
+  maxAttempts: 0,
+} satisfies Record<keyof SubscriptionConfig, 0>;
+
+const VARIABLE =
+  "must be { env: 'VAR' }, naming the variable that holds it: the config is committed, so it never holds the value";
+
+function checkSubscriptions(config: Record<string, unknown>): ConfigError[] {
+  const { subscriptions } = config;
+  if (subscriptions === undefined) return [];
+  if (!isObject(subscriptions)) return [notObject('subscriptions')];
+  const bots = keysOf(config.bots);
+  return Object.entries(subscriptions).flatMap(([key, subscription]): ConfigError[] => {
+    const at = `subscriptions.${key}`;
+    if (!isObject(subscription)) return [notObject(at)];
+    const problems = [...matchProblems(subscription), ...deliveryProblems(subscription, bots)];
+    return [
+      ...unknownKeys(subscription, SUBSCRIPTION_FIELDS, at),
+      ...problems.map(toError('invalid-subscription', at)),
+    ];
+  });
+}
+
+/** What selects the resources a Subscription fires on. */
+function matchProblems({ criteria, interactions, fhirPath }: Record<string, unknown>): Problem[] {
+  const problems: Problem[] = [];
+  if (!isText(criteria)) {
+    problems.push(['criteria', 'must be a search, as Appointment?status=booked']);
+  } else {
+    const reason = checkCriteria(criteria as string);
+    if (reason) problems.push(['criteria', `can never fire: ${reason}`]);
+  }
+  if (
+    interactions !== undefined &&
+    !isListOf(oneOf(['create', 'update', 'delete']))(interactions)
+  ) {
+    problems.push(['interactions', 'must be a list of create, update and delete']);
+  }
+  if (fhirPath !== undefined) {
+    const error = isText(fhirPath) ? parseError(() => parseFhirPath(fhirPath as string)) : '';
+    if (error !== undefined) problems.push(['fhirPath', `is not FHIRPath ${error}`.trim()]);
+  }
+  return problems;
+}
+
+/** Where a Subscription delivers: a declared bot, or an https URL with its own settings. */
+function deliveryProblems(subscription: Record<string, unknown>, bots: object): Problem[] {
+  const { bot, url, secret, headers, maxAttempts } = subscription;
+  if ((bot === undefined) === (url === undefined)) {
+    return [['', 'must name a bot or a url, one of the two']];
+  }
+  if (bot !== undefined) {
+    const known = typeof bot === 'string' && Object.hasOwn(bots, bot);
+    return [
+      ...(known
+        ? []
+        : [['bot', `names ${JSON.stringify(bot)}, which is not a key in bots`] as Problem]),
+      ...['secret', 'headers', 'maxAttempts']
+        .filter((field) => subscription[field] !== undefined)
+        .map((field): Problem => [field, 'applies only to delivery to a url, not to a bot']),
+    ];
+  }
+  return [
+    ...(URL.parse(String(url))?.protocol === 'https:'
+      ? []
+      : [['url', 'must be an https URL'] as Problem]),
+    ...maxAttemptsProblems(maxAttempts),
+    ...(secret === undefined || isEnv(secret) ? [] : [['secret', VARIABLE] as Problem]),
+    ...headerProblems(headers),
+  ];
+}
+
+function maxAttemptsProblems(maxAttempts: unknown): Problem[] {
+  if (maxAttempts === undefined) return [];
+  if (!(Number.isInteger(maxAttempts) && (maxAttempts as number) >= 1)) {
+    return [['maxAttempts', 'must be a whole number of at least 1']];
+  }
+  return (maxAttempts as number) > 18
+    ? [['maxAttempts', 'is over 18, the most Medplum attempts']]
+    : [];
+}
+
+function headerProblems(headers: unknown): Problem[] {
+  if (headers === undefined) return [];
+  if (!isObject(headers)) return [['headers', 'must map header names to values']];
+  return Object.entries(headers).flatMap(([name, value]): Problem[] => {
+    const field = /^[\w-]+$/.test(name) ? `headers.${name}` : `headers[${JSON.stringify(name)}]`;
+    // Medplum splits each header on every ':', so a name cannot hold one.
+    if (!/^[!#$%&'*+.^_`|~\w-]+$/.test(name)) return [[field, 'is not a header name']];
+    return isEnv(value) ? [] : [[field, VARIABLE]];
+  });
+}
+
+const parseError = (parse: () => unknown): string | undefined => {
+  try {
+    parse();
+    return undefined;
+  } catch (err) {
+    return `(${normalizeErrorString(err)})`;
+  }
+};
+
+let serverSchemaIndexed = false;
+
+/** What Medplum's server indexes at startup (`fhir/structure.ts`), so criteria parse and match as there. */
+function indexServerSchema(): void {
+  if (serverSchemaIndexed) return;
+  for (const file of ['profiles-types', 'profiles-resources', 'profiles-medplum']) {
+    indexStructureDefinitionBundle(readJson(`fhir/r4/${file}.json`) as Bundle);
+  }
+  for (const file of SEARCH_PARAMETER_BUNDLE_FILES) {
+    indexSearchParameterBundle(readJson(file) as Bundle<SearchParameter>);
+  }
+  serverSchemaIndexed = true;
+}
+
+// The operators Medplum's matcher (`search/match.ts`) applies for each type it
+// matches. It reads any other modifier or prefix as equality or never matches,
+// and matches no other type. `missing` and `present` work on every type.
+const MATCHED: Record<string, string[]> = {
+  reference: ['eq', 'not'],
+  string: ['eq', 'not', 'contains'],
+  uri: ['eq', 'not'],
+  token: ['eq', 'not'],
+  date: ['eq', 'ne', 'lt', 'gt', 'le', 'ge', 'sa', 'eb'],
+};
+
+/**
+ * Why Medplum's Subscription matcher can never fire on these criteria, or
+ * nothing when it can.
+ */
+export function checkCriteria(criteria: string): string | undefined {
+  indexServerSchema();
+  let request: SearchRequest;
+  try {
+    request = parseSearchRequest(criteria);
+  } catch (err) {
+    return `Medplum cannot parse it (${normalizeErrorString(err)})`;
+  }
+  const type = request.resourceType;
+  if (!isResourceType(type)) return `"${type}" is not a resource type`;
+  for (const filter of request.filters ?? []) {
+    const reason = filterProblem(type, filter);
+    if (reason) return reason;
+  }
+  return undefined;
+}
+
+function filterProblem(type: string, { code, operator }: Filter): string | undefined {
+  if (code.startsWith('_has:') || code.includes('.')) {
+    return `"${code}" is chained, which Medplum's matcher never matches`;
+  }
+  const param = getSearchParameter(type, code);
+  if (!param) {
+    return `"${code}" is not one of Medplum's own search parameters for ${type}, the only ones its matcher reads`;
+  }
+  if (operator === 'missing' || operator === 'present') return undefined;
+  const operators = MATCHED[param.type];
+  if (!operators) {
+    return `"${code}" is a ${param.type} parameter, which Medplum's matcher never matches`;
+  }
+  if (!operators.includes(operator)) {
+    return `Medplum's matcher does not apply "${operator}" to "${code}", a ${param.type} parameter`;
+  }
+  return undefined;
+}
+
+// Medplum checks a Bot's cronString with cron-validator's isValidCron and its
+// default options: five fields, numbers only, no names, `?`, `L` or `#`.
+const CRON_RANGES = [
+  [0, 59],
+  [0, 23],
+  [1, 31],
+  [1, 12],
+  [0, 6],
+] as const;
+
+/** Whether Medplum runs this schedule; it ignores one it finds invalid. */
+export function isValidCron(cron: string): boolean {
+  const fields = cron.trim().split(/\s+/);
+  return (
+    fields.length === 5 &&
+    fields.every((field, i) => {
+      const [min, max] = CRON_RANGES[i] as readonly [number, number];
+      return /^[\d,/*-]+$/.test(field) && field.split(',').every((p) => isCronPart(p, min, max));
+    })
+  );
+}
+
+function isCronPart(part: string, min: number, max: number): boolean {
+  const [range = '', step, ...rest] = part.split('/');
+  if (rest.length > 0 || part.endsWith('/')) return false;
+  if (step !== undefined && !(/^\d+$/.test(step) && Number(step) > 0)) return false;
+  if (range === '*') return true;
+  const sides = range.split('-').map((side) => (/^\d+$/.test(side) ? Number(side) : Number.NaN));
+  const [low = Number.NaN, high = low] = sides;
+  return sides.length <= 2 && low <= high && low >= min && high <= max;
+}
+
+/**
+ * Each bot's bundle: it exists and, for vmcontext, is CommonJS that assigns
+ * `exports.handler`. Checked before `push` writes anything rather than when
+ * the config loads, since a project builds its bots after `generate`.
+ */
+export function checkBotFiles(bots: Record<string, BotConfig> = {}): ConfigError[] {
+  return Object.entries(bots).flatMap(([key, bot]): ConfigError[] => {
+    const path = `bots.${key}.file`;
+    const problem = !existsSync(bot.file)
+      ? `names ${bot.file}, which does not exist: build the bot first`
+      : bot.runtime === 'vmcontext'
+        ? vmcontextProblem(bot.file)
+        : undefined;
+    return problem ? [{ code: 'invalid-bot', path, message: `"${path}" ${problem}.` }] : [];
+  });
+}
+
+// vmcontext evaluates the file as a script inside an async function, with its
+// own `exports` and `module`, then calls `exports.handler` (`bots/vmcontext.ts`).
+function vmcontextProblem(file: string): string | undefined {
+  const notCommonJs = 'is not CommonJS, which vmcontext runs';
+  if (file.endsWith('.mjs')) return `${notCommonJs}: .mjs is an ES module`;
+  const code = readFileSync(file, 'utf8');
+  const reason = parseError(
+    () => new Script(`(async () => { const exports = {}; const module = { exports };\n${code}\n})`),
+  );
+  if (reason) return `${notCommonJs} ${reason}`;
+  if (!/\bexports\.handler\s*=|Object\.assign\(\s*exports\s*,/.test(code)) {
+    return "never assigns exports.handler, which vmcontext calls; esbuild's CommonJS replaces module.exports, so add the footer Object.assign(exports, module.exports)";
+  }
+  return undefined;
+}
+
 /**
  * An environment's settings merged over `project.settings`, the values `push`
  * writes there.
@@ -983,6 +1403,15 @@ export function resolveEnvironment(
       clientSecret: env[environment.clientSecret.env] as string,
     },
   };
+}
+
+function resolveBots(base: string, bots: PlumbConfig['bots']): Pick<PlumbConfig, 'bots'> {
+  if (!bots) return {};
+  const entries = Object.entries(bots).map(([key, bot]) => [
+    key,
+    { ...bot, file: resolve(base, bot.file) },
+  ]);
+  return { bots: Object.fromEntries(entries) };
 }
 
 function resolveCheck(base: string, check: CheckConfig): ResolvedCheckConfig {

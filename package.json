@@ -84,6 +84,7 @@
     "@medplum/definitions": "^5.1.42",
     "@medplum/fhirtypes": "^5.1.42",
     "@types/node": "^22.20.4",
+    "cron-validator": "1.4.0",
     "esbuild": "^0.28.2",
     "fsh-sushi": "^3.20.1",
     "knip": "^6.38.0",

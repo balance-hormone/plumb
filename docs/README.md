@@ -308,6 +308,15 @@
   against Medplum's matcher, access to bots granted by key, and operation
   contracts whose sides are FHIR types or Standard Schemas, in the v0.12.0
   and v0.13.0 milestones.
+- **v0.12:** `bots` and `subscriptions` in the config (#168), typed with the
+  Bot's own values and checked offline with named errors. `invalid-bot`
+  covers an unknown policy or secret, `publicWebhook` without a policy, and a
+  schedule Medplum's `cron-validator` would reject; `push` checks each bot's
+  bundle before writing anything (it exists, and vmcontext's is CommonJS
+  that assigns `exports.handler`), since a project builds its bots after
+  `generate`. `invalid-subscription` covers criteria Medplum's matcher can
+  never fire on, read from the definitions its server indexes; a criteria
+  table records, row by row, what `matchesSearchRequest` itself does.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in
