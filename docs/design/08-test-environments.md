@@ -55,6 +55,13 @@ configured test project: `@medplum/mock`, `@medplum/cli`, Medplum's own
 compose files and its test utilities. If something does, this design builds
 on it instead.
 
+Checked on 2026-10-06 (#140): nothing does. `MockClient` enforces no profile
+or policy, the CLI creates no project, the compose files and the server's test
+helpers are Medplum's own, and `Project/$init` adds default policies `push`
+does not manage. The details are in the
+[research notes](../research/medplum-server-behaviour.md#test-projects-what-upstream-offers).
+The design and its issues stand as written.
+
 ## What a test environment is
 
 - **A server Plumb starts:** Medplum, Postgres and Redis from a compose file
