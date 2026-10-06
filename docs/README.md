@@ -327,6 +327,11 @@
   anything is written. Real-server tests show a second push leaving the Bot's
   version unchanged, a changed file deploying once, and the reported webhook
   URL running the bot without a token. The key `checker` is Plumb's own.
+  A policy entry `{ resourceType: 'Bot', bots: ['<key>'] }` grants bots by
+  key (#170): `push` writes it as `Bot?identifier=<system>|<key>` criteria,
+  so a policy is the same in every environment, and `unknown-bot` names a key
+  `bots` lacks. A real-server test shows a client granted one bot running it
+  and refused the other.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), then reference content, behaviour and data over time. Next, in

@@ -181,7 +181,15 @@ export interface ProjectConfig {
 
 export type Settings = Record<string, string | boolean | number>;
 
-export type AccessPolicyConfig = Omit<AccessPolicy, 'resourceType' | 'id' | 'meta'>;
+export type AccessPolicyConfig = Omit<AccessPolicy, 'resourceType' | 'id' | 'meta' | 'resource'> & {
+  resource?: AccessPolicyEntry[];
+};
+
+/**
+ * An AccessPolicy entry, where a `Bot` entry may name bots by key: push
+ * writes them as criteria on Plumb's identifier, so the policy holds no id.
+ */
+export type AccessPolicyEntry = AccessPolicyResource & { bots?: string[] };
 
 /**
  * A first-level element, such as `code` or `category`, mapped to the values
@@ -239,7 +247,8 @@ export type ConfigErrorCode =
   | 'invalid-check'
   | 'invalid-server-version'
   | 'invalid-bot'
-  | 'invalid-subscription';
+  | 'invalid-subscription'
+  | 'unknown-bot';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -459,7 +468,7 @@ function check(config: unknown): ConfigError[] {
     ...checkTest(record.test),
   );
   errors.push(...checkContent(record.content));
-  errors.push(...checkBots(record), ...checkSubscriptions(record));
+  errors.push(...checkBots(record), ...checkBotGrants(record), ...checkSubscriptions(record));
   for (const key of ['local', 'fsh']) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
       errors.push({ code: 'invalid-type', path: key, message: `"${key}" must be a path.` });
@@ -1038,6 +1047,40 @@ function botReferences(field: string, value: unknown, project: Record<string, un
     return [[field, 'is not a schedule Medplum runs: it ignores an invalid one']];
   }
   return [];
+}
+
+/** Each policy entry that names bots by key: a Bot entry, without its own criteria, naming declared bots. */
+function checkBotGrants(config: Record<string, unknown>): ConfigError[] {
+  const policies = keysOf(keysOf(config.project).accessPolicies);
+  const bots = keysOf(config.bots);
+  return Object.entries(policies).flatMap(([key, policy]) => {
+    const entries = keysOf(policy).resource;
+    if (!Array.isArray(entries)) return [];
+    return entries.flatMap((entry: unknown, i): ConfigError[] => {
+      if (!isObject(entry) || entry.bots === undefined) return [];
+      const path = `project.accessPolicies.${key}.resource[${i}].bots`;
+      if (
+        !isListOf(isText)(entry.bots) ||
+        entry.resourceType !== 'Bot' ||
+        entry.criteria !== undefined
+      ) {
+        return [
+          {
+            code: 'invalid-type',
+            path,
+            message: `"${path}" must be a list of keys in bots, on a Bot entry without criteria.`,
+          },
+        ];
+      }
+      return (entry.bots as string[])
+        .filter((bot) => !Object.hasOwn(bots, bot))
+        .map((bot) => ({
+          code: 'unknown-bot' as const,
+          path,
+          message: `"${path}" names "${bot}", which is not a key in bots.`,
+        }));
+    });
+  });
 }
 
 const SUBSCRIPTION_FIELDS = {

@@ -795,6 +795,26 @@ describe('bots and subscriptions', () => {
     expect(messages[3]).toMatch(/403/);
   });
 
+  test('policy entries name bots by key: unknown-bot, or invalid-type off a Bot entry', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], out: './out',
+        bots: { echo: { file: './echo.cjs' } },
+        project: { accessPolicies: {
+          runner: { resource: [{ resourceType: 'Bot', bots: ['echo'] }] },
+          stray: { resource: [{ resourceType: 'Bot', bots: ['echo', 'nobody'] }] },
+          patient: { resource: [{ resourceType: 'Patient', bots: ['echo'] }] },
+          both: { resource: [{ resourceType: 'Bot', criteria: 'Bot?name=echo', bots: ['echo'] }] },
+        } },
+      };`,
+    });
+    expect(paths(result)).toEqual([
+      ['unknown-bot', 'project.accessPolicies.stray.resource[0].bots'],
+      ['invalid-type', 'project.accessPolicies.patient.resource[0].bots'],
+      ['invalid-type', 'project.accessPolicies.both.resource[0].bots'],
+    ]);
+    expect(!result.ok && result.errors[0]?.message).toMatch(/"nobody", which is not a key in bots/);
+  });
+
   test('invalid-subscription, naming the field and why', () => {
     const result = withBehaviour(`bots: { 'send-reminder': { file: './a.cjs' } },
       subscriptions: {

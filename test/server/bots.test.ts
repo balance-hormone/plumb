@@ -13,6 +13,7 @@ import { fetchPackages } from '../../src/packages.js';
 import { applyProject, PLUMB_SYSTEM, type ProjectOptions, planProject } from '../../src/project.js';
 import { push } from '../../src/push.js';
 import { newProject as newServerProject } from '../../src/server.js';
+import { connectAs } from '../../src/testing.js';
 import { connect, server } from './medplum.js';
 import { newProject, type TestProject } from './setup.js';
 
@@ -194,5 +195,34 @@ describe.skipIf(!server)('push runs the bots step after the project', { timeout:
       '~ Bot  echo (timeout)',
     ]);
     expect(drifted.steps.at(-1)).toMatchObject({ summary: 'drift: 1 bot', failed: true });
+  });
+});
+
+describe.skipIf(!server)('a policy grants bots by key', { timeout: 120_000 }, () => {
+  test("a client whose policy grants bots: ['x'] can run x and not y", async () => {
+    const project = await newProject();
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-bot-access-'));
+    const file = join(dir, 'echo.cjs');
+    writeFileSync(file, ECHO);
+    const medplum = await connect(project);
+    const policies = {
+      accessPolicies: { runner: { resource: [{ resourceType: 'Bot', bots: ['x'] }] } },
+    };
+    await applyProject(await planProject(policies, medplum), medplum);
+    const bots = {
+      x: { file, runtime: 'vmcontext' } as BotConfig,
+      y: { file, runtime: 'vmcontext' } as BotConfig,
+    };
+    await applyBots(await planBots(medplum, bots), medplum);
+    const id = async (key: string) =>
+      (await medplum.searchOne('Bot', { identifier: `${PLUMB_SYSTEM}|${key}` }))?.id as string;
+
+    const runner = await connectAs(project, { accessPolicy: 'runner' });
+    expect(await runner.executeBot(await id('x'), { hello: 'x' }, 'application/json')).toEqual({
+      echoed: { hello: 'x' },
+    });
+    await expect(
+      runner.executeBot(await id('y'), { hello: 'y' }, 'application/json'),
+    ).rejects.toThrow(/^(Not found|Forbidden)$/);
   });
 });
