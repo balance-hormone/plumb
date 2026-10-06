@@ -356,8 +356,11 @@
   order: behaviour as code,
   data migrations, input validation through Medplum's own validator (in place
   of generated Zod schemas). See [`spec.md`](spec.md), Direction and Roadmap.
-- Ideas not yet designed are notes in [`future/`](future/); data migrations
-  are next after behaviour.
+- **Design 11** (data migrations) is accepted for v0.14: `defineMigration`
+  modules run a page at a time by a declared bot, so patient data stays in
+  Medplum, dry run unless `--write`, with a ledger in the project and a
+  built-in restamp.
+- Ideas not yet designed are notes in [`future/`](future/).
 - Work is tracked in GitHub Issues on this repository, one milestone per
   release.
 
@@ -393,14 +396,17 @@
     implemented in v0.12; operations next): bots,
     schedules, webhooks and Subscriptions through `push` by key, and operation
     contracts with typed callers and handlers
+  - [11: data migrations](design/11-data-migrations.md) (accepted): stored
+    records fixed by declared migrations, run inside the project, recorded in
+    a ledger there
 - [`future/`](future/): ideas not yet designed, each with its sketch and
   research.
   - [Conformance check](future/conformance-check.md): the later stages, the
     baseline and adopting late; stages 1 and 2 are design 02.
   - [Project config as code](future/project-config-as-code.md): `push`,
     converged settings, the lockdown recipe.
-  - [Data migrations](future/data-migrations.md): `defineMigration` and a ledger
-    in the project.
+  - [Data migrations](future/data-migrations.md): the sketch design 11
+    supersedes.
   - [Operation contracts](future/operation-contracts.md): typed callers and
     handlers for bot-backed operations.
 - [`research/`](research/): the evidence behind the spec and the ideas.
@@ -414,5 +420,8 @@
   - [Prior art](research/prior-art.md): existing profile type generators and
     why none fits Medplum, plus what Plumb borrows from Drizzle, Prisma and
     others.
+  - [Data migrations prior art](research/migrations-prior-art.md): how
+    schema tools, backfill runners, document stores and FHIR servers fix
+    stored data, and what fits Medplum.
   - [Prototype](research/prototype.md): the FSH → types → validator proof of
     concept and the gaps it found.
