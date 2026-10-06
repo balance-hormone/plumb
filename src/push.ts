@@ -9,7 +9,7 @@ import {
   checkerFilename,
   installChecker,
 } from './checker/install.js';
-import { environmentSettings } from './config.js';
+import { checkBotFiles, environmentSettings } from './config.js';
 import { type Checked, checkStored, judge, type ValidateEnvOptions } from './conformance.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import {
@@ -170,6 +170,8 @@ async function prepare(
 ) {
   const ready = await loadAndConnect(options, result, step);
   if (!ready) return undefined;
+  const bots = checkBotFiles(options.config.bots);
+  if (bots.length > 0) return void step.fail('load', bots);
   const content = loadContent(options.config.content, ready.loaded);
   if (!content.ok) return void step.fail('load', content.errors);
   return { ...ready, content };

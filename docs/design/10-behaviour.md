@@ -229,7 +229,9 @@ export default defineConfig({
 
 ### Checked offline, before anything is written
 
-Named errors, each naming the key:
+Named errors, each naming the key. A bot's `file` is checked when `push`
+starts rather than when the config loads, since a project builds its bots
+after `generate`; the rest is checked on every load.
 
 - `invalid-bot`: a `file` that does not exist, a vmcontext bundle that is not
   CommonJS, an unknown `policy` or secret, `publicWebhook` without `policy`,

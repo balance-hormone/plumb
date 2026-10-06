@@ -5,11 +5,17 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { matchesSearchRequest, parseSearchRequest } from '@medplum/core';
+import type { CodeableConcept, Observation, Resource } from '@medplum/fhirtypes';
+import { isValidCron as medplumIsValidCron } from 'cron-validator';
 import { describe, expect, test } from 'vitest';
 import {
+  checkBotFiles,
+  checkCriteria,
   checkRoutes,
   defineConfig,
   environmentSettings,
+  isValidCron,
   type LoadConfigResult,
   lockdownWarnings,
   type PlumbConfig,
@@ -691,6 +697,385 @@ describe('project', () => {
     ]);
     expect(!result.ok && result.errors[0]?.message).toMatch(/never holds the value/);
     expect(paths(withProject(`'prod'`))).toEqual([['invalid-type', 'project']]);
+  });
+});
+
+const withBehaviour = (fields: string) =>
+  load({
+    'plumb.config.ts': `export default { igs: [], profiles: [], out: './out', project: {
+      secrets: { SMS_API_KEY: { env: 'SMS_API_KEY' } },
+      accessPolicies: { 'reminder-sender': {}, 'intake-writer': {} },
+    }, ${fields} };`,
+  });
+
+const BEHAVIOUR = `
+  bots: {
+    'send-reminder': {
+      file: './dist/bots/send-reminder.cjs',
+      runtime: 'awslambda',
+      timeout: 30,
+      policy: 'reminder-sender',
+      secrets: ['SMS_API_KEY'],
+      cron: '0 14 * * *',
+    },
+    'intake-webhook': {
+      file: './dist/bots/intake-webhook.cjs',
+      name: 'Intake webhook',
+      policy: 'intake-writer',
+      publicWebhook: true,
+      rawBody: true,
+      audit: { trigger: 'on-error', destination: ['resource'] },
+    },
+  },
+  subscriptions: {
+    'new-appointment': {
+      criteria: 'Appointment?status=booked',
+      interactions: ['create'],
+      bot: 'send-reminder',
+    },
+    'lab-result': {
+      criteria: 'DiagnosticReport?status=final',
+      fhirPath: "%previous.status != 'final'",
+      url: 'https://hooks.example.org/lab',
+      secret: { env: 'LAB_HOOK_SECRET' },
+      headers: { Authorization: { env: 'LAB_HOOK_TOKEN' } },
+      maxAttempts: 5,
+    },
+  },`;
+
+describe('bots and subscriptions', () => {
+  test("types bots and subscriptions with Medplum's own values", () => {
+    const config = defineConfig({ igs: [], profiles: [], out: './out' });
+    // @ts-expect-error A bot's audit trigger is one of the Bot's own.
+    defineConfig({ ...config, bots: { a: { file: 'a.cjs', audit: { trigger: 'sometimes' } } } });
+    const lab = { criteria: 'DiagnosticReport', url: 'https://example.org', secret: 'x' };
+    // @ts-expect-error A secret names its variable: the config is committed.
+    defineConfig({ ...config, subscriptions: { lab } });
+  });
+
+  test('loads bots and subscriptions, resolving each file against the config', () => {
+    const result = withBehaviour(BEHAVIOUR);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const base = dirname(result.configPath);
+    expect(result.config.bots?.['send-reminder']?.file).toBe(
+      join(base, 'dist/bots/send-reminder.cjs'),
+    );
+    expect(result.config.subscriptions?.['lab-result']?.maxAttempts).toBe(5);
+  });
+
+  test('invalid-bot, naming the field and why', () => {
+    const result = withBehaviour(`bots: {
+      a: { file: './a.cjs', policy: 'nobody', secrets: ['SMS_API_KEY', 'MISSING'], cron: '0 25 * * *' },
+      b: { file: './b.cjs', publicWebhook: true },
+      c: { runtime: 'deno', timeout: 0, rawBody: 'yes', audit: { destination: ['email'] }, colour: 'red' },
+      d: { file: './d.cjs', name: 'b' },
+      e: { file: './e.cjs', name: 'd' },
+      f: 'x',
+    }`);
+    expect(paths(result)).toEqual([
+      ['invalid-bot', 'bots.a.policy'],
+      ['invalid-bot', 'bots.a.secrets[1]'],
+      ['invalid-bot', 'bots.a.cron'],
+      ['invalid-bot', 'bots.b.publicWebhook'],
+      ['unknown-key', 'bots.c.colour'],
+      ['invalid-bot', 'bots.c.file'],
+      ['invalid-bot', 'bots.c.runtime'],
+      ['invalid-bot', 'bots.c.timeout'],
+      ['invalid-bot', 'bots.c.rawBody'],
+      ['invalid-bot', 'bots.c.audit'],
+      ['duplicate-key', 'bots.d.name'],
+      ['invalid-type', 'bots.f'],
+    ]);
+    const messages = result.ok ? [] : result.errors.map((e) => e.message);
+    expect(messages[0]).toMatch(/"nobody", which is not a key in project.accessPolicies/);
+    expect(messages[1]).toMatch(/"MISSING", which is not a key in project.secrets/);
+    expect(messages[3]).toMatch(/403/);
+  });
+
+  test('invalid-subscription, naming the field and why', () => {
+    const result = withBehaviour(`bots: { 'send-reminder': { file: './a.cjs' } },
+      subscriptions: {
+        both: { criteria: 'Patient', bot: 'send-reminder', url: 'https://example.org/hook' },
+        neither: { criteria: 'Patient' },
+        unknown: { criteria: 'Patient', bot: 'nobody' },
+        plain: { criteria: 'Patient', url: 'http://example.org/hook', maxAttempts: 19 },
+        botOnly: { criteria: 'Patient', bot: 'send-reminder', secret: { env: 'X' } },
+        chained: { criteria: 'Observation?subject.name=Smith', bot: 'send-reminder' },
+        path: { criteria: 'Patient', fhirPath: "name.where(", bot: 'send-reminder' },
+        headers: {
+          criteria: 'Patient',
+          url: 'https://example.org/hook',
+          headers: { 'Bad: name': { env: 'A' }, Token: 'literal' },
+        },
+        events: { criteria: 'Patient', interactions: ['read'], bot: 'send-reminder', extra: 1 },
+        missing: { bot: 'send-reminder' },
+      }`);
+    expect(paths(result)).toEqual([
+      ['invalid-subscription', 'subscriptions.both'],
+      ['invalid-subscription', 'subscriptions.neither'],
+      ['invalid-subscription', 'subscriptions.unknown.bot'],
+      ['invalid-subscription', 'subscriptions.plain.url'],
+      ['invalid-subscription', 'subscriptions.plain.maxAttempts'],
+      ['invalid-subscription', 'subscriptions.botOnly.secret'],
+      ['invalid-subscription', 'subscriptions.chained.criteria'],
+      ['invalid-subscription', 'subscriptions.path.fhirPath'],
+      ['invalid-subscription', 'subscriptions.headers.headers["Bad: name"]'],
+      ['invalid-subscription', 'subscriptions.headers.headers.Token'],
+      ['unknown-key', 'subscriptions.events.extra'],
+      ['invalid-subscription', 'subscriptions.events.interactions'],
+      ['invalid-subscription', 'subscriptions.missing.criteria'],
+    ]);
+    const messages = result.ok ? [] : result.errors.map((e) => e.message);
+    expect(messages[6]).toMatch(/can never fire: "subject.name" is chained/);
+  });
+});
+
+// Each row's `match` is a resource FHIR search says the criteria select, and
+// `miss` one it says they do not. A criteria fires when Medplum's matcher
+// agrees on both; checkCriteria must accept exactly those.
+const CRITERIA: { criteria: string; match: Resource; miss?: Resource; fires: boolean }[] = [
+  {
+    criteria: 'Appointment',
+    match: { resourceType: 'Appointment', status: 'booked', participant: [] },
+    fires: true,
+  },
+  {
+    criteria: 'Appointment?status=booked',
+    match: { resourceType: 'Appointment', status: 'booked', participant: [] },
+    miss: { resourceType: 'Appointment', status: 'cancelled', participant: [] },
+    fires: true,
+  },
+  {
+    criteria: 'Observation?code=http://loinc.org|8867-4',
+    match: observation({ code: coded('http://loinc.org', '8867-4') }),
+    miss: observation({ code: coded('http://loinc.org', '8310-5') }),
+    fires: true,
+  },
+  {
+    criteria: 'Observation?code:not=http://loinc.org|8867-4',
+    match: observation({ code: coded('http://loinc.org', '8310-5') }),
+    miss: observation({ code: coded('http://loinc.org', '8867-4') }),
+    fires: true,
+  },
+  {
+    criteria: 'Observation?subject=Patient/1',
+    match: observation({ subject: { reference: 'Patient/1' } }),
+    miss: observation({ subject: { reference: 'Patient/2' } }),
+    fires: true,
+  },
+  {
+    criteria: 'Patient?name:contains=mit',
+    match: { resourceType: 'Patient', name: [{ family: 'Smith' }] },
+    miss: { resourceType: 'Patient', name: [{ family: 'Jones' }] },
+    fires: true,
+  },
+  {
+    criteria: 'Patient?birthdate=ge2000-01-01',
+    match: { resourceType: 'Patient', birthDate: '2001-05-05' },
+    miss: { resourceType: 'Patient', birthDate: '1999-05-05' },
+    fires: true,
+  },
+  {
+    criteria: 'Patient?_tag=http://example.org/tags|vip',
+    match: {
+      resourceType: 'Patient',
+      meta: { tag: [{ system: 'http://example.org/tags', code: 'vip' }] },
+    },
+    miss: { resourceType: 'Patient' },
+    fires: true,
+  },
+  {
+    criteria: 'Observation?value-quantity:missing=true',
+    match: observation({}),
+    miss: observation({ valueQuantity: { value: 5 } }),
+    fires: true,
+  },
+  {
+    criteria: 'Unknown?status=final',
+    match: { resourceType: 'Unknown', status: 'final' } as unknown as Resource,
+    fires: false,
+  },
+  {
+    criteria: 'Observation?subject.name=Smith',
+    match: observation({ subject: { reference: 'Patient/1', display: 'Smith' } }),
+    fires: false,
+  },
+  {
+    criteria: 'Patient?_has:Observation:subject:code=8867-4',
+    match: { resourceType: 'Patient', id: '1' },
+    fires: false,
+  },
+  {
+    criteria: 'Patient?x-favourite-colour=blue',
+    match: {
+      resourceType: 'Patient',
+      extension: [{ url: 'x-favourite-colour', valueString: 'blue' }],
+    },
+    fires: false,
+  },
+  {
+    criteria: 'RiskAssessment?probability=gt0.5',
+    match: {
+      resourceType: 'RiskAssessment',
+      status: 'final',
+      subject: { reference: 'Patient/1' },
+      prediction: [{ probabilityDecimal: 0.8 }],
+    },
+    fires: false,
+  },
+  {
+    criteria: 'Observation?value-quantity=gt5',
+    match: observation({ valueQuantity: { value: 8 } }),
+    fires: false,
+  },
+  {
+    criteria: 'Observation?code-value-quantity=http://loinc.org|8480-6$gt100',
+    match: observation({
+      code: coded('http://loinc.org', '8480-6'),
+      valueQuantity: { value: 120 },
+    }),
+    fires: false,
+  },
+  {
+    criteria: 'Patient?name:exact=Smith',
+    match: { resourceType: 'Patient', name: [{ family: 'Smith' }] },
+    miss: { resourceType: 'Patient', name: [{ family: 'Smithson' }] },
+    fires: false,
+  },
+  {
+    criteria: 'Observation?code:text=Heart rate',
+    match: observation({ code: { coding: [{ code: '8867-4', display: 'Heart rate, resting' }] } }),
+    fires: false,
+  },
+  {
+    criteria: 'Observation?code:in=http://example.org/ValueSet/vitals',
+    match: observation({ code: coded('http://loinc.org', '8867-4') }),
+    fires: false,
+  },
+  {
+    criteria: 'Observation?subject:identifier=http://example.org/mrn|123',
+    match: observation({
+      subject: { identifier: { system: 'http://example.org/mrn', value: '123' } },
+    }),
+    fires: false,
+  },
+  {
+    criteria: 'Patient?birthdate=ap2000-01-01',
+    match: { resourceType: 'Patient', birthDate: '2000-01-02' },
+    fires: false,
+  },
+  {
+    criteria: 'Patient?birthdate=yesterday',
+    match: { resourceType: 'Patient', birthDate: '2000-01-02' },
+    fires: false,
+  },
+];
+
+function observation(fields: Partial<Observation>): Observation {
+  return { resourceType: 'Observation', status: 'final', code: { text: 'x' }, ...fields };
+}
+
+function coded(system: string, code: string): CodeableConcept {
+  return { coding: [{ system, code }] };
+}
+
+describe('checkCriteria', () => {
+  test.each(CRITERIA)('$criteria', ({ criteria, match, miss, fires }) => {
+    // checkCriteria first: it indexes the definitions Medplum's server does.
+    const reason = checkCriteria(criteria);
+    let matched = false;
+    try {
+      const request = parseSearchRequest(criteria);
+      matched =
+        matchesSearchRequest(match, request) && !(miss && matchesSearchRequest(miss, request));
+    } catch {
+      // Medplum skips a Subscription whose criteria it cannot parse.
+    }
+    expect(matched).toBe(fires);
+    expect(reason === undefined).toBe(fires);
+  });
+});
+
+describe('isValidCron', () => {
+  test.each([
+    '0 14 * * *',
+    '*/15 * * * *',
+    '0 0 1 1 *',
+    '0 0 * * 0-6',
+    ' 0  0 * * 1 ',
+    '1-5/2 * * * *',
+    '1,2,3 * * * *',
+    '0 0 * * 7',
+    '0 0 * * mon',
+    '0 0 * jan *',
+    '60 * * * *',
+    '0 24 * * *',
+    '0 0 0 * *',
+    '0 0 32 * *',
+    '0 0 * 13 *',
+    '5-1 * * * *',
+    '1,,2 * * * *',
+    '*/0 * * * *',
+    '*/ * * * *',
+    '*/*/* * * * *',
+    '? * * * *',
+    '0 0 ? * *',
+    '0 0 L * *',
+    '0 0 * * 1#2',
+    '* * * *',
+    '* * * * * *',
+    '',
+  ])('%j as Medplum validates it', (cron) => {
+    expect(isValidCron(cron)).toBe(medplumIsValidCron(cron));
+  });
+});
+
+describe('checkBotFiles', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'plumb-bots-'));
+  const file = (name: string, text: string) => {
+    writeFileSync(join(dir, name), text);
+    return join(dir, name);
+  };
+  const footer = file(
+    'footer.cjs',
+    'module.exports = { handler };\nObject.assign(exports, module.exports);\nasync function handler() {}',
+  );
+  const assigned = file(
+    'assigned.js',
+    'exports.handler = async () => { await Promise.resolve(); };',
+  );
+  const replaced = file('replaced.cjs', 'module.exports = { handler: async () => {} };');
+  const esm = file('esm.js', 'export async function handler() {}');
+  const mjs = file('bot.mjs', 'export async function handler() {}');
+
+  test('accepts a CommonJS bundle that assigns exports.handler, and any bundle for Lambda', () => {
+    expect(
+      checkBotFiles({
+        a: { file: footer, runtime: 'vmcontext' },
+        b: { file: assigned, runtime: 'vmcontext' },
+        c: { file: mjs },
+        d: { file: replaced, runtime: 'awslambda' },
+      }),
+    ).toEqual([]);
+  });
+
+  test('invalid-bot, for a missing file or one vmcontext cannot run', () => {
+    const errors = checkBotFiles({
+      missing: { file: join(dir, 'missing.cjs') },
+      esm: { file: esm, runtime: 'vmcontext' },
+      mjs: { file: mjs, runtime: 'vmcontext' },
+      replaced: { file: replaced, runtime: 'vmcontext' },
+    });
+    expect(errors.map((e) => [e.code, e.path])).toEqual([
+      ['invalid-bot', 'bots.missing.file'],
+      ['invalid-bot', 'bots.esm.file'],
+      ['invalid-bot', 'bots.mjs.file'],
+      ['invalid-bot', 'bots.replaced.file'],
+    ]);
+    expect(errors[0]?.message).toMatch(/does not exist/);
+    expect(errors[1]?.message).toMatch(/not CommonJS/);
+    expect(errors[3]?.message).toMatch(/Object.assign\(exports, module.exports\)/);
   });
 });
 
