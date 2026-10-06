@@ -9,7 +9,7 @@ import { botFilename } from './bots.js';
 import { type CheckerInput, handler as checker } from './checker/handler.js';
 import { checkerInput } from './checker/input.js';
 import { CHECKER_IDENTIFIER, checkerFilename, findChecker } from './checker/install.js';
-import { importModules } from './config.js';
+import { importModules, type PlumbConfig } from './config.js';
 import { notCurrent, runPage } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
@@ -137,7 +137,7 @@ export async function migrateEnvironment(options: MigrateEnvOptions): Promise<Mi
   if (!ready) return result;
   const { loaded, medplum } = ready;
 
-  const declared = await declaredMigrations(config.modules, options);
+  const declared = await declaredMigrations(options.config, options);
   if ('errors' in declared) return step.fail('migrations', declared.errors);
   const chosen = inOrder(declared.migrations).filter(
     (m) => !options.ids || options.ids.includes(m.id),
@@ -269,13 +269,12 @@ export async function migrationStatus(
     migrations: {},
   };
   const step = steps<string, MigrationStatusResult>(result, options.onStep);
-  const modules = options.config.migrations?.modules;
-  if (!modules) {
+  if (!options.config.migrations) {
     return step.fail('migrations', [
       { code: 'no-migrations', message: 'The config has no "migrations" to report on.' },
     ]);
   }
-  const declared = await declaredMigrations(modules, {});
+  const declared = await declaredMigrations(options.config, {});
   if ('errors' in declared) return step.fail('migrations', declared.errors);
   step.finish('migrations', `${declared.migrations.length} declared`);
   const connected = await connect(options.environment);
@@ -287,15 +286,11 @@ export async function migrationStatus(
     _count: '1000',
   });
   const held = new Map(entries.map((basic) => [tagOf(basic), stateOf(basic)]));
-  const report = (id: string, state: LedgerState | undefined, hash?: string) => {
-    const status: MigrationStatus['status'] = !state
-      ? 'pending'
-      : hash && state.status === 'applied' && state.hash !== hash
-        ? 'edited'
-        : state.status;
+  const report = (id: string, state: LedgerState | undefined, migration?: Migration) => {
+    const status = statusOf(state, migration);
     const found: MigrationStatus = {
       status,
-      module: hash !== undefined,
+      module: migration !== undefined,
       ...(state?.commit ? { commit: state.commit } : {}),
       ...(state ? { counts: state.counts } : {}),
       ...(state?.lastError ? { lastError: state.lastError } : {}),
@@ -304,12 +299,24 @@ export async function migrationStatus(
     step.finish(id, describe(id, found), [], status !== 'applied');
   };
   for (const migration of inOrder(declared.migrations)) {
-    report(migration.id, held.get(migration.id), hashOf(migration));
+    report(migration.id, held.get(migration.id), migration);
     held.delete(migration.id);
   }
   for (const [id, state] of [...held].sort(([a], [b]) => a.localeCompare(b))) report(id, state);
   result.ok = result.steps.every((s) => !s.failed);
   return step.done();
+}
+
+function statusOf(
+  state: LedgerState | undefined,
+  migration: Migration | undefined,
+): MigrationStatus['status'] {
+  if (!state) return 'pending';
+  if (!migration || state.status !== 'applied' || state.hash === hashOf(migration)) {
+    return state.status;
+  }
+  // A restamp runs again when the routing changes; anything else was edited.
+  return migration.repeatable ? 'pending' : 'edited';
 }
 
 function describe(id: string, m: MigrationStatus): string {
@@ -326,23 +333,49 @@ function describe(id: string, m: MigrationStatus): string {
   return m.module ? text : `${text} (no module)`;
 }
 
-/** The modules' migrations, checked, with every id the options name declared. */
+type Declared = { migrations: Migration[] } | { errors: { code: string; message: string }[] };
+
+/**
+ * The modules' migrations, checked, then Plumb's restamps when the config
+ * asks for them, with every id the options name declared.
+ */
 async function declaredMigrations(
-  modules: string[],
+  config: PlumbConfig,
   options: Pick<MigrateEnvOptions, 'ids' | 'rerun'>,
-): Promise<{ migrations: Migration[] } | { errors: { code: string; message: string }[] }> {
-  const declared = await loadMigrations(modules);
+): Promise<Declared> {
+  const declared = await loadMigrations(config.migrations?.modules ?? []);
   if (!declared.ok) return { errors: declared.errors };
   const invalid = checkMigrations(declared.migrations);
   if (invalid.length > 0) return { errors: invalid };
+  const restamps = config.migrations?.restamp ? await loadRestamps(config.out) : { migrations: [] };
+  if ('errors' in restamps) return restamps;
+  const migrations = [...declared.migrations, ...restamps.migrations];
   const unknown = [...(options.ids ?? []), ...(options.rerun ?? [])].filter(
-    (id) => !declared.migrations.some((m) => m.id === id),
+    (id) => !migrations.some((m) => m.id === id),
   );
   if (unknown.length > 0) {
     const message = `No module declares ${unknown.join(', ')}.`;
     return { errors: [{ code: 'unknown-migration', message }] };
   }
-  return { migrations: declared.migrations };
+  return { migrations };
+}
+
+/**
+ * Plumb's restamps, as `generate` wrote them into `_restamp.ts`: hashed by
+ * `_routes.ts`, so a change to the routing makes each pending again.
+ */
+async function loadRestamps(out: string): Promise<Declared> {
+  const file = join(out, '_restamp.ts');
+  const imported = await importModules([file], 'migrations.restamp', 'invalid-migration');
+  const restamps = imported.ok
+    ? (imported.modules[0]?.module.restamps as Omit<Migration, 'from'>[] | undefined)
+    : undefined;
+  if (!restamps) {
+    const message = `"migrations.restamp" is on, but ${file} has no restamps: run plumb generate.`;
+    return { errors: [{ code: 'invalid-migration', message }] };
+  }
+  const routes = join(out, '_routes.ts');
+  return { migrations: restamps.map((m) => ({ ...m, from: routes, repeatable: true })) };
 }
 
 /** Runs each migration in turn, stopping at the first a write must not run, or that fails. */
@@ -427,6 +460,7 @@ async function blocker(
   if (
     state?.status === 'applied' &&
     state.hash !== hash &&
+    !migration.repeatable &&
     !options.rerun?.includes(migration.id)
   ) {
     return {
@@ -444,7 +478,8 @@ async function migrate(
   held: Basic | undefined,
   hash: string,
 ): Promise<MigrationReport> {
-  const status = held ? stateOf(held).status : 'pending';
+  const state = held ? stateOf(held) : undefined;
+  const status = state?.status ?? 'pending';
   const report: MigrationReport = {
     status,
     ran: false,
@@ -452,7 +487,9 @@ async function migrate(
     counts: zero(),
     reasons: [],
   };
-  if (status === 'applied' && !run.options.rerun?.includes(migration.id)) return report;
+  const again =
+    run.options.rerun?.includes(migration.id) || (migration.repeatable && state?.hash !== hash);
+  if (status === 'applied' && !again) return report;
   report.ran = true;
   const pass = await begin(run, migration, held, hash);
   report.resumed = pass.state.cursor !== undefined;

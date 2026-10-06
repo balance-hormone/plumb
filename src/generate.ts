@@ -183,6 +183,7 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
     config.operations,
     botsFile(config),
     migrationImports(config),
+    config.migrations?.restamp === true,
   );
 
   if (check) {

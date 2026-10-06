@@ -12,8 +12,10 @@ export interface Migration {
   transform: (resource: never) => unknown;
   dependsOn?: string[];
   description?: string;
-  /** The module it came from, for errors. */
+  /** The module it came from, for errors, and whose hash the ledger records. */
   from: string;
+  /** Run again whenever that hash changes, as Plumb's restamps are, rather than reported edited. */
+  repeatable?: boolean;
 }
 
 // The date keeps ids from two branches apart and sorts them as written.

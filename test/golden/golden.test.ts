@@ -73,8 +73,9 @@ test('generated output matches the committed goldens', () => {
         'lab-result': { criteria: 'DiagnosticReport?status=final', bot: 'lab-watcher' },
       },
     ),
-    // Migrations with no module yet: the runner, and a bot entry that imports none.
+    // Migrations with no module yet, and the restamp: the runner, and a bot entry with only the restamps.
     [],
+    true,
   );
   if (process.env.GOLDEN_UPDATE) expect(writeFiles(OUT, files).errors).toEqual([]);
   const { stale, errors: folder } = compareFiles(OUT, files);
