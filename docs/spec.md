@@ -31,7 +31,7 @@ it, idempotently, and **verify** that the server and the stored data match.
 | Config | Settings, secrets, defaults, AccessPolicies, clients | Built: v0.6, [design 06](design/06-project-config.md) |
 | Reference content | Questionnaires, terminology, Organizations | Built: v0.11, [design 09](design/09-reference-content.md) |
 | Behaviour | Bots, their operations and Subscriptions | Built: v0.12 and v0.13, [design 10](design/10-behaviour.md) |
-| Data over time | Migrations when a profile or a routing row changes | Designed: v0.14, [design 11](design/11-data-migrations.md) |
+| Data over time | Migrations when a profile or a routing row changes | Built: v0.14, [design 11](design/11-data-migrations.md) |
 
 Drizzle and the T3 stack are reference points, not the target. Plumb borrows
 Drizzle's committed, reviewable generated code and its `push`, and tRPC's one
@@ -487,21 +487,19 @@ Built since v0.1: the conformance check and gated `push`
 as code ([design 09](design/09-reference-content.md), v0.11), and behaviour
 as code ([design 10](design/10-behaviour.md), v0.12 and v0.13): bots,
 Subscriptions, operation contracts and typed handlers, declared together
-because each references the others.
+because each references the others. Data migrations
+([design 11](design/11-data-migrations.md), v0.14): report, fix, then
+enforce, with idempotent migrations run inside the project by a declared bot.
 
 Next, in order. Each gets a design note before it is built.
 
-1. **Data migrations.** Report, fix, then enforce: `validate` finds what a
-   tightened profile breaks, and an idempotent migration fixes it, run inside
-   the project by a declared bot. See [design 11](design/11-data-migrations.md),
-   accepted for v0.14.
-2. **Input validation.** Forms and API edges need checks outside Node, partial
+1. **Input validation.** Forms and API edges need checks outside Node, partial
    drafts and per-field errors. They run Medplum's validator on the selected
    profiles, exposed through Standard Schema so form and server libraries can
    use it. Generated Zod schemas were considered and set aside: they would be
    a second validator, drifting from the server in exactly the rules it does
    not check.
-3. **Agent summaries,** one short Markdown file per profile next to the
+2. **Agent summaries,** one short Markdown file per profile next to the
    generated code.
 
 ## Testing Decisions

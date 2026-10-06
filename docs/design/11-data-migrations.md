@@ -1,10 +1,31 @@
 # Design 11: Data Migrations
 
-**Status: accepted** on 2026-10-06; v0.14 is #189 to #196. The second item
-on the
+**Status: implemented** in v0.14 (#189 to #196). Accepted on 2026-10-06.
+The second item on the
 [spec's roadmap](../spec.md#roadmap). It supersedes the
 [data migrations](../future/data-migrations.md) sketch; the
 [prior art](../research/migrations-prior-art.md) is the survey behind it.
+
+As built, these details differ from or add to the text below:
+
+- **Writes are PUT, not PATCH.** Medplum 5.1.0 applies a PATCH whatever its
+  `If-Match` says, so the runner patches in memory and PUTs the record with
+  `If-Match`, which every release honours (#190).
+- **Over the write quota, a page waits a minute** and runs again, up to ten
+  times, rather than reading the reset time from the 429's extension (#191).
+- **A new ledger entry is a conditional create** (`If-None-Exist` on its
+  tag), so two first runs cannot both make one; later writes use `If-Match`
+  (#191).
+- **More named errors:** `migrator-missing`, the bot is not deployed;
+  `migration-paused`, Ctrl-C stopped a `--write` after a page;
+  `unknown-migration`, an id on the command line no module declares;
+  `no-migrations`, `migrate status` with no `migrations` in the config
+  (#191, #192).
+- **`--local` answers the forecast in process,** with the checker's handler,
+  so it needs no deployed checker either (#193).
+- **Restamps are one migration per type,** `plumb-restamp-<Type>`, generated
+  into `_restamp.ts`, hashed by `_routes.ts`, and marked repeatable: a
+  changed hash makes them pending again, never `migration-edited` (#194).
 
 Builds on [design 02](02-conformance-check.md)'s checker and `validate`, whose
 page loop, cursor and in-project validation it reuses, on
