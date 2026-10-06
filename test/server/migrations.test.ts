@@ -34,7 +34,8 @@ describe.skipIf(!server)('Medplum, as the migration runner relies on it', () => 
     medplum = await connect(await newProject());
   });
 
-  test('a PATCH against a stale version is a 412, precondition-failed', async () => {
+  // Medplum 5.1.0 ignores If-Match on a PATCH and applies it, so the runner writes with PUT.
+  test('a PUT against a stale version is a 412, precondition-failed', async () => {
     const patient = await medplum.createResource<Patient>({
       resourceType: 'Patient',
       active: true,
@@ -42,19 +43,15 @@ describe.skipIf(!server)('Medplum, as the migration runner relies on it', () => 
     const stale = patient.meta?.versionId as string;
     await medplum.updateResource({ ...patient, active: false });
     const outcome = await errorOf(
-      medplum.patchResource(
-        'Patient',
-        patient.id as string,
-        [{ op: 'add', path: '/gender', value: 'other' }],
-        {
-          headers: { 'If-Match': `W/"${stale}"` },
-        },
+      medplum.updateResource(
+        { ...patient, gender: 'other' },
+        { headers: { 'If-Match': `W/"${stale}"` } },
       ),
     );
     expect(outcome?.id).toBe('precondition-failed');
   });
 
-  test("a PATCH is validated against the record's meta.profile in a strict project", async () => {
+  test("a PUT is validated against the record's meta.profile in a strict project", async () => {
     const sd = JSON.parse(
       readFileSync(join(SYNTHETIC, 'StructureDefinition-cardinality-patient.json'), 'utf8'),
     ) as StructureDefinition;
@@ -65,22 +62,16 @@ describe.skipIf(!server)('Medplum, as the migration runner relies on it', () => 
       birthDate: '1970-01-01',
       name: [{ family: 'Synthetic' }],
     });
-    const outcome = await errorOf(
-      medplum.patchResource('Patient', patient.id as string, [
-        { op: 'remove', path: '/birthDate' },
-      ]),
-    );
+    const outcome = await errorOf(medplum.updateResource({ ...patient, birthDate: undefined }));
     expect(outcome?.issue?.flatMap((i) => i.expression ?? [])).toContain('Patient.birthDate');
   });
 
-  test('a PATCH that changes nothing writes no version', async () => {
+  test('a PUT that changes nothing writes no version', async () => {
     const patient = await medplum.createResource<Patient>({
       resourceType: 'Patient',
       gender: 'other',
     });
-    const patched = await medplum.patchResource('Patient', patient.id as string, [
-      { op: 'replace', path: '/gender', value: 'other' },
-    ]);
+    const patched = await medplum.updateResource({ ...patient });
     expect(patched.meta?.versionId).toBe(patient.meta?.versionId);
   });
 

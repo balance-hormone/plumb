@@ -123,7 +123,7 @@ const birthdate: Migration = {
 function client(records: Patient[], writes: (string | number)[] = [], next?: string) {
   const calls = {
     searches: [] as string[],
-    patches: [] as unknown[][],
+    writes: [] as unknown[][],
     reads: [] as string[],
     bots: [] as unknown[],
   };
@@ -145,8 +145,8 @@ function client(records: Patient[], writes: (string | number)[] = [], next?: str
       const p = stored.get(id) as Patient;
       return { ...p, meta: { versionId: `${id}-2` } };
     },
-    patchResource: async (...args: unknown[]): Promise<Resource> => {
-      calls.patches.push(args);
+    updateResource: async (...args: unknown[]): Promise<Resource> => {
+      calls.writes.push(args);
       const answer = writes.shift() ?? 'v2';
       if (typeof answer === 'number') {
         const id = answer === 412 ? 'precondition-failed' : 'invalid';
@@ -159,7 +159,7 @@ function client(records: Patient[], writes: (string | number)[] = [], next?: str
           },
         });
       }
-      return { resourceType: 'Patient', id: args[1] as string, meta: { versionId: answer } };
+      return { ...(args[0] as Patient), meta: { versionId: answer } };
     },
     executeBot: async (_id: Identifier, body: unknown) => {
       calls.bots.push(body);
@@ -205,19 +205,14 @@ describe('handleMigrations', () => {
       failed: 0,
       written: [],
     });
-    expect(calls.patches).toEqual([]);
+    expect(calls.writes).toEqual([]);
   });
 
-  test('a write patches against the version read and records the version written', async () => {
+  test('a write puts the patched record against the version read and records the version written', async () => {
     const { medplum, calls } = client([patient('a')], ['a-2']);
     const result = await run([birthdate], medplum, { write: true });
-    expect(calls.patches).toEqual([
-      [
-        'Patient',
-        'a',
-        [{ op: 'add', path: '/birthDate', value: '1900-01-01' }],
-        { headers: { 'If-Match': 'W/"a-1"' } },
-      ],
+    expect(calls.writes).toEqual([
+      [{ ...patient('a'), birthDate: '1900-01-01' }, { headers: { 'If-Match': 'W/"a-1"' } }],
     ]);
     expect(result).toMatchObject({ changed: 1, written: [{ id: 'a', versionId: 'a-2' }] });
   });
@@ -229,7 +224,7 @@ describe('handleMigrations', () => {
       written: [{ id: 'a', versionId: 'a-3' }],
     });
     expect(once.calls.reads).toEqual(['a']);
-    expect(once.calls.patches[1]?.[3]).toEqual({ headers: { 'If-Match': 'W/"a-2"' } });
+    expect(once.calls.writes[1]?.[1]).toEqual({ headers: { 'If-Match': 'W/"a-2"' } });
     const twice = client([patient('a')], [412, 412]);
     expect(await run([birthdate], twice.medplum, { write: true })).toMatchObject({
       changed: 0,
@@ -253,7 +248,7 @@ describe('handleMigrations', () => {
       failed: 1,
       reasons: [{ message: 'The patch does not apply: nothing at /gender', count: 1 }],
     });
-    expect(broken.calls.patches).toEqual([]);
+    expect(broken.calls.writes).toEqual([]);
   });
 
   test('the changed records, as patched, go to the checker; none, no call', async () => {
