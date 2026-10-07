@@ -13,6 +13,10 @@ As built, these details differ from or add to the text below:
   `If-Match`, which every release honours (#190).
 - **Over the write quota, a page waits a minute** and runs again, up to ten
   times, rather than reading the reset time from the 429's extension (#191).
+- **A module edited mid-pass is `migration-edited` too:** once a pass has
+  written, a paused or errored one whose module changed is refused until
+  `--rerun`, which starts a fresh pass, rather than resumed with two
+  transforms' output. `--local` imports the edited module afresh (#213).
 - **A new ledger entry is a conditional create** (`If-None-Exist` on its
   tag), so two first runs cannot both make one; later writes use `If-Match`
   (#191).

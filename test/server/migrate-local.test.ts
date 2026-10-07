@@ -9,7 +9,7 @@ import { bundledChecker } from '../../src/checker/install.js';
 import type { PlumbConfig } from '../../src/config.js';
 import { printFiles } from '../../src/emit/print.js';
 import { writeFiles } from '../../src/emit/write.js';
-import { migrateEnvironment } from '../../src/migrate.js';
+import { migrateEnvironment, migrationStatus } from '../../src/migrate.js';
 import { fetchPackages } from '../../src/packages.js';
 import { PLUMB_SYSTEM } from '../../src/project.js';
 import { connectAs, migrate } from '../../src/testing.js';
@@ -107,5 +107,81 @@ export default defineMigration({
       status: 'applied',
       counts: { changed: 3 },
     });
+  });
+});
+
+// A module edited while its pass is paused would leave the pages already
+// written with the old transform's output: it is refused as edited until
+// --rerun, and the run that follows uses the edited module, not a cached one.
+describe.skipIf(!server)('migrate, with a module edited mid-pass', { timeout: 120_000 }, () => {
+  let project: TestProject;
+  let config: PlumbConfig;
+  let lockPath: string;
+  let module: string;
+  const GENDER = '20261007-patient-gender';
+  const source = (gender: string) => `export default {
+  id: '${GENDER}',
+  resourceType: 'Patient',
+  search: { 'gender:missing': 'true' },
+  transform: (p) => (p.gender ? undefined : [{ op: 'add', path: '/gender', value: '${gender}' }]),
+};
+`;
+
+  beforeAll(async () => {
+    project = await newProject();
+    const medplum = await connectAs(project);
+    for (let i = 0; i < 25; i++) {
+      await medplum.createResource<Patient>({ resourceType: 'Patient', name: [{ family: 'E' }] });
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-migrate-edited-'));
+    mkdirSync(join(dir, 'migrations'));
+    module = join(dir, `migrations/${GENDER}.ts`);
+    writeFileSync(module, source('unknown'));
+    writeFiles(
+      join(dir, 'generated'),
+      printFiles([], () => 'test', undefined, [], [], undefined, [`../migrations/${GENDER}.js`]),
+    );
+    config = {
+      igs: [],
+      profiles: [PATIENT],
+      local: SYNTHETIC,
+      out: join(dir, 'generated'),
+      bots: { migrator: { file: join(dir, 'migrator.cjs') } },
+      migrations: { bot: 'migrator', modules: [join(dir, 'migrations/*.ts')] },
+    };
+    lockPath = join(dir, 'plumb.lock');
+    await fetchPackages({ igs: [], lockPath });
+  }, 120_000);
+
+  const options = () => ({
+    config,
+    environment: { name: 'test', ...project, synthetic: true },
+    lockPath,
+    checker: bundledChecker(),
+    local: true,
+    write: true,
+    pageSize: 20,
+  });
+
+  test('is refused as edited, then --rerun runs the edited module', async () => {
+    const medplum = await connectAs(project);
+    const controller = new AbortController();
+    await migrateEnvironment({
+      ...options(),
+      signal: controller.signal,
+      onPage: () => controller.abort(),
+    });
+    expect(await medplum.searchResources('Patient', { gender: 'unknown' })).toHaveLength(20);
+
+    writeFileSync(module, source('other'));
+    const refused = await migrateEnvironment(options());
+    expect(refused.errors).toEqual([expect.objectContaining({ code: 'migration-edited' })]);
+    expect(await medplum.searchResources('Patient', { 'gender:missing': 'true' })).toHaveLength(5);
+    const status = await migrationStatus({ config, environment: options().environment });
+    expect(status.migrations[GENDER]?.status).toBe('edited');
+
+    const rerun = await migrateEnvironment({ ...options(), rerun: [GENDER] });
+    expect(rerun.ok).toBe(true);
+    expect(await medplum.searchResources('Patient', { gender: 'other' })).toHaveLength(5);
   });
 });

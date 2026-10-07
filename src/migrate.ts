@@ -312,12 +312,19 @@ function statusOf(
   migration: Migration | undefined,
 ): MigrationStatus['status'] {
   if (!state) return 'pending';
-  if (!migration || state.status !== 'applied' || state.hash === hashOf(migration)) {
-    return state.status;
-  }
+  if (!migration || !edited(state, hashOf(migration))) return state.status;
   // A restamp runs again when the routing changes; anything else was edited.
   return migration.repeatable ? 'pending' : 'edited';
 }
+
+/**
+ * Whether the module changed since its pass began, once that pass has
+ * written something: resuming, or skipping it as applied, would leave records
+ * written by two versions of the transform.
+ */
+const edited = (state: LedgerState, hash: string) =>
+  state.hash !== hash &&
+  (state.status === 'applied' || state.status === 'paused' || state.status === 'errored');
 
 function describe(id: string, m: MigrationStatus): string {
   const at = m.commit ? ` at ${m.commit.slice(0, 7)}` : '';
@@ -325,7 +332,7 @@ function describe(id: string, m: MigrationStatus): string {
   const text = {
     pending: 'pending',
     applied: `applied${at}${changed}`,
-    edited: `applied${at}, then its module was edited: --rerun ${id} runs it again`,
+    edited: `ran${at}, then its module was edited: --rerun ${id} runs it again`,
     running: `running${changed}`,
     paused: `paused${changed}: --write resumes it`,
     errored: `errored${m.lastError ? `: ${m.lastError}` : ''}`,
@@ -458,14 +465,14 @@ async function blocker(
   }
   const state = held && stateOf(held);
   if (
-    state?.status === 'applied' &&
-    state.hash !== hash &&
+    state &&
+    edited(state, hash) &&
     !migration.repeatable &&
     !options.rerun?.includes(migration.id)
   ) {
     return {
       code: 'migration-edited',
-      message: `${migration.id} was edited after it was applied; --rerun ${migration.id} runs it again.`,
+      message: `${migration.id} was edited after it ${state.status === 'applied' ? 'was applied' : 'began writing'}; --rerun ${migration.id} runs it again as a fresh pass.`,
     };
   }
   return undefined;
@@ -670,7 +677,9 @@ async function takeLease(
   ) {
     throw running(migration.id);
   }
-  const resume = previous?.cursor !== undefined && previous.status !== 'applied';
+  // A pass resumes only with the module it began with; otherwise a fresh pass.
+  const resume =
+    previous?.cursor !== undefined && previous.status !== 'applied' && previous.hash === hash;
   const state: LedgerState = {
     status: 'running',
     hash,
