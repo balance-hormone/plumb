@@ -6,7 +6,7 @@ import { extname } from 'node:path';
 import { deepEquals, type MedplumClient } from '@medplum/core';
 import type { AccessPolicy, Bot, Project, ProjectMembership, Reference } from '@medplum/fhirtypes';
 import type { BotConfig } from './config.js';
-import { claim, PLUMB_SYSTEM, type ProjectOptions, tagOf } from './project.js';
+import { claim, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
 
 // @medplum/fhirtypes 5.1.0 has no rawBody on Bot.
 type BotFields = Bot & { rawBody?: boolean };
@@ -144,16 +144,14 @@ export async function planBots(
 ): Promise<BotPlan> {
   const project = medplum.getProject()?.id;
   const ours = <T extends Bot | AccessPolicy>(r: T) => r.meta?.project === project;
-  const tagged = (
-    await medplum.searchResources('Bot', { identifier: `${PLUMB_SYSTEM}|`, _count: '1000' })
-  ).filter(ours);
+  const tagged = (await searchAll(medplum, 'Bot', { identifier: `${PLUMB_SYSTEM}|` })).filter(ours);
   const names = Object.entries(bots).map(([key, c]) => c.name ?? key);
-  const untagged = (await medplum.searchResources('Bot', { _count: '1000' })).filter(
+  const untagged = (await searchAll(medplum, 'Bot', {})).filter(
     (b) => ours(b) && identifierOf(b) === undefined && names.includes(b.name as string),
   );
-  const policies = (
-    await medplum.searchResources('AccessPolicy', { _tag: `${PLUMB_SYSTEM}|`, _count: '1000' })
-  ).filter(ours);
+  const policies = (await searchAll(medplum, 'AccessPolicy', { _tag: `${PLUMB_SYSTEM}|` })).filter(
+    ours,
+  );
   const policyIds = Object.fromEntries(policies.map((p) => [tagOf(p), p.id as string]));
   const held = await withMemberships(medplum, [...tagged, ...untagged]);
   return planHeld(bots, held, policyIds, medplum.getBaseUrl(), options);
@@ -319,9 +317,9 @@ export interface BotsApplied {
  */
 export async function applyBots(plan: BotPlan, medplum: MedplumClient): Promise<BotsApplied> {
   const applied: BotsApplied = { written: 0, webhooks: [] };
-  const policies = (
-    await medplum.searchResources('AccessPolicy', { _tag: `${PLUMB_SYSTEM}|`, _count: '1000' })
-  ).filter((p) => p.meta?.project === medplum.getProject()?.id);
+  const policies = (await searchAll(medplum, 'AccessPolicy', { _tag: `${PLUMB_SYSTEM}|` })).filter(
+    (p) => p.meta?.project === medplum.getProject()?.id,
+  );
   const policy = (key?: string): Reference<AccessPolicy> | undefined => {
     const found = key ? policies.find((p) => tagOf(p) === key) : undefined;
     return found ? { reference: `AccessPolicy/${found.id}` } : undefined;
