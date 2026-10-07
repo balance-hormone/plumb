@@ -295,6 +295,61 @@ describe('transform', () => {
       expect(note.helpers.map((h) => h.name)).toContain('instruction');
     });
 
+    test('a slice named like a narrowed backbone, or another profile, gets another name', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'plumb-slice-names-'));
+      cpSync(LOCAL, dir, { recursive: true });
+      const sd = JSON.parse(
+        readFileSync(join(LOCAL, 'StructureDefinition-sliced-patient.json'), 'utf8'),
+      );
+      // The member slice renamed contact, and contact.name required: the backbone
+      // type SliceClashContact and the slice type would share a name.
+      const renamed = (e: { id: string; path: string; sliceName?: string; min?: number }) => ({
+        ...e,
+        id: e.id.replace('identifier:member', 'identifier:contact'),
+        ...(e.sliceName === 'member' ? { sliceName: 'contact' } : {}),
+        ...(e.path === 'Patient.contact.name' ? { min: 1 } : {}),
+      });
+      writeFileSync(
+        join(dir, 'slice-clash.json'),
+        JSON.stringify({
+          ...sd,
+          id: 'slice-clash',
+          url: `${PLUMB}/slice-clash`,
+          name: 'SliceClash',
+          snapshot: { element: sd.snapshot.element.map(renamed) },
+          differential: {
+            element: [
+              ...sd.differential.element.map(renamed),
+              { id: 'Patient.contact.name', path: 'Patient.contact.name', min: 1 },
+            ],
+          },
+        }),
+      );
+      // A selected profile named as the mrn slice's type would be.
+      const other = JSON.parse(
+        readFileSync(join(LOCAL, 'StructureDefinition-cardinality-patient.json'), 'utf8'),
+      );
+      writeFileSync(
+        join(dir, 'slice-clash-mrn.json'),
+        JSON.stringify({
+          ...other,
+          id: 'slice-clash-mrn',
+          url: `${PLUMB}/slice-clash-mrn`,
+          name: 'SliceClashMrn',
+        }),
+      );
+      const loaded = loadProfiles({
+        packages: [],
+        igs: [],
+        local: dir,
+        profiles: [`${PLUMB}/slice-clash`, `${PLUMB}/slice-clash-mrn`],
+      });
+      const names = transform(loaded).models.flatMap((m) => m.decls.map((d) => d.name));
+      expect(names).toContain('SliceClashContact');
+      expect(names).toContain('SliceClashMrn');
+      expect(new Set(names).size).toBe(names.length);
+    });
+
     test('an extension whose name a profile already has gets another', () => {
       const dir = mkdtempSync(join(tmpdir(), 'plumb-clash-'));
       cpSync(LOCAL, dir, { recursive: true });

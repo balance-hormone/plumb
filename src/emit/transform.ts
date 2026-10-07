@@ -196,6 +196,8 @@ interface Context {
   maxCodes: number;
   /** The type of an extension profile, generated once in its own file. */
   extension: (url: string) => string | undefined;
+  /** The profile and extension type names, which share one namespace with every slice type. */
+  taken: ReadonlySet<string>;
 }
 
 /** Turns one parsed profile into its type declarations. */
@@ -245,7 +247,9 @@ class ProfileTransform {
     this.helpers.length = 0;
     this.constants.length = 0;
     this.sliceDecls.length = 0;
+    // A slice type is named last, so around the profile's own type and its backbones.
     this.usedNames.clear();
+    for (const name of [this.typeName, ...this.inner.values()]) this.usedNames.add(name);
     const root = getDataType(this.schema.type).elements;
     const decls = [
       {
@@ -397,8 +401,9 @@ class ProfileTransform {
   private uniqueName(stem: string, key: string, slice: string): string {
     const plain = `${stem}${pascal(slice)}`;
     const qualified = `${stem}${pascal(key)}${pascal(slice)}`;
-    let name = this.usedNames.has(plain) ? qualified : plain;
-    for (let n = 2; this.usedNames.has(name); n++) name = `${qualified}${n}`;
+    const used = (n: string) => this.usedNames.has(n) || this.ctx.taken.has(n);
+    let name = used(plain) ? qualified : plain;
+    for (let n = 2; used(name); n++) name = `${qualified}${n}`;
     this.usedNames.add(name);
     return name;
   }
@@ -911,6 +916,7 @@ export function transform(
     targetType,
     expand: (url) => expandValueSet(url, lookup),
     maxCodes: options.maxCodes ?? MAX_CODES,
+    taken,
     extension: (url) => {
       const bare = url.split('|')[0] as string;
       const known = selected.get(bare) ?? extensions.get(bare)?.typeName;
