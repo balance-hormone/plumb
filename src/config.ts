@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
+import { createHash } from 'node:crypto';
 import { existsSync, globSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -441,8 +442,11 @@ async function importConfig(
   configPath: string,
 ): Promise<{ module: { default?: unknown } } | { error: ConfigError }> {
   const url = pathToFileURL(configPath).href;
+  // Keyed by content, so a module edited since this process last imported it
+  // loads again rather than from Node's cache. tsx imports afresh each call.
+  const version = createHash('sha256').update(readFileSync(configPath)).digest('hex').slice(0, 16);
   try {
-    return { module: await import(url) };
+    return { module: await import(`${url}?v=${version}`) };
   } catch (err) {
     const error = importError(err, false);
     if (!error) throw err;
