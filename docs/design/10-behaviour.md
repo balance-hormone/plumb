@@ -41,6 +41,9 @@ As built in v0.13:
 - **Contracts load and are checked when `push` starts,** not with the config,
   and also refuse a type or instance operation without its resource and a
   pattern that matches no file (#175).
+- **An instance operation's input is its resource type, or a profile:**
+  Medplum drops the body and hands the bot the stored resource, on 5.1.0 and
+  5.1.42, so a JSON or other-type input is `invalid-operation` (#217).
 - **A profile output's parameter is the profile's type,** with the profile as
   its `targetProfile` (#175).
 - **`defineBot` does not type an operation's input:** `generate` does not load

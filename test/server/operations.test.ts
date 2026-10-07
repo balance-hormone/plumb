@@ -164,4 +164,19 @@ export const handler = handleOperation(activate, (_medplum, patient) => ({ ...pa
     await applyOperations(await plan(removed, { prune: true }), await connect(project));
     expect(await medplum.searchOne('OperationDefinition', { code: 'plumb-shout' })).toBeUndefined();
   });
+
+  test('an instance operation hands the bot the stored resource, not the body sent', async () => {
+    const stamp = { ...activate(), code: 'plumb-stamp', level: 'instance' } as Contract;
+    await applyOperations(await plan([activate() as Contract, stamp]), await connect(project));
+    const stored = await medplum.createResource<Patient>({
+      resourceType: 'Patient',
+      name: [{ family: 'Stored' }],
+    });
+    const sent = { ...stored, name: [{ family: 'Sent' }] };
+    expect(await generated.callOperation(medplum, stamp, sent)).toMatchObject({
+      id: stored.id,
+      name: [{ family: 'Stored' }],
+      active: true,
+    });
+  });
 });
