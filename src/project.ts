@@ -438,10 +438,10 @@ function planPolicy(
   { current, adopt }: { current?: AccessPolicy; adopt?: true },
 ): ProjectChange | undefined {
   const type = 'AccessPolicy';
-  if (!current) return { kind: '+', type, key, resource: withTag(desired, key) };
+  if (!current) return { kind: '+', type, key, resource: withPlumbTag(desired, key) };
   const fields = differing(desired, current);
   if (fields.length === 0 && !adopt) return undefined;
-  const resource = withTag(desired, key, current);
+  const resource = withPlumbTag(desired, key, current);
   return {
     kind: '~',
     type,
@@ -500,17 +500,26 @@ export function planClients(
   return plan;
 }
 
-/** The resource as the config wants it, carrying Plumb's tag beside any others it had. */
-function withTag<T extends AccessPolicy | ClientApplication>(
-  desired: T,
-  key: string,
-  current?: T,
-): T {
-  const others = current?.meta?.tag?.filter((t) => t.system !== PLUMB_SYSTEM) ?? [];
+/**
+ * The resource as the config wants it, keeping the server copy's id and meta
+ * (so a hand-set `security` or `account` survives), with the desired meta
+ * merged over it and Plumb's tag for `key` in place of any it had.
+ */
+export function withPlumbTag<T extends Resource>(desired: T, key: string, current?: T): T {
+  const tags = [...(current?.meta?.tag ?? []), ...(desired.meta?.tag ?? [])].filter(
+    (t) => t.system !== PLUMB_SYSTEM,
+  );
+  const once = tags.filter(
+    (t, i) => tags.findIndex((u) => u.system === t.system && u.code === t.code) === i,
+  );
   return {
     ...desired,
     ...(current ? { id: current.id } : {}),
-    meta: { tag: [...others, { system: PLUMB_SYSTEM, code: key }] },
+    meta: {
+      ...current?.meta,
+      ...desired.meta,
+      tag: [...once, { system: PLUMB_SYSTEM, code: key }],
+    },
   };
 }
 
@@ -700,7 +709,7 @@ async function updateClient(
 ): Promise<void> {
   if (change.adopt || change.fields.includes('name')) {
     const client = await medplum.readResource('ClientApplication', change.id);
-    await medplum.updateResource(withTag({ ...client, name: change.key }, change.key, client));
+    await medplum.updateResource(withPlumbTag({ ...client, name: change.key }, change.key, client));
   }
   if (change.fields.some((f) => f === 'accessPolicy' || f === 'admin')) {
     const { accessPolicy: _, ...membership } = await medplum.readResource(

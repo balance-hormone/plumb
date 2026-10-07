@@ -1,10 +1,17 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import type { MedplumClient } from '@medplum/core';
-import type { AccessPolicy, Project, ProjectMembership } from '@medplum/fhirtypes';
+import type {
+  AccessPolicy,
+  ClientApplication,
+  Project,
+  ProjectMembership,
+  Resource,
+} from '@medplum/fhirtypes';
 import { describe, expect, test } from 'vitest';
 import type { ProjectConfig } from './config.js';
 import {
+  applyProject,
   describeChange,
   type HeldClient,
   PLUMB_SYSTEM,
@@ -15,6 +22,7 @@ import {
   planProject,
   planSummary,
   searchAll,
+  withPlumbTag,
 } from './project.js';
 
 const PROJECT_ID = 'p1';
@@ -119,12 +127,20 @@ describe('planPolicies', () => {
         name: 'clinician',
         resource: [{ resourceType: 'Patient', readonly: true }],
         ipAccessRule: [{ value: '10.0.0.0/8', action: 'allow' }],
-        meta: { tag: [other, tag('clinician')] },
+        meta: { project: PROJECT_ID, versionId: '1', tag: [other, tag('clinician')] },
       },
     });
     expect(change && describeChange(change)).toBe(
       '~ AccessPolicy  clinician (ipAccessRule, resource)',
     );
+  });
+
+  test('keeps a hand-set meta.security on update', () => {
+    const security = [{ system: 'http://example.org/security', code: 'restricted' }];
+    const current = { ...CLINICIAN, meta: { ...CLINICIAN.meta, security } };
+    const config: ProjectConfig = { accessPolicies: { clinician: { resource: [] } } };
+    const [change] = planPolicies(config, [current]).changes;
+    expect(change).toMatchObject({ resource: { meta: { security, tag: [tag('clinician')] } } });
   });
 
   test('lists a tagged policy whose key left the config, and removes it only with prune', () => {
@@ -294,6 +310,30 @@ describe('planClients', () => {
   });
 });
 
+describe('applyProject', () => {
+  test("keeps a renamed client's hand-set meta.security", async () => {
+    const security = [{ system: 'http://example.org/security', code: 'restricted' }];
+    const client: ClientApplication = {
+      resourceType: 'ClientApplication',
+      id: 'c1',
+      name: 'old',
+      meta: { project: PROJECT_ID, security },
+    };
+    const written: Resource[] = [];
+    const medplum = {
+      readResource: async () => client,
+      updateResource: async (r: Resource) => written.push(r) && r,
+    } as unknown as MedplumClient;
+    const change = { kind: '~', type: 'ClientApplication', key: 'ci', id: 'c1' } as const;
+    const plan = { blocked: [], warnings: [], policyIds: {} };
+    const changes = [{ ...change, membership: 'm1', fields: ['name'], admin: false }];
+    await applyProject({ ...plan, changes }, medplum);
+    expect(written).toEqual([
+      { ...client, name: 'ci', meta: { project: PROJECT_ID, security, tag: [tag('ci')] } },
+    ]);
+  });
+});
+
 describe('planFields', () => {
   const PROJECT: Project = {
     resourceType: 'Project',
@@ -440,6 +480,43 @@ describe('planProject', () => {
   test("does not warn that push's own policy writes StructureDefinition", async () => {
     const plan = await planProject(CONFIG, client([CLINICIAN, CI_DEPLOY], { accessPolicy: 'b' }));
     expect(plan.warnings).toEqual(['strictMode on, features: bots']);
+  });
+});
+
+describe('withPlumbTag', () => {
+  const other = { system: 'http://example.org/tags', code: 'reviewed' };
+  const security = [{ system: 'http://example.org/security', code: 'restricted' }];
+  const desired: AccessPolicy = { resourceType: 'AccessPolicy', name: 'clinician' };
+
+  test('a new resource carries only its own meta and the tag', () => {
+    expect(withPlumbTag({ ...desired, meta: { tag: [other] } }, 'clinician')).toEqual({
+      ...desired,
+      meta: { tag: [other, tag('clinician')] },
+    });
+  });
+
+  test("keeps the server copy's meta and id, less its old Plumb tag", () => {
+    const current = held('a', { meta: { security, tag: [other, tag('old')] } });
+    expect(withPlumbTag(desired, 'clinician', current)).toEqual({
+      ...desired,
+      id: 'a',
+      meta: { project: PROJECT_ID, versionId: '1', security, tag: [other, tag('clinician')] },
+    });
+  });
+
+  test("merges the desired meta over the server copy's, listing a tag both carry once", () => {
+    const current = held('a', { meta: { profile: ['http://example.org/old'], tag: [other] } });
+    const merged = withPlumbTag(
+      { ...desired, meta: { profile: ['http://example.org/new'], tag: [other] } },
+      'clinician',
+      current,
+    );
+    expect(merged.meta).toEqual({
+      project: PROJECT_ID,
+      versionId: '1',
+      profile: ['http://example.org/new'],
+      tag: [other, tag('clinician')],
+    });
   });
 });
 

@@ -3,9 +3,12 @@
 import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { MedplumClient } from '@medplum/core';
+import type { Organization } from '@medplum/fhirtypes';
 import { describe, expect, test } from 'vitest';
-import { loadContent } from './content.js';
+import { loadContent, planContent } from './content.js';
 import { loadProfiles } from './loader.js';
+import { PLUMB_SYSTEM } from './project.js';
 
 const FIXTURES = join(import.meta.dirname, '../test/fixtures');
 const ORGANIZATION = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-organization';
@@ -134,5 +137,31 @@ describe('loadContent', () => {
 
     const fixed = folder({ 'claims.json': { ...claims, active: true } });
     expect(loadContent([join(fixed, 'claims.json')], loaded).errors).toEqual([]);
+  });
+});
+
+describe('planContent', () => {
+  test("keeps the server copy's hand-set meta.security, and lists a tag the file carries once", async () => {
+    const other = { system: 'http://example.org/tags', code: 'reviewed' };
+    const security = [{ system: 'http://example.org/security', code: 'restricted' }];
+    const plumb = { system: PLUMB_SYSTEM, code: 'main-clinic' };
+    const held: Organization = {
+      resourceType: 'Organization',
+      id: 'o1',
+      name: 'Old Name',
+      meta: { project: 'p1', security, tag: [other, plumb] },
+    };
+    const medplum = {
+      getProject: () => ({ id: 'p1' }),
+      async *searchResourcePages(type: string) {
+        yield type === 'Organization' ? [held] : [];
+      },
+      searchResources: async () => [],
+    } as unknown as MedplumClient;
+    const resource = { ...CLINIC, meta: { tag: [other] } } as Organization;
+    const plan = await planContent(medplum, [{ file: 'c.json', resource, key: 'main-clinic' }]);
+    expect(plan.changes).toMatchObject([
+      { kind: '~', id: 'o1', resource: { meta: { project: 'p1', security, tag: [other, plumb] } } },
+    ]);
   });
 });

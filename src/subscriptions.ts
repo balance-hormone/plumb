@@ -3,7 +3,15 @@
 import { deepEquals, type MedplumClient } from '@medplum/core';
 import type { Bot, Extension, Subscription } from '@medplum/fhirtypes';
 import type { SubscriptionConfig } from './config.js';
-import { claim, owned, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
+import {
+  claim,
+  owned,
+  PLUMB_SYSTEM,
+  type ProjectOptions,
+  searchAll,
+  tagOf,
+  withPlumbTag,
+} from './project.js';
 
 // The extensions Medplum reads (`subscriptions/index.ts`, `workers/subscription.ts`).
 // The secret's URL has the `www`; the others do not.
@@ -217,14 +225,12 @@ function planOne(
   );
   if (fields.length === 0 && !adopt) return undefined;
   const others = current.extension?.filter((e) => !MANAGED_EXTENSIONS.includes(e.url)) ?? [];
-  const otherTags = current.meta?.tag?.filter((t) => t.system !== PLUMB_SYSTEM) ?? [];
   const { error: _, ...kept } = current;
-  const next: Subscription = {
-    ...kept,
-    ...subscription,
-    extension: [...others, ...(subscription.extension ?? [])],
-    meta: { ...current.meta, tag: [...otherTags, ...(subscription.meta?.tag ?? [])] },
-  };
+  const next = withPlumbTag(
+    { ...kept, ...subscription, extension: [...others, ...(subscription.extension ?? [])] },
+    key,
+    current,
+  );
   if (next.extension?.length === 0) delete next.extension;
   return {
     kind: '~',
