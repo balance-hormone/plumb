@@ -43,7 +43,7 @@ describe('loadOperations', () => {
 });
 
 describe('checkOperations', () => {
-  test('invalid-operation for a reused code, a built-in code, an unknown bot, no resource, an unselected profile', () => {
+  test('invalid-operation for a reused code, a built-in code, an unknown bot, no resource, an unselected profile, an instance input', () => {
     const errors = checkOperations(
       [
         contract({}),
@@ -53,6 +53,16 @@ describe('checkOperations', () => {
         contract({ code: 'b', level: 'type', from: 'ops.ts#b' }),
         contract({ code: 'c', input: 'http://example.org/fhir/other', from: 'ops.ts#c' }),
         contract({ code: 'd', input: PATIENT, from: 'ops.ts#d' }),
+        contract({ code: 'e', level: 'instance', resource: 'Patient', from: 'ops.ts#e' }),
+        contract({
+          code: 'f',
+          level: 'instance',
+          resource: 'Patient',
+          input: 'Observation',
+          from: 'ops.ts#f',
+        }),
+        contract({ code: 'g', level: 'instance', resource: 'Patient', input: 'Patient' }),
+        contract({ code: 'h', level: 'instance', resource: 'Patient', input: PATIENT }),
       ],
       { messenger: {} },
       [PATIENT],
@@ -63,6 +73,8 @@ describe('checkOperations', () => {
       'ops.ts#a ($a) names the bot "nobody", which is not a key in bots.',
       'ops.ts#b ($b) is a type operation without a resource.',
       'ops.ts#c ($c) names the profile http://example.org/fhir/other, which is not selected.',
+      'ops.ts#e ($e) is an instance operation, so its input is the stored Patient Medplum hands the bot, not JSON.',
+      'ops.ts#f ($f) is an instance operation, so its input is the stored Patient Medplum hands the bot, not Observation.',
     ]);
   });
 });
