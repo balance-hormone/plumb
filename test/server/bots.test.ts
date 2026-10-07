@@ -195,6 +195,28 @@ describe.skipIf(!server)('push runs the bots step after the project', { timeout:
       '~ Bot  echo (timeout)',
     ]);
     expect(drifted.steps.at(-1)).toMatchObject({ summary: 'drift: 1 bot', failed: true });
+
+    // A blocked plan is a problem found, as content's is: no error, and the drift line still prints.
+    await medplum.post<Bot>(`admin/projects/${project.projectId}/bot`, {
+      name: 'legacy',
+      runtimeVersion: 'vmcontext',
+    });
+    const legacy = { ...options.config.bots, legacy: { file, runtime: 'vmcontext' } as BotConfig };
+    const blocked = await push({
+      ...options,
+      config: { ...options.config, bots: legacy },
+      check: true,
+    });
+    expect(blocked.errors).toEqual([]);
+    expect(blocked.bots?.blocked).toMatchObject([{ code: 'untagged-bot' }]);
+    expect(blocked.steps.find((s) => s.name === 'bots')).toMatchObject({
+      failed: true,
+      warnings: expect.arrayContaining(['Bot "legacy" exists untagged; adopt it with --adopt.']),
+    });
+    expect(blocked.steps.at(-1)).toMatchObject({
+      name: 'check',
+      summary: expect.stringContaining('1 blocked'),
+    });
   });
 });
 

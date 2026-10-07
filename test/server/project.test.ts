@@ -99,7 +99,10 @@ describe.skipIf(!server)('the project step converges AccessPolicies', { timeout:
     };
     const refused = await plan(config);
     expect(refused.blocked).toEqual([
-      'AccessPolicy "nurse" exists untagged; adopt it with --adopt.',
+      {
+        code: 'untagged-access-policy',
+        message: 'AccessPolicy "nurse" exists untagged; adopt it with --adopt.',
+      },
     ]);
     expect((await stored()).get('nurse')?.meta?.versionId).toBe(untagged.meta?.versionId);
 

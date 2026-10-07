@@ -108,6 +108,12 @@ export type ProjectChange =
       kept?: true;
     };
 
+/** Why a plan cannot be applied, named as an error is: a problem found, so push exits 1. */
+export interface Blocked {
+  code: string;
+  message: string;
+}
+
 /**
  * What `push` will write. It holds no resource a secret could be read from:
  * a client is planned by its ids, and read again when it is written.
@@ -115,7 +121,7 @@ export type ProjectChange =
 export interface ProjectPlan {
   changes: ProjectChange[];
   /** Why nothing in the project can be applied. */
-  blocked: string[];
+  blocked: Blocked[];
   warnings: string[];
   /** The ids of the policies the project already holds, by key, for clients to reference. */
   policyIds: Record<string, string>;
@@ -241,7 +247,7 @@ export function planFields(
 interface FieldPlan {
   write: ProjectWrite;
   fields: string[];
-  blocked?: string[];
+  blocked?: Blocked[];
 }
 
 function planSettings(project: ProjectTarget, current: ProjectFields): FieldPlan {
@@ -267,13 +273,17 @@ function planSecrets(
   env: Record<string, string | undefined>,
 ): FieldPlan {
   const secret: NonNullable<ProjectWrite['secret']> = [];
-  const blocked: string[] = [];
+  const blocked: Blocked[] = [];
   for (const [name, source] of Object.entries(project.secrets ?? {})) {
     const held = current.secret?.find((s) => s.name === name);
     if (source === true) {
-      if (!held) blocked.push(`secret ${name} is not in the project: set it in the console.`);
+      if (!held) {
+        const message = `secret ${name} is not in the project: set it in the console.`;
+        blocked.push({ code: 'missing-secret', message });
+      }
     } else if (!env[source.env]) {
-      blocked.push(`${source.env} is not set: it holds secret ${name}.`);
+      const message = `${source.env} is not set: it holds secret ${name}.`;
+      blocked.push({ code: 'unset-variable', message });
     } else if (held?.valueString !== env[source.env]) {
       secret.push({ name, env: source.env });
     }
@@ -379,7 +389,7 @@ export function planPolicies(
       untagged,
       options,
     );
-    if (typeof claimed === 'string') {
+    if ('code' in claimed) {
       plan.blocked.push(claimed);
       continue;
     }
@@ -409,7 +419,8 @@ function botCriteria({ bots, ...entry }: AccessPolicyEntry): AccessPolicyResourc
 /**
  * The one resource a key manages: the one carrying its tag, or with `--adopt`
  * the one untagged resource with its name. Nothing when there is neither, or
- * why the key is blocked.
+ * why the key is blocked: `shadowed-<kind>` or `untagged-<kind>`, the kind
+ * being the type in kebab case unless a planner names its own.
  */
 export function claim<T>(
   type: string,
@@ -418,16 +429,26 @@ export function claim<T>(
   found: T[],
   untagged: T[],
   options: ProjectOptions,
-): { current?: T; adopt?: true } | string {
+  kind = type.replace(/(?<=.)[A-Z]/g, (c) => `-${c}`).toLowerCase(),
+): { current?: T; adopt?: true } | Blocked {
+  const blocked = (problem: string, message: string) => ({ code: `${problem}-${kind}`, message });
   if (found.length > 1) {
-    return `${type} "${key}": ${found.length} resources carry its tag; delete all but one, then push again.`;
+    return blocked(
+      'shadowed',
+      `${type} "${key}": ${found.length} resources carry its tag; delete all but one, then push again.`,
+    );
   }
   if (found[0]) return { current: found[0] };
   if (untagged.length === 0) return {};
   if (untagged.length > 1) {
-    return `${type} "${name}" exists ${untagged.length} times untagged; delete all but one, then adopt it with --adopt.`;
+    return blocked(
+      'untagged',
+      `${type} "${name}" exists ${untagged.length} times untagged; delete all but one, then adopt it with --adopt.`,
+    );
   }
-  if (!options.adopt) return `${type} "${name}" exists untagged; adopt it with --adopt.`;
+  if (!options.adopt) {
+    return blocked('untagged', `${type} "${name}" exists untagged; adopt it with --adopt.`);
+  }
   return { current: untagged[0], adopt: true };
 }
 
@@ -474,12 +495,12 @@ export function planClients(
   for (const [key, config] of Object.entries(clients)) {
     const untagged = held.filter((h) => tagOf(h.client) === undefined && h.client.name === key);
     const claimed = claim(type, key, key, tagged.get(key) ?? [], untagged, options);
-    if (typeof claimed === 'string') {
+    if ('code' in claimed) {
       plan.blocked.push(claimed);
       continue;
     }
     const planned = planClient(key, config, claimed, policyIds);
-    if (typeof planned === 'string') plan.blocked.push(planned);
+    if (planned && 'code' in planned) plan.blocked.push(planned);
     else if (planned) plan.changes.push(planned);
   }
   const kept = options.prune ? {} : { kept: true as const };
@@ -539,7 +560,7 @@ function planClient(
   config: NonNullable<ProjectConfig['clients']>[string],
   { current, adopt }: { current?: HeldClient; adopt?: true },
   policyIds: Record<string, string>,
-): ProjectChange | string | undefined {
+): ProjectChange | Blocked | undefined {
   const type = 'ClientApplication';
   const desired = {
     ...(config.accessPolicy ? { accessPolicy: config.accessPolicy } : {}),
@@ -547,7 +568,10 @@ function planClient(
   };
   if (!current) return { kind: '+', type, key, ...desired };
   const { client, membership } = current;
-  if (!membership) return `${type} "${key}" has no ProjectMembership; delete it, then push again.`;
+  if (!membership) {
+    const message = `${type} "${key}" has no ProjectMembership; delete it, then push again.`;
+    return { code: 'client-without-membership', message };
+  }
   const policy = config.accessPolicy && policyIds[config.accessPolicy];
   // A policy this plan creates has no id yet, so a membership naming it always changes.
   const policyChanged = config.accessPolicy

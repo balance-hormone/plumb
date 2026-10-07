@@ -84,7 +84,13 @@ export async function createTestProject(
     onStep: options.onStep,
   });
   if (!result.ok) {
-    const failed = result.errors.map((e) => `${e.step}: ${e.message}`).join('\n');
+    // A blocked plan is no error, so its step's lines say why.
+    const failed = [
+      ...result.errors.map((e) => `${e.step}: ${e.message}`),
+      ...result.steps
+        .filter((s) => s.failed)
+        .flatMap((s) => s.warnings.map((w) => `${s.name}: ${w}`)),
+    ].join('\n');
     return {
       ok: false,
       push: result,

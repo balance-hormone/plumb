@@ -88,6 +88,132 @@ const OK = 0;
 const PROBLEMS = 1;
 const USAGE_ERROR = 2;
 
+/**
+ * Each error code's exit, whichever command or step reports it. 2 when the
+ * command could not run as asked: usage, config, set-up or connection, fixed
+ * before running again. 1 for a problem found, a failed write included: the
+ * command ran, and what it met needs fixing. A code not listed, as one a
+ * migration throws, is a problem found.
+ */
+const EXIT: Record<string, typeof PROBLEMS | typeof USAGE_ERROR> = {
+  // The config, as written: loadConfig's codes, and those found once the profiles load.
+  'config-not-found': 2,
+  'unsupported-syntax': 2,
+  'unresolved-import': 2,
+  'no-default-export': 2,
+  'unknown-key': 2,
+  'missing-out': 2,
+  'invalid-type': 2,
+  'invalid-ig': 2,
+  'unlisted-ig': 2,
+  'invalid-profile': 2,
+  'invalid-max-codes': 2,
+  'invalid-base-url': 2,
+  'unknown-environment': 2,
+  'missing-variable': 2,
+  'invalid-route': 2,
+  'unselected-route': 2,
+  'invalid-route-element': 2,
+  'invalid-default-profile': 2,
+  'versioned-url': 2,
+  'fsh-and-local': 2,
+  'no-sushi-config': 2,
+  'invalid-setting': 2,
+  'super-admin-field': 2,
+  'unknown-access-policy': 2,
+  'duplicate-key': 2,
+  'invalid-check': 2,
+  'invalid-server-version': 2,
+  'invalid-bot': 2,
+  'invalid-subscription': 2,
+  'unknown-bot': 2,
+  'invalid-operation': 2,
+  'invalid-migration': 2,
+  'invalid-content': 2,
+  'duplicate-content': 2,
+  'unknown-migration': 2,
+  'no-migrations': 2,
+  'no-check-config': 2,
+  // Set-up: tools, deployed bots and features the command needs.
+  'sushi-not-installed': 2,
+  'sushi-too-old': 2,
+  'no-compiler-api': 2,
+  'checker-missing': 2,
+  'checker-outdated': 2,
+  'migrator-missing': 2,
+  'migrator-not-current': 2,
+  'not-synthetic': 2,
+  'bots-disabled': 2,
+  'cron-disabled': 2,
+  // Connection.
+  'connect-failed': 2,
+  'registry-error': 2,
+  // Packages and the lockfile.
+  'download-mismatch': 1,
+  'invalid-package': 1,
+  'inexact-dependency': 1,
+  'integrity-mismatch': 1,
+  'lock-missing': 1,
+  'lock-disagrees': 1,
+  'no-lock': 1,
+  // The project's own files: fixed before running again.
+  'invalid-lock': 2,
+  'local-not-found': 2,
+  'invalid-local-json': 2,
+  // Profiles that do not load, or do not generate.
+  'profile-not-found': 1,
+  'no-snapshot': 1,
+  'not-r4': 1,
+  'unresolved-reference': 1,
+  'duplicate-definition': 1,
+  unparseable: 1,
+  'load-failed': 1,
+  'content-refused': 1,
+  'sushi-error': 1,
+  'sushi-failed': 1,
+  'type-name-clash': 1,
+  'foreign-file': 1,
+  // What check finds.
+  'baseline-growth': 1,
+  // Writes and runs that failed on the server.
+  'checker-failed': 1,
+  'apply-failed': 1,
+  'content-failed': 1,
+  'project-failed': 1,
+  'bots-failed': 1,
+  'operations-failed': 1,
+  'subscriptions-failed': 1,
+  'migration-failed': 1,
+  // Migrations that must not run as they stand.
+  'unmet-dependency': 1,
+  'migration-edited': 1,
+  'migration-running': 1,
+  'migration-paused': 1,
+  // A blocked plan's codes: never errors, so push exits 1, but named here as every code is.
+  'shadowed-access-policy': 1,
+  'untagged-access-policy': 1,
+  'shadowed-client-application': 1,
+  'untagged-client-application': 1,
+  'client-without-membership': 1,
+  'missing-secret': 1,
+  'unset-variable': 1,
+  'shadowed-content': 1,
+  'untagged-content': 1,
+  'shadowed-bot': 1,
+  'untagged-bot': 1,
+  'bot-without-membership': 1,
+  'shadowed-operation': 1,
+  'shadowed-subscription': 1,
+  'untagged-subscription': 1,
+  'unsendable-header': 1,
+};
+
+/** 0 on success; else 2 when any error kept the command from running, or 1. */
+export function exitCode(result: { ok: boolean; errors: { code: string }[] }): number {
+  if (result.ok) return OK;
+  return result.errors.some((e) => EXIT[e.code] === USAGE_ERROR) ? USAGE_ERROR : PROBLEMS;
+}
+
 const time = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
 /** What a step did, as one line: its name, its counts and its time. */
@@ -181,24 +307,8 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
   report(result, out, problem, bad);
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
   if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
-  // SUSHI missing or too old is set-up, like a config error, not a problem in the profiles.
-  const setup = result.errors.some(
-    (e) => e.code === 'sushi-not-installed' || e.code === 'sushi-too-old',
-  );
-  return result.ok ? OK : setup ? USAGE_ERROR : PROBLEMS;
+  return exitCode(result);
 }
-
-// Kept from running: the command, config or deployed bots need fixing, not the data.
-const SETUP = new Set([
-  'no-migrations',
-  'invalid-migration',
-  'unknown-migration',
-  'checker-missing',
-  'checker-outdated',
-  'migrator-missing',
-  'migrator-not-current',
-  'not-synthetic',
-]);
 
 async function migrateCommand(ids: string[], values: Values, io: CliIo): Promise<number> {
   const quiet = values.quiet ?? false;
@@ -241,7 +351,7 @@ async function migrateCommand(ids: string[], values: Values, io: CliIo): Promise
     `${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}${result.write ? '' : ' (dry run; --write to apply)'}`,
   );
   if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
-  return migrateExit(result);
+  return exitCode(result);
 }
 
 /** A page size within what Medplum pages by cursor, NaN for any other, or undefined. */
@@ -249,11 +359,6 @@ function parsePageSize(value: string | undefined): number | undefined {
   if (value === undefined) return undefined;
   const n = Number(value);
   return Number.isInteger(n) && n >= 20 && n <= 1000 ? n : Number.NaN;
-}
-
-function migrateExit(result: MigrateEnvResult): number {
-  if (result.ok) return OK;
-  return result.errors.some((e) => SETUP.has(e.code)) ? USAGE_ERROR : PROBLEMS;
 }
 
 /** `migrate new <name>`, `migrate status`, or `migrate [<id>…]`. */
@@ -272,8 +377,7 @@ async function migrateStatusCommand(values: Values, io: CliIo): Promise<number> 
   for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
   if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
-  if (result.ok) return OK;
-  return result.errors.length > 0 ? USAGE_ERROR : PROBLEMS;
+  return exitCode(result);
 }
 
 /** The commit the ledger records, when the config is in a git checkout. */
@@ -310,9 +414,7 @@ async function checkCommand(values: Values, io: CliIo): Promise<number> {
   printCheck(result, Date.now() - started, printer(io, quiet));
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(Date.now() - started)}`);
   if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
-  if (result.ok) return OK;
-  const setup = result.errors.some((e) => e.code !== 'baseline-growth');
-  return setup ? USAGE_ERROR : PROBLEMS;
+  return exitCode(result);
 }
 
 /** The check step's line, each new finding, and what to run next. */
@@ -366,9 +468,7 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
   for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
   if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
-  if (result.ok) return OK;
-  // Profiles that fail, or will not load, are problems found; the rest kept the command from running.
-  return result.errors.every((e) => e.step === 'load') ? PROBLEMS : USAGE_ERROR;
+  return exitCode(result);
 }
 
 /** The config, environment and checker a command on an environment needs, or its exit code. */
@@ -530,7 +630,7 @@ function configErrors(errors: ConfigError[], values: Values, io: CliIo): number 
   const { bad, problem } = printer(io, true);
   for (const e of errors) problem(`${bad} config    ${e.message}`);
   if (values.json) io.stdout(`${JSON.stringify({ ok: false, errors }, null, 2)}\n`);
-  return USAGE_ERROR;
+  return exitCode({ ok: false, errors });
 }
 
 function parse(argv: string[]) {

@@ -219,6 +219,11 @@ Named, as config and push errors are:
 - `content-refused`: a file Medplum's validator rejects offline, with its
   path and the validator's issue.
 - `shadowed-content`: the project holds two resources for one URL or key.
+- `untagged-content`: the project holds the URL or key untagged, and
+  `--adopt` was not given.
+
+The last two block the plan rather than fail the push: each is
+`{ code, message }` in `content.blocked`, and push exits 1 (#229).
 
 ## Testing
 

@@ -399,8 +399,14 @@ names a test build with `test.bots: { '<key>': { file } }`.
 Named, as config and push errors are: `invalid-bot`, `invalid-subscription`,
 `invalid-operation` (above); `bot-without-membership`, a held bot only a super
 admin can repair; `shadowed-bot`, two bots with one identifier;
-`shadowed-operation` (above); `bots-disabled` and `cron-disabled`, reported
-from `GET /auth/me` before anything is written.
+`untagged-bot` and `untagged-subscription`, until `--adopt`;
+`shadowed-operation` (above); `unset-variable` and `unsendable-header`, a
+Subscription's secret or header that cannot be sent; `bots-disabled` and
+`cron-disabled`, reported from `GET /auth/me` before anything is written.
+Those about what the project holds, and the Subscription values, block a
+plan rather than fail the push: `{ code, message }` in its `blocked`, as
+design 06's and 09's are, so push exits 1 and `--check` still prints its
+drift line (#229).
 
 ## Testing
 

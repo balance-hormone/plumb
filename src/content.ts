@@ -16,7 +16,15 @@ import type {
   ValueSet,
 } from '@medplum/fhirtypes';
 import type { LoadProfilesResult } from './loader.js';
-import { claim, differing, PLUMB_SYSTEM, searchAll, tagOf, withPlumbTag } from './project.js';
+import {
+  type Blocked,
+  claim,
+  differing,
+  PLUMB_SYSTEM,
+  searchAll,
+  tagOf,
+  withPlumbTag,
+} from './project.js';
 
 /** The reference content `push` converges: design 09. */
 type Content = Questionnaire | CodeSystem | ValueSet | Organization;
@@ -164,7 +172,7 @@ export type ContentChange =
 export interface ContentPlan {
   changes: ContentChange[];
   /** Why nothing in the content step can be applied. */
-  blocked: string[];
+  blocked: Blocked[];
 }
 
 /**
@@ -204,11 +212,13 @@ async function planType(
   const byKey = Map.groupBy(tagged, (r) => tagOf(r) as string);
   const mine = files.filter((f) => f.resource.resourceType === type);
   const changes: ContentChange[] = [];
-  const blocked: string[] = [];
+  const blocked: Blocked[] = [];
   for (const file of mine) {
     const untagged = (await untaggedMatches(medplum, file)).filter(ours);
-    const claimed = claim(type, file.key, file.key, byKey.get(file.key) ?? [], untagged, options);
-    if (typeof claimed === 'string') blocked.push(claimed);
+    const found = byKey.get(file.key) ?? [];
+    // Design 09 names them by the step, whatever the type: shadowed-content, untagged-content.
+    const claimed = claim(type, file.key, file.key, found, untagged, options, 'content');
+    if ('code' in claimed) blocked.push(claimed);
     else {
       const change = planOne(file, claimed);
       if (change) changes.push(change);
