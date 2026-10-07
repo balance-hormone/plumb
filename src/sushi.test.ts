@@ -101,6 +101,14 @@ describe('dependencyWarnings', () => {
     ]);
   });
 
+  test('reads sushi-config.yml, as SUSHI does', () => {
+    const root = mkdtempSync(join(tmpdir(), 'plumb-fsh-'));
+    writeFileSync(join(root, 'sushi-config.yml'), 'dependencies:\n  hl7.fhir.us.core: 6.1.0\n');
+    expect(dependencyWarnings(root, igs)).toEqual([
+      'sushi-config.yml depends on hl7.fhir.us.core 6.1.0, but igs selects 9.0.0. SUSHI builds against 6.1.0 and Plumb types against 9.0.0: make them the same.',
+    ]);
+  });
+
   test('nothing for matching versions, packages igs does not list, or no dependencies', () => {
     const matching = project(
       'dependencies:\n  hl7.fhir.us.core: 9.0.0\n  hl7.terminology.r4: 6.2.0\n',

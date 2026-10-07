@@ -177,6 +177,35 @@ describe('fetchPackages', () => {
     expect(reg.requests).toContain('https://tarballs.example.com/example.fhir.b/1.0.0');
   });
 
+  test('replaces a partial cache folder an interrupted or concurrent run left', async () => {
+    const { cacheDir, lockPath } = setup();
+    const dir = join(cacheDir, 'example.fhir.b#1.0.0', 'package');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'partial.json'), '{');
+    const result = await fetchPackages({
+      igs: ['example.fhir.b@1.0.0'],
+      lockPath,
+      cacheDir,
+      fetch: registry({ 'example.fhir.b@1.0.0': B }).fetch,
+    });
+    expect(codes(result)).toEqual([]);
+    expect(result.packages[0]?.fetched).toBe(true);
+    expect(readdirSync(dir)).toEqual(['package.json']);
+  });
+
+  test('invalid-lock: a lockfile that is not JSON, such as one with merge-conflict markers', async () => {
+    const { cacheDir, lockPath } = setup();
+    writeFileSync(lockPath, '<<<<<<< HEAD\n{}\n=======\n{}\n>>>>>>> main\n');
+    const result = await fetchPackages({
+      igs: ['example.fhir.b@1.0.0'],
+      lockPath,
+      cacheDir,
+      fetch: registry({ 'example.fhir.b@1.0.0': B }).fetch,
+    });
+    expect(codes(result)).toEqual(['invalid-lock']);
+    expect(result.errors[0]?.message).toContain(lockPath);
+  });
+
   test('integrity-mismatch: a cached copy that differs from the registry is not locked', async () => {
     const { cacheDir, lockPath } = setup();
     precache(cacheDir, 'example.fhir.b@1.0.0', [

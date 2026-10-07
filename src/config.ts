@@ -332,6 +332,11 @@ const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
 // The version lives in igs, so a wildcard names the package alone.
 const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 
+/** A SUSHI project's config file, by name: SUSHI accepts either extension. */
+export function sushiConfig(project: string): string | undefined {
+  return ['sushi-config.yaml', 'sushi-config.yml'].find((name) => existsSync(join(project, name)));
+}
+
 /**
  * Loads `plumb.config.ts` from `cwd`, or `configPath` relative to it, with
  * Node's type stripping, or the project's own tsx for what Node cannot load.
@@ -364,11 +369,11 @@ export async function loadConfig(options: {
   const config = module.default as PlumbConfig;
   const base = dirname(configPath);
   const fsh = config.fsh === undefined ? undefined : resolve(base, config.fsh);
-  if (fsh && !existsSync(join(fsh, 'sushi-config.yaml'))) {
+  if (fsh && !sushiConfig(fsh)) {
     return fail({
       code: 'no-sushi-config',
       path: 'fsh',
-      message: `"fsh" names ${fsh}, which has no sushi-config.yaml. It must be the folder of a SUSHI project.`,
+      message: `"fsh" names ${fsh}, which has no sushi-config.yaml or sushi-config.yml. It must be the folder of a SUSHI project.`,
     });
   }
   const local = fsh

@@ -27,7 +27,10 @@ test first, against a real Medplum where the server is involved.
   bindings on choice elements keep their path (#244); slice types never
   share a name with another generated type (#245); ordered slicing is a
   tuple only where positions are fixed, and typed reads check the tuple's
-  length (#246).
+  length (#246). A malformed `plumb.lock`, a missing `local` folder and a
+  file in it that is not JSON are named errors (`invalid-lock`,
+  `local-not-found`, `invalid-local-json`); a partial cache folder is
+  replaced; `fsh` accepts `sushi-config.yml` (#226).
 - **operations:** callable Standard Schemas (ArkType), `Parameters` outputs,
   and a named error for an instance call without an id (#241); an instance
   operation's input must be its resource, which is all Medplum hands the

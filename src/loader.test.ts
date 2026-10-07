@@ -203,6 +203,21 @@ describe('loadProfiles', () => {
     expect(codes(result)).toEqual(['duplicate-definition']);
   });
 
+  test('local-not-found: a local folder that does not exist', () => {
+    const local = join(localFolder(), 'missing');
+    const result = loadProfiles({ packages: [], igs: [], local, profiles: [] });
+    expect(codes(result)).toEqual(['local-not-found']);
+    expect(result.errors[0]?.message).toContain(local);
+  });
+
+  test('invalid-local-json: a file in the local folder that is not JSON', () => {
+    const local = localFolder();
+    writeFileSync(join(local, 'broken.json'), '{ "resourceType": ');
+    const result = loadProfiles({ packages: [], igs: [], local, profiles: [] });
+    expect(codes(result)).toEqual(['invalid-local-json']);
+    expect(result.errors[0]?.message).toContain('broken.json');
+  });
+
   describe('precedence', () => {
     const genderUrl = 'http://hl7.org/fhir/ValueSet/administrative-gender';
     const newerGender = {

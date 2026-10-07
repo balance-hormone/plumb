@@ -32,7 +32,8 @@ type PackageErrorCode =
   | 'not-r4'
   | 'integrity-mismatch'
   | 'lock-missing'
-  | 'lock-disagrees';
+  | 'lock-disagrees'
+  | 'invalid-lock';
 
 interface PackageError {
   code: PackageErrorCode;
@@ -83,8 +84,8 @@ const DEFAULT_CACHE = join(homedir(), '.fhir', 'packages');
  * `generate --check` does that. Throws when the lock or a package is missing.
  */
 export function lockedPackages(lockPath: string, cacheDir = DEFAULT_CACHE) {
-  if (!existsSync(lockPath)) throw new Error(`No lockfile at ${lockPath}. Run plumb generate.`);
-  const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as Lock;
+  const lock = readLock(lockPath);
+  if (!lock) throw new Error(`No lockfile at ${lockPath}. Run plumb generate.`);
   return Object.keys(lock.packages).map((id) => {
     const at = id.lastIndexOf('@');
     const pkg = { name: id.slice(0, at), version: id.slice(at + 1) };
@@ -102,6 +103,19 @@ class Failure extends Error {
   }
 }
 
+/** A merge conflict or a hand edit can leave plumb.lock unreadable. */
+function readLock(lockPath: string): Lock | undefined {
+  if (!existsSync(lockPath)) return undefined;
+  try {
+    return JSON.parse(readFileSync(lockPath, 'utf8')) as Lock;
+  } catch (err) {
+    throw new Failure(
+      'invalid-lock',
+      `${lockPath} is not valid JSON (${err instanceof Error ? err.message : String(err)}). Resolve it, or delete it and run plumb generate.`,
+    );
+  }
+}
+
 type Files = [path: string, data: Buffer][];
 
 /**
@@ -113,15 +127,19 @@ export async function fetchPackages(options: FetchPackagesOptions): Promise<Fetc
   const { lockPath, check = false, fetch = globalThis.fetch } = options;
   const cacheDir = options.cacheDir ?? DEFAULT_CACHE;
   const igs = [...options.igs].sort();
-  const lock = existsSync(lockPath)
-    ? (JSON.parse(readFileSync(lockPath, 'utf8')) as Lock)
-    : undefined;
   const fail = (...errors: PackageError[]): FetchPackagesResult => ({
     ok: false,
     packages: [],
     lockWritten: false,
     errors,
   });
+  let lock: Lock | undefined;
+  try {
+    lock = readLock(lockPath);
+  } catch (err) {
+    if (!(err instanceof Failure)) throw err;
+    return fail({ code: err.code, message: err.message });
+  }
 
   const lockError = check ? checkLock(lock, igs, lockPath) : undefined;
   if (lockError) return fail(lockError);
@@ -311,16 +329,31 @@ async function download(
   return files;
 }
 
-/** Extracts to a temporary folder first, so a failure never leaves half a package. */
+/**
+ * Extracts to a temporary folder first, so a failure never leaves half a package.
+ * A folder without `package/package.json` is half a package another tool or an
+ * interrupted run left; it is replaced. A concurrent run can recreate it between
+ * the removal and the rename, so that is retried once, and a copy that run
+ * finished is kept.
+ */
 function write(files: Files, dir: string, cacheDir: string): void {
   mkdirSync(cacheDir, { recursive: true });
   const tmp = mkdtempSync(join(cacheDir, '.plumb-'));
+  const place = () => {
+    if (existsSync(join(dir, 'package', 'package.json'))) return;
+    rmSync(dir, { recursive: true, force: true });
+    renameSync(tmp, dir);
+  };
   try {
     for (const [path, data] of files) {
       mkdirSync(dirname(join(tmp, path)), { recursive: true });
       writeFileSync(join(tmp, path), data);
     }
-    renameSync(tmp, dir);
+    try {
+      place();
+    } catch {
+      place();
+    }
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
