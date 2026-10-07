@@ -325,9 +325,9 @@ the server's own `meta` and `error` are not drift.
 **Operations.** Each contract becomes an OperationDefinition, found by its
 tag and code: the implementation extension names this environment's
 `Bot/<id>`, resolved from the bot's key, so the file never holds an id. A
-held OperationDefinition with that code that Plumb did not tag, here or in a
-linked project, stops the push (`shadowed-operation`): Medplum would pick one
-of the two at random.
+held OperationDefinition with that code that Plumb did not tag here, or any
+in a linked project, tagged or not, stops the push (`shadowed-operation`):
+Medplum would pick one of the two at random.
 
 `--dry-run` stops after the plans; `--check` exits 1 when any plan is not
 empty, so a bot redeployed by hand, a Subscription edited in the console or a

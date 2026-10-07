@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **push** refuses a contract whose code a linked project's
+  OperationDefinition already has, even one Plumb tagged there, as
+  `shadowed-operation`, instead of creating a second one Medplum might run
+  in its place.
+
 ## 0.15.0 (2026-10-07)
 
 Hardening: an audit of the whole design, with each fix proven by a failing

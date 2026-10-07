@@ -141,7 +141,7 @@ plan (`content`, `project`, `bots`, `operations`, `subscriptions`) in
 | `shadowed-bot` | push | 1 | Delete all but one Bot with the identifier. |
 | `untagged-bot` | push | 1 | `--adopt`, or rename the untagged Bot. |
 | `bot-without-membership` | push | 1 | Ask a super admin to add the bot's membership, or delete it. |
-| `shadowed-operation` | push | 1 | Delete the OperationDefinition Plumb did not write, or all but one tagged. |
+| `shadowed-operation` | push | 1 | Delete the OperationDefinition Plumb did not write, or all but one tagged, or the linked project's with the same code; or change the contract's code. |
 | `shadowed-subscription` | push | 1 | Delete all but one Subscription with the tag. |
 | `untagged-subscription` | push | 1 | `--adopt`, or delete the untagged Subscription. |
 | `unsendable-header` | push | 1 | Send the header without a `:`, which Medplum cuts at. |
