@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type BotEvent, type MedplumClient, normalizeErrorString } from '@medplum/core';
@@ -13,7 +13,7 @@ import { importModules, type PlumbConfig } from './config.js';
 import { notCurrent, QUOTA_TRIES, QUOTA_WAIT_MS, runPage } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
-import { checkMigrations, loadMigrations, type Migration } from './migrations.js';
+import { checkMigrations, loadMigrations, type Migration, migrationHash } from './migrations.js';
 import { owned, PLUMB_SYSTEM, searchAll } from './project.js';
 
 type MigrateStepName = string;
@@ -362,7 +362,10 @@ async function declaredMigrations(
   if (invalid.length > 0) return { errors: invalid };
   const restamps = config.migrations?.restamp ? await loadRestamps(config.out) : { migrations: [] };
   if ('errors' in restamps) return restamps;
-  const migrations = [...declared.migrations, ...restamps.migrations];
+  const migrations = [...declared.migrations, ...restamps.migrations].map((m) => ({
+    ...m,
+    hash: migrationHash(m.from, config.out),
+  }));
   const unknown = [...(options.ids ?? []), ...(options.rerun ?? [])].filter(
     (id) => !migrations.some((m) => m.id === id),
   );
@@ -391,6 +394,15 @@ async function loadRestamps(out: string): Promise<Declared> {
   return { migrations: restamps.map((m) => ({ ...m, from: routes, repeatable: true })) };
 }
 
+/** A migration's failure, named: the bot refuses a page for a migration it was not built from. */
+function failure(err: unknown): { code: string; message: string } {
+  const message = normalizeErrorString(err);
+  const stale = message.includes('was built from another version of');
+  const code =
+    (err as { code?: string }).code ?? (stale ? 'migrator-not-current' : 'migration-failed');
+  return { code, message };
+}
+
 /** Runs each migration in turn, stopping at the first a write must not run, or that fails. */
 async function runAll(
   run: Run,
@@ -409,8 +421,7 @@ async function runAll(
     try {
       report = await migrate(run, migration, held, hash);
     } catch (err) {
-      const code = (err as { code?: string }).code ?? 'migration-failed';
-      return void step.fail(migration.id, [{ code, message: normalizeErrorString(err) }]);
+      return void step.fail(migration.id, [failure(err)]);
     }
     result.migrations[migration.id] = report;
     const problems = problemsOf(report);
@@ -448,8 +459,7 @@ export function inOrder(migrations: Migration[]): Migration[] {
   return ordered;
 }
 
-const hashOf = (migration: Migration) =>
-  createHash('sha256').update(readFileSync(migration.from)).digest('hex');
+const hashOf = (migration: Migration) => migration.hash ?? migrationHash(migration.from);
 
 /**
  * Why a write must not run the migration: a dependency not applied in this
@@ -565,6 +575,7 @@ async function runPages(
   const forecast = forecastInput(run.loaded, migration.resourceType as ResourceType);
   const input = {
     id: migration.id,
+    hash: state.hash,
     start: state.start,
     write: options.write === true,
     count: options.pageSize ?? 100,

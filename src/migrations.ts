@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { type ConfigError, checkSearch, importModules, type PlumbConfig } from './config.js';
 
 /** A migration as `defineMigration` makes it, read from a module `migrations.modules` lists. */
@@ -16,6 +17,54 @@ export interface Migration {
   from: string;
   /** Run again whenever that hash changes, as Plumb's restamps are, rather than reported edited. */
   repeatable?: boolean;
+  /** What it runs, as migrationHash: set once it is declared. */
+  hash?: string;
+}
+
+/**
+ * What a migration runs, as one hash: its module and every local file it
+ * imports, followed through relative imports, with line endings as LF so a
+ * Windows checkout hashes as Linux does. Packages and what it imports from
+ * the generated code (\`out\`) are left out: regenerating changes no migration.
+ */
+export function migrationHash(file: string, out?: string): string {
+  const root = dirname(file);
+  const seen = new Map<string, string>();
+  const visit = (path: string) => {
+    if (seen.has(path) || (path !== file && out && !relative(out, path).startsWith('..'))) return;
+    const text = readFileSync(path, 'utf8').replaceAll('\r\n', '\n');
+    seen.set(path, text);
+    for (const [, specifier] of text.matchAll(IMPORT)) {
+      const found = localFile(resolve(dirname(path), specifier as string));
+      if (found) visit(found);
+    }
+  };
+  visit(file);
+  const sha = createHash('sha256');
+  const files = [...seen].map(([path, text]): [string, string] => [
+    relative(root, path).split(sep).join('/'),
+    text,
+  ]);
+  for (const [path, text] of files.sort(([a], [b]) => (a < b ? -1 : 1))) {
+    sha.update(`${path}\0${text.length}\0${text}`);
+  }
+  return sha.digest('hex');
+}
+
+// A relative specifier in an import, an export from, or a dynamic import.
+const IMPORT = /(?:\bfrom|\bimport)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g;
+
+/** The file a relative specifier names, as TypeScript resolves a .js to its .ts. */
+function localFile(path: string): string | undefined {
+  const stem = path.replace(/\.(m|c)?js$/, '');
+  return [
+    path,
+    `${stem}.ts`,
+    `${stem}.mts`,
+    `${stem}.cts`,
+    `${stem}.tsx`,
+    join(path, 'index.ts'),
+  ].find((candidate) => existsSync(candidate) && statSync(candidate).isFile());
 }
 
 // The date keeps ids from two branches apart and sorts them as written.

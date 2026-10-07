@@ -26,6 +26,8 @@ export interface MigrationDefinition<T extends ResourceType = ResourceType> {
   /** The ids of migrations that must be applied first. */
   dependsOn?: string[];
   description?: string;
+  /** What the module ran as when generated, set by _migrator.ts; plumb migrate compares it. */
+  hash?: string;
 }
 
 /** Types a migration; returns it unchanged. */
@@ -55,6 +57,8 @@ export interface MigrationPage {
   cursor?: string;
   /** Plumb's checker, and what it needs to check the changed records against the selected profiles. */
   forecast?: { checker: Identifier; profiles: string[]; definitions: string };
+  /** The migration's hash as plumb migrate has it, which this build must have too. */
+  hash?: string;
 }
 
 /** The checker's verdict on a page's changed records. */
@@ -106,6 +110,10 @@ export function handleMigrations(migrations: MigrationDefinition[]) {
     const page = event.input;
     const migration = migrations.find((m) => m.id === page.id);
     if (!migration) throw new Error('This bot has no migration ' + page.id + ': deploy its current build.');
+    // A module edited since the bot was built would run its old transform under the new hash.
+    if (page.hash && migration.hash && page.hash !== migration.hash) {
+      throw new Error('This bot was built from another version of ' + page.id + ': run plumb generate, rebuild it and deploy it.');
+    }
     const bundle = await medplum.search(migration.resourceType, query(migration, page));
     const records = (bundle.entry ?? []).flatMap((e) => (e.resource ? [e.resource] : []));
     const result: MigrationPageResult = {

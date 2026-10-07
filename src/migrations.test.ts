@@ -1,11 +1,17 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import type { PlumbConfig } from './config.js';
-import { checkMigrations, loadMigrations, type Migration, newMigration } from './migrations.js';
+import {
+  checkMigrations,
+  loadMigrations,
+  type Migration,
+  migrationHash,
+  newMigration,
+} from './migrations.js';
 
 const FIXTURE = join(import.meta.dirname, '../test/fixtures/migrations');
 const migration = (fields: Partial<Migration>): Migration => ({
@@ -129,5 +135,47 @@ describe('newMigration', () => {
       /no "migrations.modules"/,
     );
     expect(existsSync(join(dir, 'src/migrations/20261006-Patient Birthdate.ts'))).toBe(false);
+  });
+});
+
+describe('migrationHash', () => {
+  const project = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-hash-'));
+    mkdirSync(join(dir, 'lib'));
+    mkdirSync(join(dir, 'generated'));
+    const write = (file: string, text: string) => writeFileSync(join(dir, file), text);
+    write('lib/normalize.ts', 'export const normalize = (s: string) => s.trim();\n');
+    write('generated/index.ts', 'export const defineMigration = (m: unknown) => m;\n');
+    write(
+      'migration.ts',
+      "import { normalize } from './lib/normalize.js';\nimport { defineMigration } from './generated/index.js';\nexport default defineMigration(normalize);\n",
+    );
+    return {
+      dir,
+      write,
+      hash: () => migrationHash(join(dir, 'migration.ts'), join(dir, 'generated')),
+    };
+  };
+
+  test('is the same with CRLF line endings, as a Windows checkout has them', () => {
+    const { write, hash } = project();
+    const before = hash();
+    write(
+      'migration.ts',
+      "import { normalize } from './lib/normalize.js';\r\nimport { defineMigration } from './generated/index.js';\r\nexport default defineMigration(normalize);\r\n",
+    );
+    expect(hash()).toBe(before);
+  });
+
+  test('changes when a helper the migration imports changes, and not when the generated code does', () => {
+    const { write, hash } = project();
+    const before = hash();
+    write(
+      'generated/index.ts',
+      'export const defineMigration = (m: unknown) => m; // regenerated\n',
+    );
+    expect(hash()).toBe(before);
+    write('lib/normalize.ts', 'export const normalize = (s: string) => s.trim().toLowerCase();\n');
+    expect(hash()).not.toBe(before);
   });
 });

@@ -284,6 +284,16 @@ describe('handleMigrations', () => {
     expect(calls.bots).toHaveLength(1);
   });
 
+  test('a page for another version of a migration than the bot was built from is refused', async () => {
+    const { medplum, calls } = client([patient('a')]);
+    const built = { ...birthdate, hash: 'built' } as Migration;
+    await expect(run([built], medplum, { write: true, hash: 'edited' })).rejects.toThrow(
+      /built from another version of 20261006-patient-birthdate/,
+    );
+    expect(calls.writes).toEqual([]);
+    await expect(run([built], medplum, { hash: 'built' })).resolves.toMatchObject({ read: 1 });
+  });
+
   test('a migration the bot does not have is refused', async () => {
     const { medplum } = client([]);
     await expect(
