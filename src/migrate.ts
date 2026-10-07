@@ -14,7 +14,7 @@ import { notCurrent, runPage } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
 import { checkMigrations, loadMigrations, type Migration } from './migrations.js';
-import { PLUMB_SYSTEM } from './project.js';
+import { owned, PLUMB_SYSTEM } from './project.js';
 
 type MigrateStepName = string;
 
@@ -281,10 +281,10 @@ export async function migrationStatus(
   if (!connected.ok) return step.fail('connect', [connected.error]);
   step.finish('connect', options.environment.baseUrl);
 
-  const entries = await connected.medplum.searchResources('Basic', {
-    code: `${PLUMB_SYSTEM}|migration`,
-    _count: '1000',
-  });
+  const entries = await connected.medplum.searchResources(
+    'Basic',
+    owned(connected.medplum, { code: `${PLUMB_SYSTEM}|migration`, _count: '1000' }),
+  );
   const held = new Map(entries.map((basic) => [tagOf(basic), stateOf(basic)]));
   const report = (id: string, state: LedgerState | undefined, migration?: Migration) => {
     const status = statusOf(state, migration);
@@ -630,7 +630,10 @@ async function currentMigrator(
   key: string,
 ): Promise<Bot | { code: string; message: string }> {
   const fix = `Run plumb push --env ${options.environment.name}.`;
-  const bot = await medplum.searchOne('Bot', { identifier: `${PLUMB_SYSTEM}|${key}` });
+  const bot = await medplum.searchOne(
+    'Bot',
+    owned(medplum, { identifier: `${PLUMB_SYSTEM}|${key}` }),
+  );
   const file = options.config.bots?.[key]?.file;
   if (!bot || !file) {
     return {
@@ -648,7 +651,10 @@ async function currentMigrator(
 }
 
 const findLedger = (medplum: MedplumClient, id: string) =>
-  medplum.searchOne('Basic', { _tag: `${PLUMB_SYSTEM}|${id}`, code: `${PLUMB_SYSTEM}|migration` });
+  medplum.searchOne(
+    'Basic',
+    owned(medplum, { _tag: `${PLUMB_SYSTEM}|${id}`, code: `${PLUMB_SYSTEM}|migration` }),
+  );
 
 const stateOf = (basic: Basic): LedgerState =>
   JSON.parse(basic.extension?.find((e) => e.url === STATE)?.valueString ?? '{}') as LedgerState;
@@ -682,7 +688,11 @@ async function takeLease(
   };
   if (!held) {
     const created = await medplum.createResource<Basic>(ledgerResource(migration.id, state), {
-      headers: { 'If-None-Exist': `_tag=${PLUMB_SYSTEM}|${migration.id}` },
+      headers: {
+        'If-None-Exist': Object.entries(owned(medplum, { _tag: `${PLUMB_SYSTEM}|${migration.id}` }))
+          .map(([k, v]) => `${k}=${v}`)
+          .join('&'),
+      },
     });
     // A conditional create that found one returns it: another run made it first.
     if (stateOf(created).lease !== state.lease) throw running(migration.id);
