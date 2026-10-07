@@ -33,6 +33,23 @@ export const USCoreLaboratoryResultObservationProfileUrl = 'http://hl7.org/fhir/
  * - us-core-1: Datetime must be at least to day.
  * - us-core-3: The system SHALL be UCUM for coded quantity units.
  * - us-core-22: The system SHALL be UCUM for coded quantity units.
+ *
+ * Not checked by this type, validateProfiled or the server:
+ * - us-core-4: SHOULD use SNOMED CT for coded Results
+ * - Observation.subject: target profiles
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-device,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-location.
+ * - Observation.encounter: target profile
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter.
+ * - Observation.performer: target profiles
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitioner,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-organization,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-careteam,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-relatedperson.
+ * - Observation.specimen: target profile
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-specimen.
  */
 export type USCoreLaboratoryResultObservation = Require<Observation, 'category' | 'subject'>;
 

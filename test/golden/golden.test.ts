@@ -22,6 +22,8 @@ const PROFILES = [
   `${US_CORE}/us-core-condition-problems-health-concerns`,
   `${IPS}/Patient-uv-ips`,
   `${IPS}/Composition-uv-ips`,
+  // A SUSHI snapshot, which leaves each constraint's source unset.
+  'http://example.org/fhir/plumb-test/StructureDefinition/references-observation',
 ];
 const PACKAGES = join(import.meta.dirname, '../fixtures/packages');
 const OUT = join(import.meta.dirname, 'generated');
@@ -37,6 +39,7 @@ test('generated output matches the committed goldens', () => {
       return { name, version, dir: join(PACKAGES, folder) };
     }),
     igs: ['hl7.fhir.us.core@9.0.0', 'hl7.fhir.uv.ips@2.0.1'],
+    local: join(import.meta.dirname, '../fixtures/profiles/fsh-generated/resources'),
     profiles: PROFILES,
   });
   expect(loaded.errors).toEqual([]);

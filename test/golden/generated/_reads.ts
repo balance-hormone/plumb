@@ -8,6 +8,9 @@ import type { ProfileTypes, ProfileUrl } from './_routes.js';
  * A row lists alternatives, any one of which meets it (`missing` in _plumb.ts).
  */
 const required: Record<ProfileUrl, readonly (readonly string[])[]> = {
+  'http://example.org/fhir/plumb-test/StructureDefinition/references-observation': [
+    ['subject'],
+  ],
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure': [
     ['category'],
     ['subject'],
@@ -46,6 +49,9 @@ const required: Record<ProfileUrl, readonly (readonly string[])[]> = {
 
 /** The stamps a read accepts as each profile: its own URL, and each selected profile deriving from it. */
 const accepts: Partial<Record<string, readonly string[]>> = {
+  'http://example.org/fhir/plumb-test/StructureDefinition/references-observation': [
+    'http://example.org/fhir/plumb-test/StructureDefinition/references-observation',
+  ],
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure': [
     'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure',
   ],
@@ -68,6 +74,7 @@ const accepts: Partial<Record<string, readonly string[]>> = {
 
 /** Each profile's resource type. */
 const typeOf: Partial<Record<string, ResourceType>> = {
+  'http://example.org/fhir/plumb-test/StructureDefinition/references-observation': 'Observation',
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure': 'Observation',
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns': 'Condition',
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab': 'Observation',

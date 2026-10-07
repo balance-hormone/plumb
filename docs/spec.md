@@ -402,10 +402,14 @@ reads:
 - **Self-contained output.** Generated modules carry the helpers they need (the
   `Require<>` type, slice builders), so the app never imports Plumb.
 - **The doc comment lists what the server will not enforce,** so nobody
-  mistakes documentation for a rule: constraints below `error` severity, the
-  invariants Medplum skips (`ele-1`, `dom-3`, `org-1`, `sdf-19`), and
-  `Reference` target profiles, which Medplum does not check against IG
-  profiles.
+  mistakes documentation for a rule: the profile's constraints below `error`
+  severity, and its `Reference` target profiles, which Medplum does not check
+  against IG profiles. It lists the profile's invariants, its base profiles'
+  (`vitalsigns`) among them, and leaves out every invariant base R4 defines on
+  the resource or its data types, decided by key, so a SUSHI snapshot lists
+  what a package one does. The four base invariants Medplum skips (`ele-1`,
+  `dom-3`, `org-1`, `sdf-19`) are therefore not listed: they are the same for
+  every profile of a resource.
 - **Primitive extensions are not typed,** because `@medplum/fhirtypes` does not
   model them: there is no `_gender` on `Patient`. FHIR lets a required primitive
   be present only as a `_field` extension (US Core's data-absent-reason);

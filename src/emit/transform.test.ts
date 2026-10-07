@@ -735,6 +735,40 @@ describe('transform', () => {
   test('lists invariants the type cannot check in the doc comment', () => {
     expect(model('nesting-patient').doc.join('\n')).toContain('plumb-name-part');
   });
+
+  describe('the doc comment leaves out the invariants of base R4, and only those', () => {
+    test("keeps a base profile's invariants", () => {
+      const doc = bloodPressure().doc.join('\n');
+      for (const key of ['vs-1', 'vs-2', 'vs-3']) expect(doc).toContain(`- ${key}: `);
+      // vitalsigns restates Observation's obs-3 as its own.
+      expect(doc).not.toContain('obs-3');
+    });
+
+    test('the same for a SUSHI snapshot, which leaves the source unset', () => {
+      const doc = model('bindings-observation').doc.join('\n');
+      for (const key of ['obs-3', 'obs-6', 'obs-7', 'ele-1', 'dom-3'])
+        expect(doc).not.toContain(key);
+    });
+  });
+
+  test('lists what the server will not check: warnings and reference target profiles', () => {
+    const lab = fromPackage(
+      'hl7.fhir.us.core@9.0.0',
+      'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
+    ).doc.join('\n');
+    const notChecked = lab.slice(lab.indexOf('Not checked by this type, validateProfiled'));
+    expect(notChecked).toContain('- us-core-4: ');
+    expect(notChecked).toContain(
+      '- Observation.encounter: target profile http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter.',
+    );
+    // A base target is typed, so it is not listed.
+    expect(model('references-observation').doc).toEqual(
+      expect.arrayContaining([
+        `- Observation.performer: target profile ${PLUMB}/cardinality-patient.`,
+      ]),
+    );
+    expect(model('references-observation').doc.join('\n')).not.toContain('Observation.subject:');
+  });
 });
 
 describe('discriminatorValues', () => {

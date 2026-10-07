@@ -31,6 +31,23 @@ export const USCoreBloodPressureProfileUrl = 'http://hl7.org/fhir/us/core/Struct
  * - Observation.component:diastolic.code must match the pattern
  * {"coding":[{"system":"http://loinc.org","code":"8462-4"}]}.
  * - Observation.component:diastolic: 1..1.
+ * - vs-2: If there is no component or hasMember element then either a value[x] or a data absent
+ * reason must be present.
+ * - vs-1: if Observation.effective[x] is dateTime and has a value then that value shall be precise
+ * to the day
+ * - vs-3: If there is no a value a data absent reason must be present
+ *
+ * Not checked by this type, validateProfiled or the server:
+ * - Observation.subject: target profile
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient.
+ * - Observation.performer: target profiles
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitioner,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-organization,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-careteam,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-relatedperson.
+ * - Observation.hasMember: target profile http://hl7.org/fhir/StructureDefinition/vitalsigns.
+ * - Observation.derivedFrom: target profile http://hl7.org/fhir/StructureDefinition/vitalsigns.
  */
 export type USCoreBloodPressure = Omit<
   Observation,

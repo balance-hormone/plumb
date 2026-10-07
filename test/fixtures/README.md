@@ -94,7 +94,7 @@ section; a new one needs a reviewed edit there.
 ## Goldens (`../golden`)
 
 `test/golden/generated` is Plumb's output for four US Core and two IPS
-profiles, generated from these fixtures and committed. The golden test
+profiles and one test profile, generated from these fixtures and committed. The golden test
 regenerates it and compares byte for byte. Goldens detect change, not
 correctness, so each file is read against its profile before it is committed.
 To regenerate after an intended change:
