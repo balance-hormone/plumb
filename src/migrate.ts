@@ -14,7 +14,7 @@ import { notCurrent, runPage } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
 import { checkMigrations, loadMigrations, type Migration } from './migrations.js';
-import { owned, PLUMB_SYSTEM } from './project.js';
+import { owned, PLUMB_SYSTEM, searchAll } from './project.js';
 
 type MigrateStepName = string;
 
@@ -286,9 +286,10 @@ export async function migrationStatus(
   if (!connected.ok) return step.fail('connect', [connected.error]);
   step.finish('connect', options.environment.baseUrl);
 
-  const entries = await connected.medplum.searchResources(
+  const entries = await searchAll(
+    connected.medplum,
     'Basic',
-    owned(connected.medplum, { code: `${PLUMB_SYSTEM}|migration`, _count: '1000' }),
+    owned(connected.medplum, { code: `${PLUMB_SYSTEM}|migration` }),
   );
   const held = new Map(entries.map((basic) => [tagOf(basic), stateOf(basic)]));
   const report = (id: string, state: LedgerState | undefined, migration?: Migration) => {

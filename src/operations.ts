@@ -9,7 +9,7 @@ import type {
   ResourceType,
 } from '@medplum/fhirtypes';
 import { type ConfigError, importModules } from './config.js';
-import { owned, PLUMB_SYSTEM, type ProjectOptions, tagOf } from './project.js';
+import { owned, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
 
 const IMPLEMENTATION =
   'https://medplum.com/fhir/StructureDefinition/operationDefinition-implementation';
@@ -206,10 +206,10 @@ export async function planOperations(
   options: ProjectOptions = {},
 ): Promise<OperationPlan> {
   const project = medplum.getProject()?.id;
-  const visible = await medplum.searchResources('OperationDefinition', { _count: '1000' });
-  const bots = (
-    await medplum.searchResources('Bot', { identifier: `${PLUMB_SYSTEM}|`, _count: '1000' })
-  ).filter((b) => b.meta?.project === project);
+  const visible = await searchAll(medplum, 'OperationDefinition', {});
+  const bots = (await searchAll(medplum, 'Bot', { identifier: `${PLUMB_SYSTEM}|` })).filter(
+    (b) => b.meta?.project === project,
+  );
   const botIds = Object.fromEntries(
     bots.map((b) => [b.identifier?.find((i) => i.system === PLUMB_SYSTEM)?.value, b.id as string]),
   );

@@ -3,7 +3,7 @@
 import { deepEquals, type MedplumClient } from '@medplum/core';
 import type { Bot, Extension, Subscription } from '@medplum/fhirtypes';
 import type { SubscriptionConfig } from './config.js';
-import { claim, owned, PLUMB_SYSTEM, type ProjectOptions, tagOf } from './project.js';
+import { claim, owned, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
 
 // The extensions Medplum reads (`subscriptions/index.ts`, `workers/subscription.ts`).
 // The secret's URL has the `www`; the others do not.
@@ -60,10 +60,8 @@ export async function planSubscriptions(
 ): Promise<SubscriptionPlan> {
   const project = medplum.getProject()?.id;
   const ours = <T extends Subscription | Bot>(r: T) => r.meta?.project === project;
-  const held = (await medplum.searchResources('Subscription', { _count: '1000' })).filter(ours);
-  const bots = (
-    await medplum.searchResources('Bot', { identifier: `${PLUMB_SYSTEM}|`, _count: '1000' })
-  ).filter(ours);
+  const held = (await searchAll(medplum, 'Subscription', {})).filter(ours);
+  const bots = (await searchAll(medplum, 'Bot', { identifier: `${PLUMB_SYSTEM}|` })).filter(ours);
   const botIds = Object.fromEntries(
     bots.map((b) => [b.identifier?.find((i) => i.system === PLUMB_SYSTEM)?.value, b.id as string]),
   );

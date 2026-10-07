@@ -5,12 +5,14 @@ import type {
   AccessPolicy,
   AccessPolicyResource,
   ClientApplication,
+  ExtractResource,
   Project,
   ProjectDefaultProfile,
   ProjectMembership,
   ProjectSetting,
   Reference,
   Resource,
+  ResourceType,
 } from '@medplum/fhirtypes';
 import {
   type AccessPolicyEntry,
@@ -34,6 +36,23 @@ export const owned = (medplum: MedplumClient, query: Record<string, string>) => 
   ...query,
   _compartment: `Project/${medplum.getProject()?.id}`,
 });
+
+/**
+ * Every resource a search finds, read page by page: one page of
+ * searchResources stops at its count without a word, and a resource beyond
+ * it would look missing, and be created again.
+ */
+export async function searchAll<K extends ResourceType>(
+  medplum: MedplumClient,
+  type: K,
+  query: Record<string, string>,
+): Promise<ExtractResource<K>[]> {
+  const found: ExtractResource<K>[] = [];
+  for await (const page of medplum.searchResourcePages(type, { ...query, _count: '1000' })) {
+    found.push(...page);
+  }
+  return found;
+}
 
 /** One write `push` plans in the project: `+` create, `~` update, `-` remove. */
 export type ProjectChange =
@@ -155,13 +174,9 @@ export async function planProject(
     page.filter((r) => r.meta?.project === current.id);
   // Every resource of a type, not a search by tag: a removed key and an untagged name are found in one read.
   const held: AccessPolicy[] = [];
-  for await (const page of medplum.searchResourcePages('AccessPolicy', { _count: '1000' })) {
-    held.push(...ours(page));
-  }
+  held.push(...ours(await searchAll(medplum, 'AccessPolicy', {})));
   const apps: ClientApplication[] = [];
-  for await (const page of medplum.searchResourcePages('ClientApplication', { _count: '1000' })) {
-    apps.push(...ours(page));
-  }
+  apps.push(...ours(await searchAll(medplum, 'ClientApplication', {})));
   const plan = planPolicies(project, held, options);
   const clients = await withMemberships(medplum, apps, Object.keys(project.clients ?? {}));
   const planned = planClients(project, clients, plan.policyIds, options);

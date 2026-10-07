@@ -11,7 +11,7 @@ import type {
   ValueSet,
 } from '@medplum/fhirtypes';
 import type { LoadProfilesResult } from './loader.js';
-import { claim, differing, PLUMB_SYSTEM, tagOf } from './project.js';
+import { claim, differing, PLUMB_SYSTEM, searchAll, tagOf } from './project.js';
 
 /** The reference content `push` converges: design 09. */
 type Content = Questionnaire | CodeSystem | ValueSet | Organization;
@@ -193,13 +193,9 @@ async function planType(
 ) {
   const project = medplum.getProject()?.id;
   const ours = (r: Resource) => r.meta?.project === project;
-  const tagged: Content[] = [];
-  for await (const page of medplum.searchResourcePages(type, {
-    _tag: `${PLUMB_SYSTEM}|`,
-    _count: '1000',
-  })) {
-    tagged.push(...(page as Content[]).filter(ours));
-  }
+  const tagged = (await searchAll(medplum, type, { _tag: `${PLUMB_SYSTEM}|` })).filter(
+    ours,
+  ) as Content[];
   const byKey = Map.groupBy(tagged, (r) => tagOf(r) as string);
   const mine = files.filter((f) => f.resource.resourceType === type);
   const changes: ContentChange[] = [];
