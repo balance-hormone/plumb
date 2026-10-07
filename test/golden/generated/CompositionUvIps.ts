@@ -35,6 +35,48 @@ The IPS dataset is minimal and
  * as it does for slices inside slices), so no slice types are generated for it. Medplum's validator
  * reads the same parse.
  * - ips-comp-1: Either section.entry or emptyReason are present
+ *
+ * Not checked by this type, validateProfiled or the server:
+ * - Composition.subject: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Patient-uv-ips.
+ * - Composition.relatesTo.target[x]: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Composition-uv-ips.
+ * - Composition.section:sectionProblems.entry:problem: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Condition-uv-ips.
+ * - Composition.section:sectionAllergies.entry:allergyOrIntolerance: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/AllergyIntolerance-uv-ips.
+ * - Composition.section:sectionMedications.entry:medicationStatementOrRequest: target profiles
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/MedicationStatement-uv-ips,
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/MedicationRequest-uv-ips.
+ * - Composition.section:sectionImmunizations.entry:immunization: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Immunization-uv-ips.
+ * - Composition.section:sectionResults.entry:results-observation-laboratory-pathology: target
+ * profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Observation-results-laboratory-pathology-uv-ips.
+ * - Composition.section:sectionResults.entry:results-observation-radiology: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Observation-results-radiology-uv-ips.
+ * - Composition.section:sectionResults.entry:results-diagnosticReport: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/DiagnosticReport-uv-ips.
+ * - Composition.section:sectionProceduresHx.entry:procedure: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Procedure-uv-ips.
+ * - Composition.section:sectionMedicalDevices.entry:deviceStatement: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/DeviceUseStatement-uv-ips.
+ * - Composition.section:sectionAlerts.entry:alertsFlag: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Flag-alert-uv-ips.
+ * - Composition.section:sectionFunctionalStatus.entry:disability: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Condition-uv-ips.
+ * - Composition.section:sectionPastProblems.entry:pastProblem: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Condition-uv-ips.
+ * - Composition.section:sectionPregnancyHx.entry:pregnancyStatus: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Observation-pregnancy-status-uv-ips.
+ * - Composition.section:sectionPregnancyHx.entry:pregnancyOutcome: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Observation-pregnancy-outcome-uv-ips.
+ * - Composition.section:sectionSocialHistory.entry:smokingTobaccoUse: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Observation-tobaccouse-uv-ips.
+ * - Composition.section:sectionSocialHistory.entry:alcoholUse: target profile
+ * http://hl7.org/fhir/uv/ips/StructureDefinition/Observation-alcoholuse-uv-ips.
+ * - Composition.section:sectionVitalSigns.entry:vitalSign: target profile
+ * http://hl7.org/fhir/StructureDefinition/vitalsigns.
  */
 export type CompositionUvIps = Omit<Composition, 'subject' | 'relatesTo' | 'section'> & {
   /** Who or what the composition is about. */

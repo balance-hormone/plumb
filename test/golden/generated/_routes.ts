@@ -3,6 +3,7 @@ import type { Resource } from '@medplum/fhirtypes';
 import { matches } from './_plumb.js';
 import type { CompositionUvIps } from './CompositionUvIps.js';
 import type { PatientUvIps } from './PatientUvIps.js';
+import type { ReferencesObservation } from './ReferencesObservation.js';
 import type { USCoreBloodPressure } from './USCoreBloodPressure.js';
 import type { USCoreConditionProblemsHealthConcerns } from './USCoreConditionProblemsHealthConcerns.js';
 import type { USCoreLaboratoryResultObservation } from './USCoreLaboratoryResultObservation.js';
@@ -10,6 +11,7 @@ import type { USCorePatient } from './USCorePatient.js';
 
 /** Each selected profile's type, by canonical URL. */
 export type ProfileTypes = {
+  'http://example.org/fhir/plumb-test/StructureDefinition/references-observation': ReferencesObservation;
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure': USCoreBloodPressure;
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns': USCoreConditionProblemsHealthConcerns;
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab': USCoreLaboratoryResultObservation;
@@ -43,6 +45,11 @@ const routes = {
     },
   ],
   Observation: [
+    {
+      profile: 'http://example.org/fhir/plumb-test/StructureDefinition/references-observation',
+      parents: [],
+      keys: [],
+    },
     {
       profile: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure',
       parents: [],
@@ -154,6 +161,7 @@ export interface ProfiledClient {
 
 /** What a write to each selected profile stamps: the type's defaults it does not derive from, then the profile. */
 const stamps: Record<ProfileUrl, readonly string[]> = {
+  'http://example.org/fhir/plumb-test/StructureDefinition/references-observation': ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs', 'https://example.org/fhir/StructureDefinition/org-observation', 'http://example.org/fhir/plumb-test/StructureDefinition/references-observation'],
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure': ['https://example.org/fhir/StructureDefinition/org-observation', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure'],
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns': ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns'],
   'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab': ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs', 'https://example.org/fhir/StructureDefinition/org-observation', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab'],
@@ -163,7 +171,7 @@ const stamps: Record<ProfileUrl, readonly string[]> = {
 };
 
 /** Every URL Plumb stamps. A write replaces these in `meta.profile`, and keeps any other. */
-const managed: ReadonlySet<string> = new Set<string>(['http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs', 'http://hl7.org/fhir/uv/ips/StructureDefinition/Composition-uv-ips', 'http://hl7.org/fhir/uv/ips/StructureDefinition/Patient-uv-ips', 'https://example.org/fhir/StructureDefinition/org-observation']);
+const managed: ReadonlySet<string> = new Set<string>(['http://example.org/fhir/plumb-test/StructureDefinition/references-observation', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient', 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs', 'http://hl7.org/fhir/uv/ips/StructureDefinition/Composition-uv-ips', 'http://hl7.org/fhir/uv/ips/StructureDefinition/Patient-uv-ips', 'https://example.org/fhir/StructureDefinition/org-observation']);
 
 /**
  * A copy of the resource stamped for the profile: the URLs Plumb does not

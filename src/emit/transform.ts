@@ -830,18 +830,47 @@ function resolveLoop(name: string, rows: Row[]): Row[] {
   return key ? rest.map((row) => row.map((path) => `${key}*.${path}`)) : rest;
 }
 
-function invariants(sd: StructureDefinition): string[] {
-  const seen = new Set<string>();
-  const lines: string[] = [];
-  for (const element of sd.snapshot?.element ?? []) {
-    for (const c of element.constraint ?? []) {
-      if (c.severity !== 'error' || c.source?.startsWith(BASE_URL) || seen.has(c.key ?? ''))
-        continue;
-      seen.add(c.key ?? '');
-      lines.push(`${c.key}: ${c.human}`);
-    }
+/** The constraint keys base R4 defines on a type and its elements. */
+function baseKeys(schema: InternalTypeSchema | undefined): string[] {
+  if (!schema) return [];
+  return [schema, ...schema.innerTypes]
+    .flatMap((s) => [
+      ...(s.constraints ?? []),
+      ...Object.values(s.elements).flatMap((e) => e.constraints ?? []),
+    ])
+    .map((c) => c.key);
+}
+
+/**
+ * The profile's own invariants, split by whether the server enforces them.
+ * Base R4's are left out, decided by key: a `source` URL cannot tell them
+ * apart, since SUSHI leaves it unset and a base profile such as vitalsigns
+ * claims Observation's obs-3 as its own.
+ */
+function invariants(sd: StructureDefinition): { error: string[]; other: string[] } {
+  const elements = sd.snapshot?.element ?? [];
+  const types = new Set([sd.type, ...elements.flatMap((e) => (e.type ?? []).map((t) => t.code))]);
+  const seen = new Set([...types].flatMap((t) => baseKeys(tryGetDataType(t))));
+  const lines = { error: [] as string[], other: [] as string[] };
+  for (const c of elements.flatMap((e) => e.constraint ?? [])) {
+    if (seen.has(c.key)) continue;
+    seen.add(c.key);
+    lines[c.severity === 'error' ? 'error' : 'other'].push(`${c.key}: ${c.human}`);
   }
   return lines;
+}
+
+/** References to a profile, not a base type: Medplum does not check them. */
+function targetProfiles(sd: StructureDefinition): string[] {
+  return (sd.snapshot?.element ?? []).flatMap((e) => {
+    const urls = (e.type ?? [])
+      .filter((t) => t.code === 'Reference')
+      .flatMap((t) => t.targetProfile ?? [])
+      .map((url) => url.split('|')[0] as string)
+      .filter((url) => tryGetDataType(url.slice(BASE_URL.length))?.url !== url);
+    if (e.max === '0' || urls.length === 0) return [];
+    return [`${e.id}: target profile${urls.length > 1 ? 's' : ''} ${urls.join(', ')}.`];
+  });
 }
 
 function docFor(sd: StructureDefinition, notes: string[]): string[] {
@@ -849,10 +878,16 @@ function docFor(sd: StructureDefinition, notes: string[]): string[] {
   const description = sd.description?.split(/\n\s*\n/)[0]?.trim();
   if (description) doc.push('', description);
   doc.push('', `Profile: ${sd.url}${sd.version ? `|${sd.version}` : ''}`);
-  const rules = [...notes, ...invariants(sd)];
-  if (rules.length > 0) {
-    doc.push('', 'Not checked by this type; checked by validateProfiled and the server:');
-    doc.push(...rules.map((r) => `- ${r}`));
+  const { error, other } = invariants(sd);
+  const sections: [string, string[]][] = [
+    ['Not checked by this type; checked by validateProfiled and the server:', [...notes, ...error]],
+    [
+      'Not checked by this type, validateProfiled or the server:',
+      [...other, ...targetProfiles(sd)],
+    ],
+  ];
+  for (const [heading, rules] of sections) {
+    if (rules.length > 0) doc.push('', heading, ...rules.map((r) => `- ${r}`));
   }
   return doc;
 }

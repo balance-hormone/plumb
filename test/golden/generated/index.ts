@@ -11,6 +11,7 @@ export * from './IntakeAnswers.js';
 export * from './PGenderIdentity.js';
 export * from './PatientUvIps.js';
 export * from './Pronouns.js';
+export * from './ReferencesObservation.js';
 export * from './USCoreBloodPressure.js';
 export * from './USCoreConditionProblemsHealthConcerns.js';
 export * from './USCoreEthnicityExtension.js';

@@ -31,6 +31,14 @@ export const USCoreConditionProblemsHealthConcernsProfileUrl = 'http://hl7.org/f
  * - Condition.category: at least 1 entry.
  * - Condition.category:us-core: 1..*.
  * - Condition.category:screening-assessment: 0..*.
+ *
+ * Not checked by this type, validateProfiled or the server:
+ * - Condition.subject: target profile
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient.
+ * - Condition.recorder: target profiles
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitioner,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient,
+ * http://hl7.org/fhir/us/core/StructureDefinition/us-core-relatedperson.
  */
 export type USCoreConditionProblemsHealthConcerns = Require<Condition, 'category' | 'code'>;
 

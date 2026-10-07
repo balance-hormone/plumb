@@ -34,6 +34,7 @@ export const USCorePatientProfileUrl = 'http://hl7.org/fhir/us/core/StructureDef
  * - Patient.extension:interpreterRequired: 0..1.
  * - Patient.identifier: at least 1 entry.
  * - Patient.name: at least 1 entry.
+ * - us-core-23: If "ASKU" or "UNK" are present, then no other OMB race categories can be present.
  * - us-core-6: At least name.given and/or name.family are present or, if neither is available, the
  * Data Absent Reason Extension is present.
  */

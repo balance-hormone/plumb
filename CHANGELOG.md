@@ -41,7 +41,11 @@ test first, against a real Medplum where the server is involved.
   file in it that is not JSON are named errors (`invalid-lock`,
   `local-not-found`, `invalid-local-json`); a partial cache folder is
   replaced; `fsh` accepts `sushi-config.yml` (#226). Typed answers read a
-  linkId such as `constructor` or `__proto__` as any other (#228).
+  linkId such as `constructor` or `__proto__` as any other (#228). Doc
+  comments leave out base R4's invariants by key, the same for package and
+  SUSHI profiles, so a base profile's (`vs-1`) are listed and `obs-6` is not;
+  they also list what the server will not enforce: warnings and `Reference`
+  target profiles (#234).
 - **Exit codes** come from one table by error code, the same in every
   command and step: a failed write (`apply-failed`, `bots-failed`, …) exits
   1; every config-shaped code (`invalid-bot`, `invalid-content`, …) and
