@@ -111,7 +111,8 @@
       "name": "nickname before official",
       "rule": "name slicing is ordered: official first",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
+      "typeGap": "slice",
       "validates": true,
       "validatorGap": "slicing-rules",
       "resource": {
@@ -161,7 +162,8 @@
       "name": "official name without family",
       "rule": "name:official.family 1..1; name slicing is ordered, so the first name is the official slice",
       "conforms": false,
-      "compiles": false,
+      "compiles": true,
+      "typeGap": "slice",
       "validates": true,
       "validatorGap": "slice-contents",
       "resource": {

@@ -52,7 +52,9 @@ function meets(resource: object, row: readonly string[]): boolean {
     nodes = key.endsWith('*') ? deep(nodes, key.slice(0, -1)) : nodes.flatMap((n) => step(n, key));
   }
   const keys = row.map((path) => path.slice(path.lastIndexOf('.') + 1));
-  return nodes.flat().every((node) => keys.some((key) => step(node, key).length > 0));
+  // A row ending in a number asks for that entry of the array, not a key of each entry.
+  const parents = keys.every((key) => /^\\d+$/.test(key)) ? nodes : nodes.flat();
+  return parents.every((node) => keys.some((key) => step(node, key).length > 0));
 }
 
 /** The values present at \`key\`: in each entry of an array, or one entry by its index. */
