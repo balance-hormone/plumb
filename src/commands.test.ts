@@ -430,6 +430,32 @@ describe('plumb check', () => {
     expect(stderr).toMatch(/✔ check {5}0 new, 2 in the baseline, in 3 files/);
   });
 
+  test('exits 2 when the profiles do not load, and leaves the baseline alone', {
+    timeout: 30_000,
+  }, async () => {
+    const config = join(FIXTURE, 'plumb.config.missing.ts');
+    writeFileSync(
+      config,
+      readFileSync(join(FIXTURE, 'plumb.config.ts'), 'utf8').replace(
+        'cardinality-patient',
+        'no-such-profile',
+      ),
+    );
+    try {
+      const { code, stderr } = await check(
+        '--config',
+        config,
+        '--update-baseline',
+        '--allow-growth',
+      );
+      expect(code).toBe(2);
+      expect(stderr).toContain('no-such-profile');
+      expect(existsSync(BASELINE)).toBe(false);
+    } finally {
+      rmSync(config);
+    }
+  });
+
   test("exits 2 when the project's TypeScript has no compiler API", async () => {
     let stderr = '';
     const code = await run(['check'], {
