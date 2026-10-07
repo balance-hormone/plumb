@@ -28,6 +28,16 @@ import {
 export const PLUMB_SYSTEM = 'https://www.npmjs.com/package/plumb-fhir';
 
 /**
+ * A search narrowed to this project's own resources. A linked project's are
+ * visible to the same search, and may carry the same tag or identifier, but
+ * are never Plumb's to adopt, point at or skip for.
+ */
+export const owned = (medplum: MedplumClient, query: Record<string, string>) => ({
+  ...query,
+  _compartment: `Project/${medplum.getProject()?.id}`,
+});
+
+/**
  * Every resource a search finds, read page by page: one page of
  * searchResources stops at its count without a word, and a resource beyond
  * it would look missing, and be created again.

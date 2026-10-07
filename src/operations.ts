@@ -9,7 +9,7 @@ import type {
   ResourceType,
 } from '@medplum/fhirtypes';
 import { type ConfigError, importModules } from './config.js';
-import { PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
+import { owned, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
 
 const IMPLEMENTATION =
   'https://medplum.com/fhir/StructureDefinition/operationDefinition-implementation';
@@ -319,7 +319,10 @@ async function withBot(
   change: Extract<OperationChange, { kind: '+' | '~' }>,
 ): Promise<OperationDefinition> {
   if (!change.bot) return change.definition;
-  const bot = await medplum.searchOne('Bot', { identifier: `${PLUMB_SYSTEM}|${change.bot}` });
+  const bot = await medplum.searchOne(
+    'Bot',
+    owned(medplum, { identifier: `${PLUMB_SYSTEM}|${change.bot}` }),
+  );
   if (!bot) throw new Error(`Bot ${change.bot} is not in the project.`);
   const valueReference = { reference: `Bot/${bot.id}` };
   return { ...change.definition, extension: [{ url: IMPLEMENTATION, valueReference }] };

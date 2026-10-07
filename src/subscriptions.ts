@@ -3,7 +3,7 @@
 import { deepEquals, type MedplumClient } from '@medplum/core';
 import type { Bot, Extension, Subscription } from '@medplum/fhirtypes';
 import type { SubscriptionConfig } from './config.js';
-import { claim, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
+import { claim, owned, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
 
 // The extensions Medplum reads (`subscriptions/index.ts`, `workers/subscription.ts`).
 // The secret's URL has the `www`; the others do not.
@@ -288,7 +288,10 @@ async function withValues(
   const { subscription, variables } = change;
   let endpoint = subscription.channel.endpoint;
   if (change.bot) {
-    const bot = await medplum.searchOne('Bot', { identifier: `${PLUMB_SYSTEM}|${change.bot}` });
+    const bot = await medplum.searchOne(
+      'Bot',
+      owned(medplum, { identifier: `${PLUMB_SYSTEM}|${change.bot}` }),
+    );
     if (!bot) throw new Error(`Bot ${change.bot} is not in the project.`);
     endpoint = `Bot/${bot.id}`;
   }
