@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { mkdtempSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { ContentType, type MedplumRequestOptions } from '@medplum/core';
-import type { AsyncJob, Parameters } from '@medplum/fhirtypes';
+import type { AsyncJob, Parameters, StructureDefinition } from '@medplum/fhirtypes';
 import { build } from 'esbuild';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
@@ -12,10 +13,10 @@ import type { PageResult } from '../../src/checker/handler.js';
 import { checkerInput } from '../../src/checker/input.js';
 import { CHECKER_IDENTIFIER } from '../../src/checker/install.js';
 import { loadProfiles } from '../../src/loader.js';
-import { fetchPackages } from '../../src/packages.js';
+import { fetchPackages, lockedPackages } from '../../src/packages.js';
 import { type PushOptions, push } from '../../src/push.js';
 import { connect, server } from './medplum.js';
-import { newProject, type TestProject } from './setup.js';
+import { linkProject, newProject, type TestProject } from './setup.js';
 
 const PATIENT = 'http://example.org/fhir/plumb-test/StructureDefinition/cardinality-patient';
 const SYNTHETIC = join(import.meta.dirname, '../fixtures/profiles/fsh-generated/resources');
@@ -144,3 +145,98 @@ describe.skipIf(!server)('push installs the checker bot', { timeout: 60_000 }, (
     ]);
   });
 });
+
+/** A cached package's hash, as plumb.lock records it. */
+function integrity(dir: string): string {
+  const sha = createHash('sha256');
+  const files = readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && !['.index.json', '.index.db'].includes(e.name))
+    .map((e) => relative(dir, join(e.parentPath, e.name)).split(sep).join('/'))
+    .sort((a, b) => (a < b ? -1 : 1));
+  for (const file of files) {
+    const data = readFileSync(join(dir, file));
+    sha.update(`${file}\0${data.length}\0`).update(data);
+  }
+  return `sha256-${sha.digest('base64')}`;
+}
+
+const LAB = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab';
+const PACKAGES = join(import.meta.dirname, '../fixtures/packages');
+
+// A published IG binds terminology Medplum's base project already holds, and
+// a linked project's copy of a profile is that project's, never this one's.
+describe.skipIf(!server)(
+  "push writes only the project's own definitions",
+  { timeout: 120_000 },
+  () => {
+    let options: PushOptions;
+    beforeAll(async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'plumb-push-ig-'));
+      // The fixtures trim US Core's dependencies; two it names are empty stand-ins here.
+      const cache = join(dir, 'packages');
+      cpSync(PACKAGES, cache, { recursive: true });
+      for (const [name, version] of [
+        ['hl7.fhir.uv.smart-app-launch', '2.2.0'],
+        ['us.cdc.phinvads', '0.12.0'],
+      ] as const) {
+        mkdirSync(join(cache, `${name}#${version}`, 'package'), { recursive: true });
+        writeFileSync(
+          join(cache, `${name}#${version}`, 'package/package.json'),
+          JSON.stringify({ name, version, fhirVersions: ['4.0.1'] }),
+        );
+      }
+      // The lock records the cached packages' own hashes, not the registry's.
+      const packages = Object.fromEntries(
+        readdirSync(cache)
+          .filter((f) => !f.startsWith('hl7.fhir.uv.ips#'))
+          .map((f) => [f.replace('#', '@'), { integrity: integrity(join(cache, f)) }]),
+      );
+      writeFileSync(
+        join(dir, 'plumb.lock'),
+        JSON.stringify({ lockfileVersion: 1, igs: ['hl7.fhir.us.core@9.0.0'], packages }),
+      );
+      const code = (await build({ ...CHECKER_BUILD, write: false })).outputFiles[0]?.text ?? '';
+      options = {
+        config: { igs: ['hl7.fhir.us.core@9.0.0'], profiles: [LAB], out: '' },
+        environment: { name: 'test', ...(await newProject()) },
+        lockPath: join(dir, 'plumb.lock'),
+        cacheDir: cache,
+        checker: { code, version: '0.2.0' },
+        reportPath: join(dir, '.plumb/validate-test.json'),
+      };
+    }, 120_000);
+
+    test("a published IG loads, leaving the server's own terminology alone, and a second push is clean", async () => {
+      const first = await push(options);
+      expect(first.errors).toEqual([]);
+      const planned = first.plan.map((p) => p.url);
+      expect(planned).toContain(LAB);
+      expect(planned).not.toContain('http://terminology.hl7.org/CodeSystem/observation-category');
+      const second = await push({ ...options, check: true });
+      expect(second.errors).toEqual([]);
+      expect(second.plan.every((p) => p.action === 'unchanged')).toBe(true);
+    });
+
+    test("a profile only a linked project holds is refused, and the linked project's copy is untouched", async () => {
+      const theirs = await newProject();
+      const loaded = loadProfiles({
+        packages: lockedPackages(options.lockPath, options.cacheDir),
+        igs: options.config.igs,
+        profiles: [LAB],
+      });
+      const profile = loaded.definitions.get(LAB)?.resource as StructureDefinition;
+      const { id: _, ...lab } = profile;
+      const held = await (await connect(theirs)).createResource(lab);
+      const ours = await newProject();
+      await linkProject(ours.projectId, theirs.projectId);
+      const result = await push({ ...options, environment: { name: 'test', ...ours } });
+      expect(result.plan.find((p) => p.url === LAB)?.action).toBe('linked');
+      expect(result.steps.find((s) => s.name === 'plan')?.failed).toBe(true);
+      const after = await (await connect(theirs)).readResource(
+        'StructureDefinition',
+        held.id as string,
+      );
+      expect(after.meta?.versionId).toBe(held.meta?.versionId);
+    });
+  },
+);
