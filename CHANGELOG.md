@@ -22,7 +22,10 @@ test first, against a real Medplum where the server is involved.
   own resources, not a linked project's (#240); the lease belongs to a run
   (#248); the hash covers imported helpers and line endings, and the bot
   refuses a stale bundle (#247); a page stopped by the rate limit keeps
-  what it wrote in the counts (#249).
+  what it wrote in the counts (#249); the CLI's own requests wait out a 429,
+  the lease lasts thirty minutes, and Ctrl-C pauses during a quota wait,
+  where a second Ctrl-C no longer kills the run; a first run whose create
+  Postgres aborts as racing another's is `migration-running` (#227).
 - **generate:** output sorts by code point, not the machine's locale (#242);
   bindings on choice elements keep their path (#244); slice types never
   share a name with another generated type (#245); ordered slicing is a

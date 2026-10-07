@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { type BotEvent, type MedplumClient, normalizeErrorString } from '@medplum/core';
 import type { Basic, Bot, Resource, ResourceType } from '@medplum/fhirtypes';
 import { botFilename } from './bots.js';
@@ -10,7 +11,7 @@ import { type CheckerInput, handler as checker } from './checker/handler.js';
 import { checkerInput } from './checker/input.js';
 import { CHECKER_IDENTIFIER, checkerFilename, findChecker } from './checker/install.js';
 import { importModules, type PlumbConfig } from './config.js';
-import { notCurrent, QUOTA_TRIES, QUOTA_WAIT_MS, runPage } from './conformance.js';
+import { notCurrent, QUOTA_RETRY, QUOTA_TRIES, QUOTA_WAIT_MS, runPage } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
 import { checkMigrations, loadMigrations, type Migration, migrationHash } from './migrations.js';
@@ -42,7 +43,7 @@ interface LedgerState {
   counts: Counts;
   pages: number;
   lastError?: string;
-  /** The last time a running pass wrote: older than ten minutes, another run takes it over. */
+  /** The last time a running pass wrote: older than thirty minutes, another run takes it over. */
   lease?: string;
   /** The run holding the lease: two runs started in the same millisecond share a time, never this. */
   holder?: string;
@@ -91,7 +92,7 @@ export interface MigrateEnvOptions extends EnvOptions {
   pageSize?: number;
   /** The git commit the modules are at, for the ledger. */
   commit?: string;
-  /** Stops a write after the current page, leaving the migration paused. */
+  /** Stops a write after the current page, or during a wait, leaving the migration paused. */
   signal?: AbortSignal;
   /** Called after each page with the migration and its counts so far. */
   onPage?: (id: string, counts: Counts) => void | Promise<void>;
@@ -99,7 +100,8 @@ export interface MigrateEnvOptions extends EnvOptions {
   wait?: (ms: number) => Promise<void>;
 }
 
-const LEASE_MS = 10 * 60_000;
+// Longer than a page can take: a Lambda's 15 minutes, with the quota's waits.
+const LEASE_MS = 30 * 60_000;
 const STATE = `${PLUMB_SYSTEM}#migration`;
 const CODE = { coding: [{ system: PLUMB_SYSTEM, code: 'migration' }] };
 const zero = (): Counts => ({ read: 0, changed: 0, unchanged: 0, conflict: 0, failed: 0 });
@@ -180,7 +182,7 @@ async function deployedRunner(
   if ('message' in migrator) return void step.fail('migrator', [migrator]);
   step.finish('migrator', `${bot} current (${migrator.executableCode?.title})`);
   const botId = migrator.id as string;
-  return (input) => runPage<PageResult>(medplum, botId, input, options.wait, 'migrator');
+  return (input) => runPage<PageResult>(medplum, botId, input, waitFor(options), 'migrator');
 }
 
 /**
@@ -520,7 +522,12 @@ async function migrate(
   const pass = await begin(run, migration, held, hash);
   report.resumed = pass.state.cursor !== undefined;
   if (report.resumed) report.counts = { ...pass.state.counts };
-  const finished = await runPages(run, migration, pass, report);
+  const finished = await runPages(run, migration, pass, report).catch(async (err: unknown) => {
+    // Ctrl-C during a wait: the page it held off runs again on resume.
+    if (!stopped(err, run.options)) throw err;
+    await savePass(run.medplum, pass, { ...pass.state, status: 'paused' });
+    return false;
+  });
   if (finished && pass.basic) await close(run.medplum, pass.basic, pass.state, report);
   return report;
 }
@@ -605,11 +612,24 @@ async function runPages(
   }
 }
 
+/** Waits out the quota or a bot not ready, unless Ctrl-C ends the wait. */
+const waitFor =
+  ({ wait, signal }: MigrateEnvOptions) =>
+  async (ms: number) => {
+    await (wait ? wait(ms) : sleep(ms, undefined, { signal }));
+    signal?.throwIfAborted();
+  };
+
+/** Whether the run stopped for Ctrl-C, rather than failed. */
+const stopped = (err: unknown, { signal }: MigrateEnvOptions) =>
+  signal?.aborted === true && (err as Error).name === 'AbortError';
+
 /** One page; a failure leaves the pass errored, to resume from its cursor. */
 async function pageOf(run: Run, pass: Pass, input: object): Promise<PageResult> {
   try {
     return await run.page(input);
   } catch (err) {
+    if (stopped(err, run.options)) throw err;
     await savePass(run.medplum, pass, {
       ...pass.state,
       status: 'errored',
@@ -632,9 +652,7 @@ async function holdOff(run: Run, pass: Pass, tries: number): Promise<number> {
     throw new Error(lastError);
   }
   await savePass(medplum, pass, pass.state);
-  await (options.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(
-    QUOTA_WAIT_MS,
-  );
+  await waitFor(options)(QUOTA_WAIT_MS);
   return tries;
 }
 
@@ -743,13 +761,7 @@ async function takeLease(
   options: MigrateEnvOptions,
 ): Promise<Required<Pass>> {
   const previous = held ? stateOf(held) : undefined;
-  if (
-    previous?.status === 'running' &&
-    previous.lease &&
-    now.getTime() - Date.parse(previous.lease) < LEASE_MS
-  ) {
-    throw running(migration.id);
-  }
+  if (leased(previous, now)) throw running(migration.id);
   // A pass resumes only with the module it began with; otherwise a fresh pass.
   const resume =
     previous?.cursor !== undefined && previous.status !== 'applied' && previous.hash === hash;
@@ -764,19 +776,36 @@ async function takeLease(
     holder: randomUUID(),
   };
   if (!held) {
-    const created = await medplum.createResource<Basic>(ledgerResource(migration.id, state), {
-      headers: {
-        'If-None-Exist': Object.entries(owned(medplum, { _tag: `${PLUMB_SYSTEM}|${migration.id}` }))
-          .map(([k, v]) => `${k}=${v}`)
-          .join('&'),
-      },
-    });
+    const created = await medplum
+      .createResource<Basic>(ledgerResource(migration.id, state), {
+        ...QUOTA_RETRY,
+        headers: {
+          'If-None-Exist': Object.entries(
+            owned(medplum, { _tag: `${PLUMB_SYSTEM}|${migration.id}` }),
+          )
+            .map(([k, v]) => `${k}=${v}`)
+            .join('&'),
+        },
+      })
+      .catch(async (err: unknown) => {
+        // Postgres can abort one of two creates racing for the tag, with a
+        // serialization failure rather than handing back the other's entry.
+        const other = await findLedger(medplum, migration.id);
+        if (leased(other && stateOf(other), now)) throw running(migration.id);
+        throw err;
+      });
     // A conditional create that found one returns it: another run made it first.
     if (stateOf(created).holder !== state.holder) throw running(migration.id);
     return { basic: created, state };
   }
   return { basic: await saveLedger(medplum, held, state), state };
 }
+
+/** Whether a run holds the entry: running, and written to within the lease. */
+const leased = (state: LedgerState | undefined, now: Date) =>
+  state?.status === 'running' &&
+  state.lease !== undefined &&
+  now.getTime() - Date.parse(state.lease) < LEASE_MS;
 
 const ledgerResource = (id: string, state: LedgerState): Basic => ({
   resourceType: 'Basic',
@@ -800,7 +829,7 @@ async function saveLedger(
   try {
     return await medplum.updateResource<Basic>(
       { ...ledgerResource(id, state), id: basic.id as string },
-      { headers: { 'If-Match': `W/"${basic.meta?.versionId}"` } },
+      { headers: { 'If-Match': `W/"${basic.meta?.versionId}"` }, ...QUOTA_RETRY },
     );
   } catch (err) {
     if ((err as { outcome?: { id?: string } }).outcome?.id === 'precondition-failed')
@@ -814,7 +843,7 @@ const tagOf = (basic: Basic) => basic.meta?.tag?.find((t) => t.system === PLUMB_
 const running = (id: string) =>
   Object.assign(
     new Error(
-      `${id} is being run by another plumb migrate; it is taken over once idle for ten minutes.`,
+      `${id} is being run by another plumb migrate; it is taken over once idle for thirty minutes.`,
     ),
     {
       code: 'migration-running',

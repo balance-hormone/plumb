@@ -438,6 +438,13 @@ const READY_TIMEOUT_MS = 60_000;
 const QUOTA = /too many requests|too-many-requests/i;
 export const QUOTA_WAIT_MS = 60_000;
 export const QUOTA_TRIES = 10;
+/**
+ * For each request the CLI makes where a 429 must not end the run: the
+ * client retries that request alone, a poll and not its job, waiting for
+ * the reset its RateLimit header names, where by default it gives up on a
+ * reset over two seconds away.
+ */
+export const QUOTA_RETRY = { maxRetries: QUOTA_TRIES, maxRetryTime: QUOTA_WAIT_MS };
 
 /**
  * One page, as an async job: a page can outlast an HTTP request, not the
@@ -457,7 +464,7 @@ export async function runPage<Result = PageResult>(
       medplum.fhirUrl('Bot', botId, '$execute'),
       input,
       ContentType.JSON,
-      { headers: { Prefer: 'respond-async' }, pollStatusOnAccepted: true },
+      { headers: { Prefer: 'respond-async' }, pollStatusOnAccepted: true, ...QUOTA_RETRY },
     );
     const output = job.output?.parameter ?? [];
     const body = output.find((p) => p.name === 'responseBody')?.valueString;
