@@ -150,7 +150,9 @@ It regenerates in memory, compares byte for byte, and writes nothing to the
 project. It exits 0 when everything is current, 1 when it finds a problem (a
 stale, missing or extra file, or a lockfile that disagrees with the config),
 and 2 for a usage or config error, and names the cause of each difference.
-`--json` prints the full report, and `--quiet` prints only problems.
+`--json` prints the full report, and `--quiet` prints only problems. Each
+code a report can hold, its exit code and its fix are in
+[`docs/errors.md`](docs/errors.md).
 
 A fresh runner fetches the IG packages first (about 390 MB for US Core 9.0.0
 and its dependencies), so cache the shared package cache, keyed on
@@ -729,8 +731,9 @@ catches an environment that missed a migration:
 plumb migrate status --env prod
 ✔ migrations  2 declared
 ✔ connect     https://api.medplum.com/
-✔ 20261006-patient-birthdate  applied at 3c07a1e, 312 changed
-✖ 20261020-coverage-payor     pending
+✖ status      1 applied, 1 pending
+    20261006-patient-birthdate: applied at 3c07a1e, 312 changed
+    20261020-coverage-payor: pending
 ```
 
 Once a migration is applied in every environment, its module can go; its
@@ -1314,6 +1317,8 @@ data synthetic. Secrets resolve from the environment as `push` resolves them.
   about a minute; a project and its push take seconds.
 - **Other runners** call the plain functions from their own global setup:
   `startServer`, `createTestProject` and `stopServer` from `plumb-fhir/test`.
+  `createTestProject` and `migrate` take the config as `loadConfig` returns
+  it (a `LoadedConfig`), and report a push or a run as `{ ok, errors, steps }`.
   `plumb-fhir/vitest` hands the project to the tests in the
   `PLUMB_TEST_PROJECT` environment variable, which `testProject()` reads.
 - **Bots run on Medplum's `vmcontext` runtime** in the test server, whatever

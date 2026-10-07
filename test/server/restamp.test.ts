@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Patient } from '@medplum/fhirtypes';
 import { beforeAll, describe, expect, test } from 'vitest';
-import type { PlumbConfig } from '../../src/config.js';
+import type { LoadedConfig, PlumbConfig } from '../../src/config.js';
 import { generate } from '../../src/generate.js';
 import { migrationStatus } from '../../src/migrate.js';
 import { connectAs, migrate } from '../../src/testing.js';
@@ -53,12 +53,9 @@ describe.skipIf(!server)('the restamp migration', { timeout: 120_000 }, () => {
   }, 120_000);
 
   test('stamps the routed profile and keeps a URL Plumb does not manage', async () => {
-    const result = await migrate(project, config, { lockPath, write: true });
+    const result = await migrate(project, config as LoadedConfig, { lockPath, write: true });
     expect(result.errors).toEqual([]);
-    expect(result.migrations[RESTAMP]).toMatchObject({
-      ran: true,
-      counts: { changed: 2, failed: 0 },
-    });
+    expect(result.steps.find((s) => s.name === RESTAMP)?.summary).toMatch(/ 2 changed, /);
     const medplum = await connectAs(project);
     const patients = await medplum.searchResources('Patient', { _count: '20' });
     for (const patient of patients) expect(patient.meta?.profile).toContain(PATIENT);
@@ -73,7 +70,7 @@ describe.skipIf(!server)('the restamp migration', { timeout: 120_000 }, () => {
     appendFileSync(join(config.out, '_routes.ts'), '\n');
     const after = await migrationStatus({ config, environment });
     expect(after.migrations[RESTAMP]?.status).toBe('pending');
-    const again = await migrate(project, config, { lockPath, write: true });
-    expect(again.migrations[RESTAMP]).toMatchObject({ ran: true, counts: { changed: 0 } });
+    const again = await migrate(project, config as LoadedConfig, { lockPath, write: true });
+    expect(again.steps.find((s) => s.name === RESTAMP)?.summary).toMatch(/ 0 changed, /);
   });
 });

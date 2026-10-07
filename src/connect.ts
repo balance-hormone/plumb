@@ -36,7 +36,7 @@ export async function connect(environment: ResolvedEnvironment): Promise<Connect
   };
 }
 
-/** One finished step of a command that acts on an environment, for the CLI to print as it goes. */
+/** One finished step of any command, for the CLI to print as it goes: one shape in every report. */
 export interface EnvStep<Name extends string> {
   name: Name;
   ms: number;
@@ -45,6 +45,8 @@ export interface EnvStep<Name extends string> {
   warnings: string[];
   /** The step found problems, so the CLI marks it failed. */
   failed?: boolean;
+  /** What the step counted, by name, where it counts: `generate`'s steps. */
+  counts?: Record<string, number>;
 }
 
 export interface EnvResult<Name extends string> {

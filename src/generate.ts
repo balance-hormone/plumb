@@ -5,6 +5,7 @@ import { globSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { checkRoutes, type PlumbConfig } from './config.js';
+import type { EnvStep } from './connect.js';
 import { addContentTerminology, loadContent } from './content.js';
 import { printBots } from './emit/bots.js';
 import { printFiles } from './emit/print.js';
@@ -19,12 +20,9 @@ import { buildFsh, compareBuild, dependencyWarnings } from './sushi.js';
 
 type StepName = 'sushi' | 'packages' | 'load' | 'emit' | 'routes' | 'write' | 'check';
 
-/** One finished step, with what it did, for the CLI to print as it goes. */
-export interface Step {
-  name: StepName;
-  ms: number;
+/** One finished step, with what it did and counted, for the CLI to print as it goes. */
+export interface Step extends EnvStep<StepName> {
   counts: Record<string, number>;
-  warnings: string[];
 }
 
 interface GenerateError {
@@ -89,7 +87,16 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
   };
   let since = performance.now();
   const finish = (name: StepName, counts: Record<string, number>, warnings: string[] = []) => {
-    const step = { name, ms: ms(since), counts, warnings };
+    // The check step counts only stale, missing and extra files.
+    const failed = name === 'check' && Object.values(counts).some((n) => n > 0);
+    const step = {
+      name,
+      ms: ms(since),
+      summary: summaryOf(name, counts),
+      warnings,
+      ...(failed ? { failed } : {}),
+      counts,
+    };
     result.steps.push(step);
     options.onStep?.(step);
     since = performance.now();
@@ -208,6 +215,24 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
   result.ok = result.stale.length === 0;
   result.totalMs = ms(start);
   return result;
+}
+
+/** What a step did, from its counts, as its line says it. */
+function summaryOf(name: StepName, c: Record<string, number>): string {
+  return {
+    sushi: () => `${c.structureDefinitions} StructureDefinitions, ${c.valueSets} ValueSets`,
+    packages: () => `${c.cached} cached, ${c.fetched} fetched`,
+    load: () =>
+      `${c.profiles} profiles${c.skipped ? `, ${c.skipped} skipped` : ''}${c.content ? `, ${c.content} content` : ''}`,
+    emit: () => `${c.types} types, ${c.slices} slices, ${c.codeLists} code lists`,
+    routes: () =>
+      `${c.rows} rows for ${c.types} types${c.ambiguous ? `, ${c.ambiguous} ambiguous` : ''}`,
+    write: () => `${c.written} written, ${c.removed} removed, ${c.unchanged} unchanged`,
+    check: () =>
+      c.stale || c.missing || c.extra
+        ? `${c.stale} stale, ${c.missing} missing, ${c.extra} extra`
+        : 'up to date',
+  }[name]();
 }
 
 /** A profile outside any package is hashed by its StructureDefinition. */

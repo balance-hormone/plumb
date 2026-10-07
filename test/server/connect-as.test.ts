@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Patient } from '@medplum/fhirtypes';
 import { beforeAll, describe, expect, test } from 'vitest';
-import type { PlumbConfig } from '../../src/config.js';
+import type { LoadedConfig, PlumbConfig } from '../../src/config.js';
 import { fetchPackages } from '../../src/packages.js';
 import { connectAs, createTestProject, type TestProject } from '../../src/testing.js';
 import { server } from './medplum.js';
@@ -38,7 +38,7 @@ describe.skipIf(!server)('connectAs', { timeout: 120_000 }, () => {
   beforeAll(async () => {
     const lockPath = join(mkdtempSync(join(tmpdir(), 'plumb-connect-as-')), 'plumb.lock');
     await fetchPackages({ igs: [], lockPath });
-    const created = await createTestProject(CONFIG, { lockPath });
+    const created = await createTestProject(CONFIG as LoadedConfig, { lockPath });
     if (!created.ok) throw new Error(created.error.message);
     project = created;
     const admin = await connectAs(project);

@@ -5,7 +5,8 @@
 // declarations, the CLI as ESM, and the checker bot as one CJS file. Output is
 // not minified, so stack traces stay readable.
 import { execFileSync } from 'node:child_process';
-import { cpSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { build } from 'esbuild';
 import { CHECKER_BUILD } from '../src/checker/bundle.ts';
 
@@ -55,6 +56,27 @@ await Promise.all([
 ]);
 
 execFileSync('tsc', ['-p', 'tsconfig.build.json'], { stdio: 'inherit' });
+
+// tsc declares every module it compiles; ship only those the entry points'
+// declarations reach, so internal modules stay out of the published types.
+const reached = new Set();
+const reach = (file) => {
+  if (reached.has(file)) return;
+  reached.add(file);
+  const specifiers = readFileSync(file, 'utf8').matchAll(
+    /(?:from|import\()\s*['"](\.\.?\/[^'"]+)\.js['"]/g,
+  );
+  for (const [, specifier] of specifiers) reach(join(dirname(file), `${specifier}.d.ts`));
+};
+for (const entry of ['index', 'testing', 'vitest']) reach(join('dist/esm', `${entry}.d.ts`));
+for (const name of readdirSync('dist/esm', { recursive: true })) {
+  const file = join('dist/esm', name);
+  if (/\.d\.ts(\.map)?$/.test(file) && !reached.has(file.replace(/\.map$/, ''))) rmSync(file);
+}
+for (const entry of readdirSync('dist/esm', { withFileTypes: true })) {
+  const dir = join('dist/esm', entry.name);
+  if (entry.isDirectory() && readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
+}
 
 // The package is "type": "module", so without these markers a CJS consumer
 // would read dist/cjs/*.d.ts as ESM declarations.

@@ -158,7 +158,9 @@ These decide the questions the rest of the spec does not answer.
 ## Solution
 
 **One dev-only package, `plumb-fhir`** (`plumb` is taken on npm), with the `plumb`
-CLI and one library function.
+CLI and a small library: `defineConfig`, `loadConfig` and `validateProfiled`
+from `plumb-fhir`, and the test-server helpers from `plumb-fhir/test` and
+`plumb-fhir/vitest`.
 
 ```ts
 // plumb.config.ts
@@ -424,9 +426,10 @@ profile not yet generated, and an extra one the profile no longer selected.
 
 ### Output
 
-`generate` reports each step as it finishes (`packages`, `load`, `emit`,
-`routes`, then `write` or `check`), with its counts, warnings and time, and returns
-them in its report; the CLI prints them, as Prisma, Vite and SUSHI do:
+`generate` reports each step as it finishes (`sushi` when the config names
+FSH, then `packages`, `load`, `emit`, `routes`, then `write` or `check`), with
+its counts, warnings and time, and returns them in its report; the CLI prints
+them, as Prisma, Vite and SUSHI do:
 
 ```text
 plumb generate
@@ -446,7 +449,13 @@ Done in 2.4s
   for agents and scripts. `--quiet` prints only problems.
 - Colour only in a terminal, and never with `NO_COLOR`; no spinners, so CI
   logs and agents read the same lines a person does.
-- **One exit-code table, by error code,** for every command: 0 on success; 2
+- **One step shape** in every command's `--json` report: `{ name, ms,
+  summary, warnings, failed?, counts? }`, `counts` where a step counts
+  (`generate`'s). `check` reports its one step; `migrate status` reports
+  its `migrations`, `connect` and `status` steps, and each migration only in
+  `migrations`.
+- **One exit-code table, by error code,** for every command, listed with
+  each code's fix in [`errors.md`](errors.md): 0 on success; 2
   when the command could not run as asked (usage, config, set-up or
   connection, fixed before running again), whichever step reports the code;
   otherwise 1, a problem found. A failed write (`apply-failed`,
@@ -460,7 +469,7 @@ Done in 2.4s
 
 ### `validateProfiled`
 
-- `await validateProfiled(resource, profileUrl)`, exported from `plumb`. On
+- `await validateProfiled(resource, profileUrl)`, exported from `plumb-fhir`. On
   its first call it finds `plumb.config.ts` from the working directory (or
   takes `configPath`), reads `plumb.lock` beside it, and loads every profile
   the config selects from the package cache through the loader, once per

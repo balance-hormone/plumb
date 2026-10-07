@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { Bundle, Patient } from '@medplum/fhirtypes';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { bundledChecker } from '../../src/checker/install.js';
-import type { PlumbConfig } from '../../src/config.js';
+import type { LoadedConfig, PlumbConfig } from '../../src/config.js';
 import { fetchPackages } from '../../src/packages.js';
 import { push } from '../../src/push.js';
 import { superAdmin } from '../../src/server.js';
@@ -90,7 +90,7 @@ describe.skipIf(!server)('createTestProject', { timeout: 120_000 }, () => {
   beforeAll(async () => {
     lockPath = join(mkdtempSync(join(tmpdir(), 'plumb-test-project-')), 'plumb.lock');
     await fetchPackages({ igs: [], lockPath });
-    created = await createTestProject(CONFIG, { lockPath, seed: [seedFiles()] });
+    created = await createTestProject(CONFIG as LoadedConfig, { lockPath, seed: [seedFiles()] });
     if (!created.ok) throw new Error(created.error.message);
     project = created;
   }, 120_000);
@@ -144,7 +144,10 @@ describe.skipIf(!server)('createTestProject', { timeout: 120_000 }, () => {
   });
 
   test('a seed entry the server refuses fails the setup, naming it', async () => {
-    const refused = await createTestProject(CONFIG, { lockPath, seed: [seedFiles(true)] });
+    const refused = await createTestProject(CONFIG as LoadedConfig, {
+      lockPath,
+      seed: [seedFiles(true)],
+    });
     expect(!refused.ok && refused.error.code).toBe('seed-refused');
     expect(!refused.ok && refused.error.message).toMatch(
       /1-patients\.json, entry 1, was refused: .*birthDate/,
@@ -153,7 +156,7 @@ describe.skipIf(!server)('createTestProject', { timeout: 120_000 }, () => {
 
   test('options override strictMode and features', async () => {
     const loose = await createTestProject(
-      { ...CONFIG, project: undefined, defaultProfile: undefined },
+      { ...CONFIG, project: undefined, defaultProfile: undefined } as LoadedConfig,
       { lockPath, strictMode: false, features: ['bots', 'cron'] },
     );
     if (!loose.ok) throw new Error(loose.error.message);
@@ -182,7 +185,7 @@ describe.skipIf(!server)('a test project runs the declared bots', { timeout: 120
         bots: { echo: { file: lambda, cron: '0 3 * * *' } },
         subscriptions: { 'new-patient': { criteria: 'Patient', bot: 'echo' } },
         test: { bots: { echo: { file: build } } },
-      },
+      } as PlumbConfig as LoadedConfig,
       { lockPath },
     );
     expect(created.ok).toBe(true);

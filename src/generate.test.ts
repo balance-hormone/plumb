@@ -67,6 +67,11 @@ describe('generate', () => {
     expect(result.steps).toEqual(steps);
     expect(steps.find((s) => s.name === 'load')?.counts).toMatchObject({ profiles: 2 });
     expect(steps.find((s) => s.name === 'emit')?.counts).toMatchObject({ types: 2, slices: 3 });
+    // One step shape across commands: each step says what it did, as push's and validate's do.
+    expect(steps.find((s) => s.name === 'load')?.summary).toBe('2 profiles');
+    expect(steps.find((s) => s.name === 'write')?.summary).toBe(
+      '6 written, 0 removed, 0 unchanged',
+    );
     expect(steps.every((s) => s.ms >= 0)).toBe(true);
     expect(result.totalMs).toBeGreaterThanOrEqual(0);
   });
