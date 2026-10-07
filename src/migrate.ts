@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type BotEvent, type MedplumClient, normalizeErrorString } from '@medplum/core';
@@ -44,6 +44,8 @@ interface LedgerState {
   lastError?: string;
   /** The last time a running pass wrote: older than ten minutes, another run takes it over. */
   lease?: string;
+  /** The run holding the lease: two runs started in the same millisecond share a time, never this. */
+  holder?: string;
 }
 
 /** The checker's verdict on the changed records, summed over a run. */
@@ -603,7 +605,7 @@ async function close(
   report: MigrationReport,
 ) {
   const left = report.counts.failed + report.counts.conflict;
-  const { start, lease, lastError, ...rest } = state;
+  const { start, lease, holder, lastError, ...rest } = state;
   await saveLedger(
     medplum,
     basic,
@@ -716,6 +718,7 @@ async function takeLease(
     counts: resume ? previous.counts : zero(),
     pages: resume ? previous.pages : 0,
     lease: now.toISOString(),
+    holder: randomUUID(),
   };
   if (!held) {
     const created = await medplum.createResource<Basic>(ledgerResource(migration.id, state), {
@@ -726,7 +729,7 @@ async function takeLease(
       },
     });
     // A conditional create that found one returns it: another run made it first.
-    if (stateOf(created).lease !== state.lease) throw running(migration.id);
+    if (stateOf(created).holder !== state.holder) throw running(migration.id);
     return { basic: created, state };
   }
   return { basic: await saveLedger(medplum, held, state), state };
