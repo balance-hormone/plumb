@@ -220,6 +220,37 @@ describe.skipIf(!server)('push runs the bots step after the project', { timeout:
   });
 });
 
+// A removed bot stays, so webhooks pointing at its membership keep working; only its schedule goes.
+describe.skipIf(!server)("--prune clears a removed bot's schedule", { timeout: 120_000 }, () => {
+  test('a removed scheduled bot keeps its schedule without --prune, and only loses it with it', async () => {
+    const project = await newProject();
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-bot-prune-'));
+    const file = join(dir, 'echo.cjs');
+    writeFileSync(file, ECHO);
+    const nightly = { nightly: { file, runtime: 'vmcontext', cron: '0 3 * * *' } as BotConfig };
+    const medplum = await connect(project);
+    await applyBots(await planBots(medplum, nightly), medplum);
+    // A fresh login for each read, so nothing comes from a client's cache.
+    const held = async () => {
+      const fresh = await connect(project);
+      return (await fresh.searchOne('Bot', { identifier: `${PLUMB_SYSTEM}|nightly` })) as Bot;
+    };
+    const scheduled = await held();
+    expect(scheduled.cronString).toBe('0 3 * * *');
+
+    const kept = await planBots(await connect(project), {});
+    expect(kept.changes).toEqual([{ kind: '-', key: 'nightly', id: scheduled.id, kept: true }]);
+    await applyBots(kept, await connect(project));
+    expect((await held()).meta?.versionId).toBe(scheduled.meta?.versionId);
+
+    await applyBots(await planBots(await connect(project), {}, { prune: true }), medplum);
+    const pruned = await held();
+    expect(pruned.id).toBe(scheduled.id);
+    expect(pruned.cronString).toBeUndefined();
+    expect((await planBots(await connect(project), {}, { prune: true })).changes).toEqual([]);
+  });
+});
+
 describe.skipIf(!server)('a policy grants bots by key', { timeout: 120_000 }, () => {
   test("a client whose policy grants bots: ['x'] can run x and not y", async () => {
     const project = await newProject();

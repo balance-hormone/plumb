@@ -226,3 +226,46 @@ describe.skipIf(!server)('the gate checks the parents push loads', { timeout: 60
     expect(await medplum.searchResources('StructureDefinition', { url: parent })).toHaveLength(0);
   });
 });
+
+// Medplum validates against whichever copy of a URL sorts "newest" as text, so
+// push loads nothing over two of them.
+describe.skipIf(!server)('push refuses a shadowed profile', { timeout: 60_000 }, () => {
+  test('two held copies of a selected profile stop push before the gate, writing nothing', async () => {
+    const project = await newProject();
+    const medplum = await connect(project);
+    const { id: _, ...sd } = JSON.parse(
+      readFileSync(join(SYNTHETIC, file('cardinality-patient')), 'utf8'),
+    ) as StructureDefinition;
+    await medplum.createResource({ ...sd, version: '1.9.0' });
+    await medplum.createResource({ ...sd, version: '1.10.0' });
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-gate-shadowed-'));
+    const lockPath = join(dir, 'plumb.lock');
+    await fetchPackages({ igs: [], lockPath });
+    const code = (await build({ ...CHECKER_BUILD, write: false })).outputFiles[0]?.text ?? '';
+    const result = await push({
+      config: { igs: [], profiles: [PATIENT], local: SYNTHETIC, out: '' },
+      environment: { name: 'test', ...project },
+      lockPath,
+      checker: { code, version: '0.2.0' },
+      reportPath: join(dir, '.plumb', 'validate-test.json'),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([]);
+    expect(result.plan).toEqual([
+      { resourceType: 'StructureDefinition', url: PATIENT, version: '0.1.0', action: 'shadowed' },
+    ]);
+    expect(result.gate).toBeUndefined();
+    expect(result.steps.at(-1)).toMatchObject({
+      name: 'plan',
+      failed: true,
+      summary: 'refusing: profiles are shadowed',
+      warnings: [
+        `${PATIENT}: the project holds more than one; delete all but one, then push again.`,
+      ],
+    });
+    const held = await (await connect(project)).searchResources('StructureDefinition', {
+      url: PATIENT,
+    });
+    expect(held.map((d) => d.version).sort()).toEqual(['1.10.0', '1.9.0']);
+  });
+});
