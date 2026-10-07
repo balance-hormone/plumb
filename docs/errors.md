@@ -87,6 +87,9 @@ load, by the step that checks them.
 | `lock-missing` | generate, validate, push, migrate | 1 | Run `plumb generate` and commit `plumb.lock`. |
 | `lock-disagrees` | generate, validate, push, migrate | 1 | Run `plumb generate` and commit `plumb.lock`. |
 | `no-lock` | check | 1 | Run `plumb generate`, which writes the lock and fills the cache. |
+| `invalid-lock` | generate, check, validate, push, migrate | 2 | Resolve the merge conflict or hand edit in `plumb.lock`, or delete it and run `plumb generate`. |
+| `local-not-found` | generate, validate, push, migrate | 2 | Create the folder `local` names, or fix the path. |
+| `invalid-local-json` | generate, validate, push, migrate | 2 | Fix the named file in `local` so it is valid JSON. |
 | `profile-not-found` | generate, validate, push, migrate | 1 | Fix the URL, or add the IG or local file that defines it. |
 | `no-snapshot` | generate, validate, push, migrate | 1 | Build the profile with a snapshot (`sushi build --snapshot`). |
 | `not-r4` | generate, validate, push, migrate | 1 | Select an R4 package or profile. |
