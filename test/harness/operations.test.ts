@@ -196,6 +196,55 @@ describe('callOperation', () => {
   });
 });
 
+describe('sides beyond a type and a plain schema object', () => {
+  // ArkType's type(...) is a function carrying ~standard, not an object.
+  const callable = Object.assign((value: unknown) => value, { '~standard': draft['~standard'] });
+  const ark = defineOperation({
+    code: 'ark',
+    level: 'system',
+    input: callable,
+    output: callable,
+  });
+  const count = defineOperation({
+    code: 'count',
+    level: 'system',
+    input: 'Parameters',
+    output: 'Parameters',
+  });
+  const counted = {
+    resourceType: 'Parameters',
+    parameter: [{ name: 'count', valueInteger: 3 }],
+  };
+
+  test('a callable Standard Schema is a JSON side on both ends', async () => {
+    const medplum = client({
+      resourceType: 'Parameters',
+      parameter: [{ name: 'result', valueString: '{"text":"done"}' }],
+    });
+    expect(await callOperation(medplum, ark, { text: ' Hi ' })).toEqual({ text: 'done' });
+    expect(medplum.sent[0]?.contentType).toBe('application/json');
+    const handler = handleOperation(ark, () => ({ text: 'done' }));
+    expect(await handler({}, { input: { text: 'Hi' } })).toEqual({ result: '{"text":"done"}' });
+  });
+
+  test('a Parameters output is read as the Parameters it is', async () => {
+    expect(await callOperation(client(counted), count, counted)).toEqual(counted);
+    // As Medplum 5.1.0 sends it, through the return parameter.
+    const wrapped = {
+      resourceType: 'Parameters',
+      parameter: [{ name: 'return', resource: counted }],
+    };
+    expect(await callOperation(client(wrapped), count, counted)).toEqual(counted);
+  });
+
+  test('an instance operation with no id is refused before anything is sent', async () => {
+    const medplum = client(communication);
+    const err = await failure(callOperation(medplum, summarize, { ...patient, id: undefined }));
+    expect(err.message).toMatch(/id/);
+    expect(medplum.sent).toEqual([]);
+  });
+});
+
 test('tsc holds callers and handlers to the contract', () => {
   const source = `
 import type { MedplumClient } from '@medplum/core';
