@@ -3,14 +3,17 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Basic, Patient, Subscription } from '@medplum/fhirtypes';
+import type { Basic, OperationDefinition, Patient, Subscription } from '@medplum/fhirtypes';
+import { build } from 'esbuild';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { applyBots, planBots } from '../../src/bots.js';
-import { bundledChecker } from '../../src/checker/install.js';
+import { CHECKER_BUILD } from '../../src/checker/bundle.js';
+import { bundledChecker, installChecker } from '../../src/checker/install.js';
 import type { BotConfig, PlumbConfig, SubscriptionConfig } from '../../src/config.js';
 import { printFiles } from '../../src/emit/print.js';
 import { writeFiles } from '../../src/emit/write.js';
 import { migrateEnvironment, migrationStatus } from '../../src/migrate.js';
+import { applyOperations, type Contract, planOperations } from '../../src/operations.js';
 import { fetchPackages } from '../../src/packages.js';
 import { PLUMB_SYSTEM } from '../../src/project.js';
 import { applySubscriptions, planSubscriptions } from '../../src/subscriptions.js';
@@ -104,5 +107,91 @@ describe.skipIf(!server)("a linked project's Plumb resources", { timeout: 120_00
     expect(run.migrations[BACKFILL]).toMatchObject({ ran: true, counts: { changed: 1 } });
     const after = await (await connect(theirs)).readResource('Basic', held.id as string);
     expect(after.meta?.versionId).toBe(held.meta?.versionId);
+  });
+
+  test("a linked project's scheduled bot is neither planned here nor cleared by --prune", async () => {
+    const nightly = { nightly: { ...bots.echo, cron: '0 3 * * *' } as BotConfig };
+    const linked = await connect(theirs);
+    await applyBots(await planBots(linked, nightly), linked);
+    const medplum = await connect(ours);
+    expect((await planBots(medplum, {}, { prune: true })).changes).toEqual([]);
+    expect((await planBots(medplum, nightly)).changes).toMatchObject([
+      { kind: '+', key: 'nightly' },
+    ]);
+  });
+
+  test("a linked project's Subscription is neither planned here nor turned off by --prune", async () => {
+    const config: Record<string, SubscriptionConfig> = {
+      'linked-only': { criteria: 'Practitioner', interactions: ['create'], bot: 'echo' },
+    };
+    const linked = await connect(theirs);
+    await applySubscriptions(await planSubscriptions(linked, config), linked);
+    const medplum = await connect(ours);
+    const pruned = await planSubscriptions(medplum, {}, { prune: true });
+    expect(pruned.changes.map((c) => c.key)).not.toContain('linked-only');
+    const planned = await planSubscriptions(medplum, config);
+    expect(planned.changes.filter((c) => c.key === 'linked-only')).toMatchObject([{ kind: '+' }]);
+  });
+
+  test("an untagged OperationDefinition in a linked project shadows a contract's code", async () => {
+    await (await connect(theirs)).createResource<OperationDefinition>({
+      resourceType: 'OperationDefinition',
+      name: 'linked',
+      status: 'active',
+      kind: 'operation',
+      code: 'plumb-linked',
+      system: true,
+      type: false,
+      instance: false,
+    });
+    const contract: Contract = {
+      code: 'plumb-linked',
+      level: 'system',
+      bot: 'echo',
+      input: 'Parameters',
+      output: 'Parameters',
+      from: 'linked.test.ts',
+    };
+    const planned = await planOperations(await connect(ours), [contract], () => undefined);
+    expect(planned.blocked).toMatchObject([{ code: 'shadowed-operation' }]);
+    expect(planned.changes).toEqual([]);
+  });
+
+  test("a linked project's tagged OperationDefinition is neither planned here nor deleted by --prune", async () => {
+    const held = await (await connect(theirs)).createResource<OperationDefinition>({
+      resourceType: 'OperationDefinition',
+      meta: { tag: [{ system: PLUMB_SYSTEM, code: 'plumb-theirs' }] },
+      name: 'theirs',
+      status: 'active',
+      kind: 'operation',
+      code: 'plumb-theirs',
+      system: true,
+      type: false,
+      instance: false,
+    });
+    const medplum = await connect(ours);
+    const planned = await planOperations(medplum, [], () => undefined, { prune: true });
+    expect(planned).toEqual({ changes: [], blocked: [] });
+    await applyOperations(planned, medplum);
+    const after = await (await connect(theirs)).readResource(
+      'OperationDefinition',
+      held.id as string,
+    );
+    expect(after.meta?.versionId).toBe(held.meta?.versionId);
+  });
+
+  // Last: migrate looks for this project's checker, so the ledger test runs without one.
+  test("a linked project's checker is not this project's: push installs its own", async () => {
+    const code = (await build({ ...CHECKER_BUILD, write: false })).outputFiles[0]?.text ?? '';
+    const options = { code, version: 'test', resourceTypes: ['Patient'] };
+    const theirsChecker = await installChecker(await connect(theirs), options);
+    const before = await (await connect(theirs)).readResource('Bot', theirsChecker.botId);
+    const installed = await installChecker(await connect(ours), options);
+    expect(installed.status).toBe('installed');
+    expect(installed.botId).not.toBe(theirsChecker.botId);
+    const own = await (await connect(ours)).readResource('Bot', installed.botId);
+    expect(own.meta?.project).toBe(ours.projectId);
+    const after = await (await connect(theirs)).readResource('Bot', theirsChecker.botId);
+    expect(after.meta?.versionId).toBe(before.meta?.versionId);
   });
 });

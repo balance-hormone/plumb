@@ -3,7 +3,12 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AccessPolicy, ClientApplication, Patient } from '@medplum/fhirtypes';
+import type {
+  AccessPolicy,
+  ClientApplication,
+  Patient,
+  ProjectMembership,
+} from '@medplum/fhirtypes';
 import { build } from 'esbuild';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
@@ -289,6 +294,52 @@ describe.skipIf(!server)(
         ]),
       });
       expect((await stored()).meta?.versionId).toBe(before.meta?.versionId);
+    });
+  },
+);
+
+// Medplum 5.1.0's Project has no defaultAccessPolicies; invites read them since.
+describe.skipIf(!server || process.env.PLUMB_MEDPLUM_SERVER === '5.1.0')(
+  'push writes defaultAccessPolicies, and Medplum honours them',
+  { timeout: 60_000 },
+  () => {
+    test("an invited practitioner's membership gets the policy push named as the default", async () => {
+      const project = await newProject();
+      const options = await pushOptions(project, {
+        igs: [],
+        profiles: [],
+        out: '',
+        project: {
+          ...CONFIG,
+          defaultAccessPolicies: [{ profileType: 'Practitioner', accessPolicy: 'clinician' }],
+        },
+      });
+      const result = await push(options);
+      expect(result.errors).toEqual([]);
+      expect(result.ok).toBe(true);
+
+      // A fresh login, so the invite reads the Project as push left it.
+      const medplum = await connect(project);
+      const policies = await medplum.searchResources('AccessPolicy', { _count: '100' });
+      const clinician = policies.find((p) => tagOf(p) === 'clinician') as AccessPolicy;
+      expect(await medplum.readResource('Project', project.projectId)).toMatchObject({
+        defaultAccessPolicies: [
+          {
+            profileType: 'Practitioner',
+            accessPolicy: { reference: `AccessPolicy/${clinician.id}` },
+          },
+        ],
+      });
+
+      const invited = (await medplum.invite(project.projectId, {
+        resourceType: 'Practitioner',
+        firstName: 'Ada',
+        lastName: 'Synthetic',
+        email: `synthetic-${Date.now()}@example.org`,
+        sendEmail: false,
+      })) as ProjectMembership;
+      const membership = await medplum.readResource('ProjectMembership', invited.id as string);
+      expect(membership.accessPolicy?.reference).toBe(`AccessPolicy/${clinician.id}`);
     });
   },
 );

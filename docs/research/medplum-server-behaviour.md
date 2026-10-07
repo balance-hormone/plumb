@@ -455,8 +455,8 @@ Read for [design 09](../design/09-reference-content.md) from `main` at
   `text/typescript` (`operations/botinit.ts`), which fails the base mimetypes
   binding (`Value "text/typescript" did not satisfy terminology binding
   http://hl7.org/fhir/ValueSet/mimetypes|4.0.1`). Found by Plumb's real-server
-  test on 5.1.42; `push` cannot install its checker in such a project until
-  Medplum fixes it.
+  test on 5.1.42, and asserted in `test/server/terminology.test.ts`; `push`
+  cannot install its checker in such a project until Medplum fixes it.
 - **No canonical URL is unique.** Nothing checks it on create or update.
   Terminology resolves duplicates by the ranking above; `QuestionnaireResponse/$extract`
   takes an unsorted `searchOne` by URL; `$apply` the newest active one.
@@ -625,8 +625,9 @@ named. The write, validation, no-op and cursor claims are pinned by
   entries honour `request.ifMatch` (`fhir-router/src/batch.ts`).
   `MedplumClient.patchResource` and `updateResource` take request options,
   headers included. **Medplum 5.1.0 ignores `If-Match` on a PATCH** and
-  applies it; it answers 412 on a PUT. `test/server/migrations.test.ts` runs
-  on both releases, so the runner writes with PUT.
+  applies it; it answers 412 on a PUT, and 5.1.42 on both.
+  `test/server/migrations.test.ts` asserts each on its release, so the
+  runner writes with PUT.
 - **JSON Patch `test` works but reads as a 400.** `@medplum/core` vendors
   `rfc6902` (`core/src/patch/`); `util/patch.ts` `patchObject()` throws
   `badRequest` with `Test failed: …`, indistinguishable by status from a

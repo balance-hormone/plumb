@@ -66,5 +66,17 @@ describe.skipIf(!server)(
         /terminology binding/,
       );
     });
+
+    test('with validate-terminology, Medplum cannot create a bot', async () => {
+      const medplum = await connectAs(project);
+      // The bot's source is a Binary of text/typescript, which the base mimetypes binding refuses.
+      await expect(
+        medplum.post(`admin/projects/${project.projectId}/bot`, {
+          name: 'refused',
+          runtimeVersion: 'vmcontext',
+        }),
+      ).rejects.toThrow(/mimetypes/);
+      expect(await medplum.searchResources('Bot', { name: 'refused' })).toHaveLength(0);
+    });
   },
 );

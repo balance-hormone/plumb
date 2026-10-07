@@ -34,7 +34,27 @@ describe.skipIf(!server)('Medplum, as the migration runner relies on it', () => 
     medplum = await connect(await newProject());
   });
 
-  // Medplum 5.1.0 ignores If-Match on a PATCH and applies it, so the runner writes with PUT.
+  // Why the runner writes with PUT: the oldest release it supports does not guard a PATCH.
+  test('a PATCH against a stale version is applied on 5.1.0, and a 412 since', async () => {
+    const patient = await medplum.createResource<Patient>({
+      resourceType: 'Patient',
+      active: true,
+    });
+    const stale = patient.meta?.versionId as string;
+    await medplum.updateResource({ ...patient, active: false });
+    const patched = medplum.patchResource(
+      'Patient',
+      patient.id as string,
+      [{ op: 'add', path: '/gender', value: 'other' }],
+      { headers: { 'If-Match': `W/"${stale}"` } },
+    );
+    if (process.env.PLUMB_MEDPLUM_SERVER === '5.1.0') {
+      await expect(patched).resolves.toMatchObject({ active: false, gender: 'other' });
+    } else {
+      expect((await errorOf(patched))?.id).toBe('precondition-failed');
+    }
+  });
+
   test('a PUT against a stale version is a 412, precondition-failed', async () => {
     const patient = await medplum.createResource<Patient>({
       resourceType: 'Patient',
