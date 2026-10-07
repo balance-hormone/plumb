@@ -13,6 +13,7 @@ import { routingRows } from './emit/routes.js';
 import { type ProfileModel, transform } from './emit/transform.js';
 import { compareFiles, type Stale, writeFiles } from './emit/write.js';
 import { loadProfiles } from './loader.js';
+import { migrationHash } from './migrations.js';
 import { fetchPackages } from './packages.js';
 import { buildFsh, compareBuild, dependencyWarnings } from './sushi.js';
 
@@ -218,7 +219,7 @@ function hashOf(model: ProfileModel): string {
  * Each migration module's import path from `out`, as NodeNext writes it, for
  * `_migrator.ts`; the list is generated, so a new module makes the output stale.
  */
-function migrationImports(config: PlumbConfig): string[] | undefined {
+function migrationImports(config: PlumbConfig): { path: string; hash: string }[] | undefined {
   if (!config.migrations) return undefined;
   const files = new Set(config.migrations.modules.flatMap((pattern) => globSync(pattern)));
   return [...files].sort().map((file) => {
@@ -226,7 +227,11 @@ function migrationImports(config: PlumbConfig): string[] | undefined {
       .split(sep)
       .join('/')
       .replace(/\.(m|c)?ts$/, '.$1js');
-    return path.startsWith('.') ? path : `./${path}`;
+    // The bot carries each migration's hash, so plumb migrate can tell a stale build.
+    return {
+      path: path.startsWith('.') ? path : `./${path}`,
+      hash: migrationHash(file, config.out),
+    };
   });
 }
 

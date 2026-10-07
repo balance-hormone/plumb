@@ -20,6 +20,11 @@ As built, these details differ from or add to the text below:
 - **A run's start is the server's time,** not the CLI's: when its ledger
   entry was saved, or for a dry run the server's `Date` header, so a skewed
   clock neither skips records nor reads a pass's own writes again (#212).
+- **A migration's hash is what it runs:** its module and the local files it
+  imports, line endings as LF, the generated code left out. `generate`
+  writes each hash into `_migrator.ts`, and the bot refuses a page whose hash
+  is not its own, `migrator-not-current`, so a module edited without a
+  rebuild never runs its old transform under the new hash (#222).
 - **A new ledger entry is a conditional create** (`If-None-Exist` on its
   tag), so two first runs cannot both make one; later writes use `If-Match`
   (#191).
