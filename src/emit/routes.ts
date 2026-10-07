@@ -7,11 +7,12 @@ import type { InternalSchemaElement } from '@medplum/core';
 import type { Coding } from '@medplum/fhirtypes';
 import type { RouteRow as ConfigRow, PlumbConfig } from '../config.js';
 import type { LoadProfilesResult } from '../loader.js';
+import { matches } from './runtime/plumb.js';
 import { discriminatorValues } from './transform.js';
 
 /**
  * A first-level element and the patterns, any one of which it must hold, in
- * the FHIR pattern sense `_plumb.ts`'s `matches` implements.
+ * the FHIR pattern sense `matches` (runtime/plumb.ts) implements.
  */
 type RouteKey = [element: string, patterns: unknown[]];
 
@@ -156,38 +157,6 @@ function ambiguous(type: string, rows: Route[]): string[] {
 }
 
 const conflict = ([ea, pa]: RouteKey, [eb, pb]: RouteKey) =>
-  ea === eb && pa.every((x) => pb.every((y) => !holds(x, y) && !holds(y, x)));
-
-/**
- * The profile the generated `route` picks for a resource among its type's
- * rows, or why it refuses. The checker routes unstamped resources with it,
- * so the two must agree.
- */
-export function routeTo(
-  rows: readonly Route[],
-  resource: object,
-): { profile: string } | { refused: 'none' | 'ambiguous' } {
-  const fields = resource as Record<string, unknown>;
-  const matched = rows.filter((row) =>
-    row.keys.every(([element, patterns]) => patterns.some((p) => holds(fields[element], p))),
-  );
-  const best = matched.filter((row) => !matched.some((o) => o.parents.includes(row.profile)));
-  if (best.length === 1 && best[0]) return { profile: best[0].profile };
-  return { refused: best.length === 0 ? 'none' : 'ambiguous' };
-}
-
-/** Whether `value` holds everything in `pattern`, as `_plumb.ts`'s `matches`. */
-function holds(value: unknown, pattern: unknown): boolean {
-  if (Array.isArray(value) && !Array.isArray(pattern)) return value.some((v) => holds(v, pattern));
-  if (Array.isArray(pattern)) {
-    return Array.isArray(value) && pattern.every((p) => value.some((v) => holds(v, p)));
-  }
-  if (pattern !== null && typeof pattern === 'object') {
-    if (value === null || typeof value !== 'object') return false;
-    const record = value as Record<string, unknown>;
-    return Object.entries(pattern).every(([key, p]) => holds(record[key], p));
-  }
-  return value === pattern;
-}
+  ea === eb && pa.every((x) => pb.every((y) => !matches(x, y) && !matches(y, x)));
 
 const name = (url: string) => url.slice(url.lastIndexOf('/') + 1);

@@ -1,0 +1,64 @@
+// SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
+// SPDX-License-Identifier: Apache-2.0
+
+// Generated files hold what follows this line.
+/** `T` with the keys `K` required, and never `undefined`. */
+export type Require<T, K extends keyof T> = Omit<T, K> & { [P in K]-?: NonNullable<T[P]> };
+
+/** `Omit` over each member of a union, so an exactly-one-of type stays one. */
+export type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/**
+ * Whether `value` holds everything in `pattern`, as FHIR matches a slice's
+ * discriminator: an array in the pattern means each entry appears somewhere, and
+ * a single pattern against an array is met by any entry.
+ */
+export function matches(value: unknown, pattern: unknown): boolean {
+  if (Array.isArray(value) && !Array.isArray(pattern)) return value.some((v) => matches(v, pattern));
+  if (Array.isArray(pattern)) {
+    return Array.isArray(value) && pattern.every((p) => value.some((v) => matches(v, p)));
+  }
+  if (pattern !== null && typeof pattern === 'object') {
+    if (value === null || typeof value !== 'object') return false;
+    const record = value as Record<string, unknown>;
+    return Object.entries(pattern).every(([key, p]) => matches(record[key], p));
+  }
+  return value === pattern;
+}
+
+/**
+ * The rows of a `required` table (_reads.ts) a resource does not meet. A row
+ * lists alternatives, any one of which meets it. A nested path applies to every
+ * entry present, a number to one entry, and `key*` to `key` at any depth.
+ */
+export function missing(resource: object, rows: readonly (readonly string[])[]): string[] {
+  return rows.filter((row) => !meets(resource, row)).map((row) => row.join(' | '));
+}
+
+/** Whether every entry at the row's parent path holds one of its alternatives. */
+function meets(resource: object, row: readonly string[]): boolean {
+  let nodes: unknown[] = [resource];
+  for (const key of (row[0] ?? '').split('.').slice(0, -1)) {
+    nodes = key.endsWith('*') ? deep(nodes, key.slice(0, -1)) : nodes.flatMap((n) => step(n, key));
+  }
+  const keys = row.map((path) => path.slice(path.lastIndexOf('.') + 1));
+  // A row ending in a number asks for that entry of the array, not a key of each entry.
+  const parents = keys.every((key) => /^\d+$/.test(key)) ? nodes : nodes.flat();
+  return parents.every((node) => keys.some((key) => step(node, key).length > 0));
+}
+
+/** The values present at `key`: in each entry of an array, or one entry by its index. */
+function step(node: unknown, key: string): unknown[] {
+  if (Array.isArray(node)) {
+    return /^\d+$/.test(key) ? node.slice(Number(key), Number(key) + 1) : node.flatMap((n) => step(n, key));
+  }
+  const value = node !== null && typeof node === 'object' ? (node as Record<string, unknown>)[key] : undefined;
+  return value === undefined || value === null ? [] : [value];
+}
+
+/** The nodes, and what `key` reaches from them at every depth. */
+function deep(nodes: unknown[], key: string): unknown[] {
+  const all: unknown[] = [];
+  for (let level = nodes; level.length > 0; level = level.flatMap((n) => step(n, key))) all.push(...level);
+  return all;
+}

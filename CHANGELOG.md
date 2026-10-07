@@ -69,6 +69,12 @@ test first, against a real Medplum where the server is involved.
   and a named error for an instance call without an id (#241); an instance
   operation's input must be its resource, which is all Medplum hands the
   bot (#251).
+- **Internal:** the generated runtime (`_plumb.ts`, `_routes.ts`'s routing
+  and writes, `_reads.ts`, `_operations.ts`, `_migrations.ts`, `_restamp.ts`)
+  is real source under `src/emit/runtime/`, typechecked, linted and
+  unit-tested, and embedded as text at build; output is unchanged. The
+  checker routes with the generated `matches` and `route` themselves, and
+  agrees with them on every US Core example (#231).
 
 ## 0.14.0 (2026-10-06)
 

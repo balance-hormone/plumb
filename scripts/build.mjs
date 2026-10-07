@@ -5,12 +5,28 @@
 // declarations, the CLI as ESM, and the checker bot as one CJS file. Output is
 // not minified, so stack traces stay readable.
 import { execFileSync } from 'node:child_process';
-import { cpSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { build } from 'esbuild';
 import { CHECKER_BUILD } from '../src/checker/bundle.ts';
 
 rmSync('dist', { recursive: true, force: true });
+
+// `./file.ts?raw` is the file's text, as Vite reads it under Vitest: the
+// generated runtime, embedded by src/emit/print.ts (src/emit/raw.d.ts).
+const raw = {
+  name: 'raw',
+  setup(build) {
+    build.onResolve({ filter: /\?raw$/ }, (args) => ({
+      path: join(args.resolveDir, args.path.slice(0, -'?raw'.length)),
+      namespace: 'raw',
+    }));
+    build.onLoad({ filter: /.*/, namespace: 'raw' }, (args) => ({
+      contents: readFileSync(args.path, 'utf8'),
+      loader: 'text',
+    }));
+  },
+};
 
 const shared = {
   bundle: true,
@@ -18,6 +34,7 @@ const shared = {
   target: 'es2024',
   sourcemap: true,
   packages: 'external',
+  plugins: [raw],
 };
 // CJS has no import.meta, so its url comes from __filename, as ESM's would.
 const cjs = {
@@ -73,9 +90,11 @@ for (const name of readdirSync('dist/esm', { recursive: true })) {
   const file = join('dist/esm', name);
   if (/\.d\.ts(\.map)?$/.test(file) && !reached.has(file.replace(/\.map$/, ''))) rmSync(file);
 }
-for (const entry of readdirSync('dist/esm', { withFileTypes: true })) {
-  const dir = join('dist/esm', entry.name);
-  if (entry.isDirectory() && readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
+// Deepest first, so a folder holding only emptied folders goes too.
+for (const name of readdirSync('dist/esm', { recursive: true }).sort().reverse()) {
+  const dir = join('dist/esm', name);
+  if (statSync(dir).isDirectory() && readdirSync(dir).length === 0)
+    rmSync(dir, { recursive: true });
 }
 
 // The package is "type": "module", so without these markers a CJS consumer

@@ -4,3 +4,5 @@ test/fixtures/profiles/fsh-generated/** linguist-generated=true
 test/fixtures/packages/** linguist-generated=true
 # Golden output: regenerate with GOLDEN_UPDATE=1 npx vitest run test/golden; collapsed in GitHub diffs.
 test/golden/generated/** linguist-generated=true
+# The generated runtime, embedded byte for byte: LF on every checkout, as the goldens are.
+src/emit/runtime/*.ts text eol=lf

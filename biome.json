@@ -41,6 +41,19 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["src/emit/runtime/**"],
+      "formatter": { "enabled": false },
+      "linter": {
+        "rules": {
+          "complexity": { "noExcessiveCognitiveComplexity": "off" },
+          "style": { "useTemplate": "off" },
+          "suspicious": { "noShadowRestrictedNames": "off" }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "single"

@@ -92,7 +92,8 @@ export const routes = {
   first-level element, and each required slice's discriminator values (US
   Core's `category:VSCat`). Matching uses `_plumb.ts`'s existing `matches`,
   which already has FHIR's pattern semantics, so a resource with extra codings
-  still matches.
+  still matches. The checker bot routes with the same `matches` and `route`,
+  imported from their source (`src/emit/runtime/`), so the two cannot drift.
 - **`parents`** is the profile's `baseDefinition` chain, as far as it runs
   through selected profiles.
 - **A profile with no keys matches every resource of its type.** That is right
