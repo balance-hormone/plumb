@@ -171,7 +171,10 @@ Refusing to load: fix or migrate them first, or see `plumb validate --env prod`.
    flagged, because comparing versions would otherwise miss it. A URL the
    project holds once is updated in place, never added again: a second
    StructureDefinition would shadow the first. A URL already shadowed stops
-   the push until all but one are deleted.
+   the push until all but one are deleted, and so does one only a linked
+   project holds, which push never writes to. A copy in neither project is
+   the server's own (Medplum's base project holds common terminology), and
+   is not loaded over.
 3. **The gate:** run `validate` against the planned versions. Any failure
    refuses the push, and nothing is written.
 4. **Apply:** create or update the StructureDefinitions.
