@@ -15,8 +15,9 @@ export const USCoreInterpreterNeededExtensionProfileUrl = 'http://hl7.org/fhir/u
  * Profile: http://hl7.org/fhir/us/core/StructureDefinition/us-core-interpreter-needed|9.0.0
  *
  * Not checked by this type; checked by validateProfiled and the server:
- * - value[x] is bound to http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113762.1.4.1267.16, which
- * has codes that cannot be listed offline; only a server checks it.
+ * - Extension.value[x] is bound to
+ * http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113762.1.4.1267.16, which has codes that cannot
+ * be listed offline; only a server checks it.
  */
 export type USCoreInterpreterNeededExtension = Omit<
   Extension,

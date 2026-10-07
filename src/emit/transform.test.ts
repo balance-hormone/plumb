@@ -467,6 +467,67 @@ describe('transform', () => {
       });
     });
 
+    test('required bindings on two choice elements each export their own codes, by path', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'plumb-choice-binding-'));
+      cpSync(LOCAL, dir, { recursive: true });
+      const sd = JSON.parse(
+        readFileSync(join(LOCAL, 'StructureDefinition-bindings-observation.json'), 'utf8'),
+      );
+      const vs = 'http://example.org/fhir/plumb-test/ValueSet';
+      const bound: Record<string, string> = {
+        'Observation.value[x]': `${vs}/plumb-test-colors-vs`,
+        'Observation.component.value[x]': `${vs}/plumb-test-units-vs`,
+      };
+      // Each value[x] a CodeableConcept from its own value set, required.
+      const element = (e: { path: string }) => {
+        const valueSet = bound[e.path];
+        if (!valueSet) return e;
+        return {
+          ...e,
+          type: [{ code: 'CodeableConcept' }],
+          binding: { strength: 'required', valueSet },
+        };
+      };
+      const under = (e: { path: string }) =>
+        Object.keys(bound).some((path) => e.path.startsWith(`${path}.`));
+      writeFileSync(
+        join(dir, 'choice-binding.json'),
+        JSON.stringify({
+          ...sd,
+          id: 'choice-binding',
+          url: `${PLUMB}/choice-binding`,
+          name: 'ChoiceBinding',
+          snapshot: {
+            element: sd.snapshot.element.filter((e: { path: string }) => !under(e)).map(element),
+          },
+          differential: {
+            element: sd.differential.element
+              .filter((e: { path: string }) => !under(e))
+              .map(element),
+          },
+        }),
+      );
+      const loaded = loadProfiles({
+        packages: [],
+        igs: [],
+        local: dir,
+        profiles: [`${PLUMB}/choice-binding`],
+      });
+      const [m] = transform(loaded).models as [ProfileModel];
+      const systems = (name: string) => [
+        ...new Set(m.constants.find((c) => c.name === name)?.codes.map((c) => c.system)),
+      ];
+      expect(m.constants.map((c) => c.name).sort()).toEqual([
+        'ChoiceBindingComponentValueXCodes',
+        'ChoiceBindingValueXCodes',
+      ]);
+      expect(systems('ChoiceBindingValueXCodes')).toEqual([colors]);
+      expect(systems('ChoiceBindingComponentValueXCodes')).toEqual([
+        'http://example.org/fhir/plumb-test/CodeSystem/plumb-test-units',
+      ]);
+      expect(m.doc.join('\n')).toContain('Observation.component.value[x] must hold a coding');
+    });
+
     test('a value set that cannot be listed, or is too large, keeps the base type and is documented', () => {
       const patient = model('bindings-patient');
       const meta = field(decl(patient), 'meta').type;
