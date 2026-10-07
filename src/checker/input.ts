@@ -6,6 +6,12 @@ import type { Bundle, ResourceType, StructureDefinition } from '@medplum/fhirtyp
 import type { LoadProfilesResult } from '../loader.js';
 import type { CheckerInput } from './handler.js';
 
+/** The profiles to check stamps against, and the definitions they depend on. */
+export interface Gated {
+  profiles: Pick<LoadProfilesResult['profiles'][number], 'url' | 'sd'>[];
+  definitions: LoadProfilesResult['definitions'];
+}
+
 const sds = (file: string) =>
   ((readJson(file) as Bundle).entry ?? []).flatMap((e) =>
     e.resource?.resourceType === 'StructureDefinition' ? [e.resource] : [],
@@ -17,10 +23,7 @@ let base: { types: StructureDefinition[]; resources: Map<string, StructureDefini
  * type, what they depend on, and the base R4 definitions the validator needs,
  * which the bot's own `@medplum/core` does not have.
  */
-export function checkerInput(
-  loaded: Pick<LoadProfilesResult, 'profiles' | 'definitions'>,
-  resourceType: ResourceType,
-): CheckerInput {
+export function checkerInput(loaded: Gated, resourceType: ResourceType): CheckerInput {
   base ??= {
     types: sds('fhir/r4/profiles-types.json'),
     resources: new Map(sds('fhir/r4/profiles-resources.json').map((sd) => [sd.type, sd])),
