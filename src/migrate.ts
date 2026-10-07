@@ -523,8 +523,24 @@ async function begin(
   const pass: Pass = options.write
     ? await takeLease(run.medplum, migration, held, hash, now, options)
     : { state: { status: 'running', hash, counts: zero(), pages: 0 } };
-  pass.state.start ??= now.toISOString();
+  // The pass reads what the server last updated before it began, so the
+  // cutoff is the server's time, never this machine's: a slow clock would
+  // skip records, a fast one read the pass's own writes again. A write's is
+  // when its ledger entry was saved, before any record is written.
+  pass.state.start ??= pass.basic?.meta?.lastUpdated ?? (await serverTime(run.medplum));
   return pass;
+}
+
+/**
+ * The server's time, from its Date header, rounded up to the next second so
+ * that nothing updated in the current second is left out. For a dry run,
+ * which writes nothing it could read again.
+ */
+async function serverTime(medplum: MedplumClient): Promise<string> {
+  const response = await fetch(new URL('healthcheck', medplum.getBaseUrl()));
+  const date = Date.parse(response.headers.get('date') ?? '');
+  if (Number.isNaN(date)) throw new Error(`${medplum.getBaseUrl()} sent no Date header.`);
+  return new Date(date + 1000).toISOString();
 }
 
 /** Runs the pass's pages, saving the ledger after each; false when stopped by the signal. */
