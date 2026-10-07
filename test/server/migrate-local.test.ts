@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { Basic, Patient } from '@medplum/fhirtypes';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { bundledChecker } from '../../src/checker/install.js';
-import type { PlumbConfig } from '../../src/config.js';
+import type { LoadedConfig, PlumbConfig } from '../../src/config.js';
 import { printFiles } from '../../src/emit/print.js';
 import { writeFiles } from '../../src/emit/write.js';
 import { migrateEnvironment, migrationStatus } from '../../src/migrate.js';
@@ -84,17 +84,17 @@ export default defineMigration({
   });
 
   test('a dry run counts and forecasts with no bot deployed, and writes nothing', async () => {
-    const result = await migrate(project, config, { lockPath });
+    const result = await migrate(project, config as LoadedConfig, { lockPath });
     expect(result.errors).toEqual([]);
-    expect(result.migrations[BIRTHDATE]).toMatchObject({
-      counts: { read: 3, changed: 3, failed: 0 },
-      forecast: { checked: 3, failing: 0 },
+    expect(result.steps.find((s) => s.name === BIRTHDATE)).toMatchObject({
+      summary: 'dry run: 3 read, 3 to change, 0 unchanged',
+      warnings: ['forecast: 3 would pass the selected profiles, 0 would still fail'],
     });
     expect(result.steps.map((s) => s.name)).not.toContain('migrator');
   });
 
   test('a write migrates the records and keeps the ledger, as the bot would', async () => {
-    const result = await migrate(project, config, { lockPath, write: true });
+    const result = await migrate(project, config as LoadedConfig, { lockPath, write: true });
     expect(result.ok).toBe(true);
     const medplum = await connectAs(project);
     expect(await medplum.searchResources('Patient', { 'birthdate:missing': 'true' })).toHaveLength(

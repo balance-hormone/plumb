@@ -290,8 +290,17 @@ export interface ConfigError {
   path?: string;
 }
 
+declare const loaded: unique symbol;
+
+/**
+ * A config as `loadConfig` resolves it: paths absolute against its folder,
+ * `local` set from `fsh`. What `createTestProject` and `migrate` need; only
+ * `loadConfig` makes one.
+ */
+export type LoadedConfig = PlumbConfig & { readonly [loaded]: true };
+
 export type LoadConfigResult =
-  | { ok: true; configPath: string; config: PlumbConfig }
+  | { ok: true; configPath: string; config: LoadedConfig }
   | { ok: false; configPath: string; errors: ConfigError[] };
 
 /** Types a config while editing; returns it unchanged. */
@@ -400,7 +409,7 @@ export async function loadConfig(options: {
       ...(config.test ? { test: resolveTest(base, config.test) } : {}),
       ...(fsh ? { fsh } : {}),
       ...(local ? { local } : {}),
-    },
+    } as LoadedConfig,
   };
 }
 

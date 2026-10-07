@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, matchesGlob, relative, sep } from 'node:path';
 import type * as TS from 'typescript5';
 import type { PlumbConfig } from './config.js';
+import type { EnvStep } from './connect.js';
 import { type Route, routingRows } from './emit/routes.js';
 import { loadProfiles } from './loader.js';
 import { lockedPackages } from './packages.js';
@@ -224,6 +225,8 @@ export interface CheckResult {
   files: number;
   /** Set when `updateBaseline` wrote the file. */
   baselineWritten?: boolean;
+  /** The check step, once files were compiled: its line, each new finding, and what to run next. */
+  steps: EnvStep<'check'>[];
   errors: {
     code: 'no-check-config' | 'no-compiler-api' | 'no-lock' | 'load-failed' | 'baseline-growth';
     message: string;
@@ -251,8 +254,10 @@ export async function checkProject(options: CheckOptions): Promise<CheckResult> 
     findings: [],
     comparison: { fresh: [], fixed: 0, accepted: 0 },
     files: 0,
+    steps: [],
     errors: [{ code, message }],
   });
+  const started = performance.now();
   const { config, configPath } = options;
   const check = config.check;
   if (!check) return fail('no-check-config', 'plumb.config.ts has no "check".');
@@ -295,6 +300,10 @@ export async function checkProject(options: CheckOptions): Promise<CheckResult> 
   });
   const baseline = readBaseline(check.baseline);
   const comparison = compareBaseline(findings, baseline);
+  const steps = (written: boolean) =>
+    files > 0
+      ? [checkStep(comparison, files, Math.round(performance.now() - started), written)]
+      : [];
   if (options.updateBaseline && check.baseline) {
     if (comparison.fresh.length > 0 && !options.allowGrowth) {
       return {
@@ -305,12 +314,44 @@ export async function checkProject(options: CheckOptions): Promise<CheckResult> 
         findings,
         comparison,
         files,
+        steps: steps(false),
       };
     }
     writeFileSync(check.baseline, `${JSON.stringify(countFindings(findings), null, 2)}\n`);
-    return { ok: true, findings, comparison, files, baselineWritten: true, errors: [] };
+    return {
+      ok: true,
+      findings,
+      comparison,
+      files,
+      baselineWritten: true,
+      steps: steps(true),
+      errors: [],
+    };
   }
-  return { ok: comparison.fresh.length === 0, findings, comparison, files, errors: [] };
+  const ok = comparison.fresh.length === 0;
+  return { ok, findings, comparison, files, steps: steps(false), errors: [] };
+}
+
+/** The check step: what is new against the baseline, each new finding, then what to run next. */
+function checkStep(
+  { fresh, accepted, fixed }: BaselineComparison,
+  files: number,
+  ms: number,
+  written: boolean,
+): EnvStep<'check'> {
+  const warnings = fresh.map(
+    (f) =>
+      `${f.file}:${f.line}:${f.column}  ${f.method} ${f.resourceTypes.join(' | ')}  → ${f.instead}`,
+  );
+  if (written) warnings.push('Baseline written.');
+  else if (fixed > 0) warnings.push('Run plumb check --update-baseline to record the fixes.');
+  return {
+    name: 'check',
+    ms,
+    summary: `${fresh.length} new, ${accepted} in the baseline${fixed ? `, ${fixed} fixed` : ''}, in ${files} files`,
+    warnings,
+    ...(fresh.length > 0 ? { failed: true } : {}),
+  };
 }
 
 function readBaseline(path: string | undefined): Baseline {

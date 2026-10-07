@@ -31,7 +31,7 @@
   their types; the list only shrinks.
 - **Config:** `defineConfig` and `loadConfig` load `plumb.config.ts` with
   Node's type stripping and report each named error. `profiles` takes
-  canonical URLs or `name/*` for a whole IG, which the loader will expand
+  canonical URLs or `name/*` for a whole IG, which the loader expands
   (#27).
 - **Packages:** `fetchPackages` fetches each IG and the dependencies it
   declares from the FHIR registry into `~/.fhir/packages`, checks each

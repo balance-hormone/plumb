@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs, parseEnv } from 'node:util';
 import type * as TS from 'typescript5';
-import { type CheckResult, checkProject } from './check.js';
+import { checkProject } from './check.js';
 import { bundledChecker, packageVersion } from './checker/install.js';
 import { type ConfigError, loadConfig, resolveEnvironment } from './config.js';
 import {
@@ -15,7 +15,7 @@ import {
   validateEnvironment,
 } from './conformance.js';
 import type { EnvStep } from './connect.js';
-import { type GenerateResult, generate, type Step } from './generate.js';
+import { type GenerateResult, generate } from './generate.js';
 import { type MigrateEnvResult, migrateEnvironment, migrationStatus } from './migrate.js';
 import { newMigration } from './migrations.js';
 import { type PushResult, push } from './push.js';
@@ -93,9 +93,10 @@ const USAGE_ERROR = 2;
  * command could not run as asked: usage, config, set-up or connection, fixed
  * before running again. 1 for a problem found, a failed write included: the
  * command ran, and what it met needs fixing. A code not listed, as one a
- * migration throws, is a problem found.
+ * migration throws, is a problem found. docs/errors.md is the catalogue a
+ * test holds to this table.
  */
-const EXIT: Record<string, typeof PROBLEMS | typeof USAGE_ERROR> = {
+export const exitCodes: Readonly<Record<string, typeof PROBLEMS | typeof USAGE_ERROR>> = {
   // The config, as written: loadConfig's codes, and those found once the profiles load.
   'config-not-found': 2,
   'unsupported-syntax': 2,
@@ -211,28 +212,10 @@ const EXIT: Record<string, typeof PROBLEMS | typeof USAGE_ERROR> = {
 /** 0 on success; else 2 when any error kept the command from running, or 1. */
 export function exitCode(result: { ok: boolean; errors: { code: string }[] }): number {
   if (result.ok) return OK;
-  return result.errors.some((e) => EXIT[e.code] === USAGE_ERROR) ? USAGE_ERROR : PROBLEMS;
+  return result.errors.some((e) => exitCodes[e.code] === USAGE_ERROR) ? USAGE_ERROR : PROBLEMS;
 }
 
 const time = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
-
-/** What a step did, as one line: its name, its counts and its time. */
-export function formatStep(step: Step, out: string): string {
-  const c = step.counts;
-  const summary = {
-    sushi: `${c.structureDefinitions} StructureDefinitions, ${c.valueSets} ValueSets`,
-    packages: `${c.cached} cached, ${c.fetched} fetched`,
-    load: `${c.profiles} profiles${c.skipped ? `, ${c.skipped} skipped` : ''}${c.content ? `, ${c.content} content` : ''}`,
-    emit: `${c.types} types, ${c.slices} slices, ${c.codeLists} code lists`,
-    routes: `${c.rows} rows for ${c.types} types${c.ambiguous ? `, ${c.ambiguous} ambiguous` : ''}`,
-    write: `${c.written} written, ${c.removed} removed, ${c.unchanged} unchanged → ${out}`,
-    check:
-      c.stale || c.missing || c.extra
-        ? `${c.stale} stale, ${c.missing} missing, ${c.extra} extra`
-        : 'up to date',
-  }[step.name];
-  return `${step.name.padEnd(8)}  ${summary}   ${time(step.ms)}`;
-}
 
 /** Runs a command line, printing its report, and returns the exit code. */
 export async function run(argv: string[], io: CliIo): Promise<number> {
@@ -285,7 +268,8 @@ function printer(io: CliIo, quiet: boolean) {
 
 async function generateCommand(values: Values, io: CliIo): Promise<number> {
   const quiet = values.quiet ?? false;
-  const { ok, bad, say, problem } = printer(io, quiet);
+  const p = printer(io, quiet);
+  const { bad, say, problem } = p;
   const config = await loadConfig({ cwd: io.cwd, configPath: values.config });
   if (!config.ok) return configErrors(config.errors, values, io);
   const out = relative(io.cwd, config.config.out) || '.';
@@ -296,13 +280,13 @@ async function generateCommand(values: Values, io: CliIo): Promise<number> {
     check: values.check,
     cacheDir: io.cacheDir,
     fetch: io.fetch,
-    onStep: (step) => {
-      const c = step.counts;
-      const failed =
-        step.name === 'check' && (c.stale ?? 0) + (c.missing ?? 0) + (c.extra ?? 0) > 0;
-      (failed ? problem : say)(`${failed ? bad : ok} ${formatStep(step, out)}`);
-      for (const w of step.warnings) (quiet ? problem : say)(`    ${w}`);
-    },
+    // Where the output went is the CLI's to say, relative to where it runs.
+    onStep: (step) =>
+      printStep(
+        step.name === 'write' ? { ...step, summary: `${step.summary} → ${out}` } : step,
+        p,
+        quiet,
+      ),
   });
   report(result, out, problem, bad);
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(result.totalMs)}`);
@@ -403,6 +387,7 @@ async function checkCommand(values: Values, io: CliIo): Promise<number> {
   if (!config.ok) return configErrors(config.errors, values, io);
   say('plumb check');
   const started = Date.now();
+  const p = printer(io, quiet);
   const result = await checkProject({
     config: config.config,
     configPath: config.configPath,
@@ -411,28 +396,11 @@ async function checkCommand(values: Values, io: CliIo): Promise<number> {
     updateBaseline: values['update-baseline'] ?? false,
     allowGrowth: values['allow-growth'] ?? false,
   });
-  printCheck(result, Date.now() - started, printer(io, quiet));
+  for (const e of result.errors) problem(`${p.bad} check     ${e.message}`);
+  for (const step of result.steps) printStep(step, p, quiet);
   (result.ok ? say : problem)(`${result.ok ? 'Done' : 'Failed'} in ${time(Date.now() - started)}`);
   if (values.json) io.stdout(`${JSON.stringify(result, null, 2)}\n`);
   return exitCode(result);
-}
-
-/** The check step's line, each new finding, and what to run next. */
-function printCheck(result: CheckResult, ms: number, p: ReturnType<typeof printer>) {
-  const { ok, bad, say, problem } = p;
-  for (const e of result.errors) problem(`${bad} check     ${e.message}`);
-  const { fresh, accepted, fixed } = result.comparison;
-  if (result.files > 0) {
-    const summary = `${fresh.length} new, ${accepted} in the baseline${fixed ? `, ${fixed} fixed` : ''}, in ${result.files} files`;
-    (fresh.length ? problem : say)(`${fresh.length ? bad : ok} check     ${summary}   ${time(ms)}`);
-    for (const f of fresh) {
-      problem(
-        `    ${f.file}:${f.line}:${f.column}  ${f.method} ${f.resourceTypes.join(' | ')}  → ${f.instead}`,
-      );
-    }
-    if (result.baselineWritten) say('    Baseline written.');
-    else if (fixed > 0) say('    Run plumb check --update-baseline to record the fixes.');
-  }
 }
 
 /** `push` and `validate`: both act on an environment, so both take `--env`. */

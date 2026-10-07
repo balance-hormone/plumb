@@ -49,6 +49,18 @@ test first, against a real Medplum where the server is involved.
   blocked plan is `{ code, message }` in all five planners
   (`shadowed-<kind>`, `untagged-<kind>`, and `shadowed-content` at last),
   exits 1, and leaves `push --check` its drift line (#229).
+- **Before 1.0 (breaking):** every error code is catalogued with its
+  command, exit code and fix in [`docs/errors.md`](docs/errors.md), which a
+  test holds to the source and the exit-code table. Every `--json` report
+  has one step shape, `{ name, ms, summary, warnings, failed?, counts? }`:
+  `generate`'s steps gain `summary` and `failed`, `check` reports its step,
+  and `migrate status` reports each migration only in `migrations`, under
+  one `status` step. `plumb-fhir/test`'s `createTestProject().push` and
+  `migrate()` return `{ ok, errors, steps }` instead of push's and migrate's
+  internal results, and both take a `LoadedConfig`, the branded config
+  `loadConfig` returns, now exported. The published declarations are only
+  those the entry points reach. The spec names `plumb-fhir`, its library and
+  `generate`'s `sushi` step (#232).
 - **operations:** callable Standard Schemas (ArkType), `Parameters` outputs,
   and a named error for an instance call without an id (#241); an instance
   operation's input must be its resource, which is all Medplum hands the

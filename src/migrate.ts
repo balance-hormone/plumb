@@ -302,23 +302,31 @@ export async function migrationStatus(
   );
   const held = new Map(entries.map((basic) => [tagOf(basic), stateOf(basic)]));
   const report = (id: string, state: LedgerState | undefined, migration?: Migration) => {
-    const status = statusOf(state, migration);
-    const found: MigrationStatus = {
-      status,
+    result.migrations[id] = {
+      status: statusOf(state, migration),
       module: migration !== undefined,
       ...(state?.commit ? { commit: state.commit } : {}),
       ...(state ? { counts: state.counts } : {}),
       ...(state?.lastError ? { lastError: state.lastError } : {}),
     };
-    result.migrations[id] = found;
-    step.finish(id, describe(id, found), [], status !== 'applied');
   };
   for (const migration of inOrder(declared.migrations)) {
     report(migration.id, held.get(migration.id), migration);
     held.delete(migration.id);
   }
   for (const [id, state] of [...held].sort(([a], [b]) => (a < b ? -1 : 1))) report(id, state);
-  result.ok = result.steps.every((s) => !s.failed);
+  // One step, as every command's are: each migration's line under it, the migrations in `migrations`.
+  const reported = Object.entries(result.migrations);
+  const tally = [...Map.groupBy(reported, ([, m]) => m.status)].map(
+    ([status, found]) => `${found.length} ${status}`,
+  );
+  result.ok = reported.every(([, m]) => m.status === 'applied');
+  step.finish(
+    'status',
+    tally.join(', ') || 'no migrations',
+    reported.map(([id, m]) => `${id}: ${describe(id, m)}`),
+    !result.ok,
+  );
   return step.done();
 }
 

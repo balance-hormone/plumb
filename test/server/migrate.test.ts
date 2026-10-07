@@ -255,6 +255,9 @@ describe.skipIf(!server)('plumb migrate', { timeout: 120_000 }, () => {
   test('status reports each migration applied, and passes', async () => {
     const status = await migrationStatus(options);
     expect(status.ok).toBe(true);
+    // Migrations are reported in `migrations`; the steps are the command's own.
+    expect(status.steps.map((s) => s.name)).toEqual(['migrations', 'connect', 'status']);
+    expect(status.steps.at(-1)).toMatchObject({ summary: '2 applied' });
     expect(await statuses()).toEqual({
       [BIRTHDATE]: ['applied', true],
       [GENDER]: ['applied', true],

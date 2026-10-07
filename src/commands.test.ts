@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as ts from 'typescript5';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { bareSushiProject } from '../test/sushi-stub.js';
-import { exitCode, formatStep, formatValidation, run } from './commands.js';
+import { exitCode, exitCodes, formatValidation, run } from './commands.js';
 import type { TypeReport, ValidateEnvResult } from './conformance.js';
 
 const SYNTHETIC = join(import.meta.dirname, '../test/fixtures/profiles/fsh-generated/resources');
@@ -303,25 +303,6 @@ describe('plumb', () => {
   );
 });
 
-describe('formatStep', () => {
-  test('pads the name and shows the time in ms or seconds', () => {
-    expect(
-      formatStep(
-        {
-          name: 'load',
-          ms: 2140,
-          counts: { profiles: 54, skipped: 1, unresolved: 0 },
-          warnings: [],
-        },
-        '',
-      ),
-    ).toBe('load      54 profiles, 1 skipped   2.1s');
-    expect(
-      formatStep({ name: 'packages', ms: 41, counts: { cached: 7, fetched: 0 }, warnings: [] }, ''),
-    ).toBe('packages  7 cached, 0 fetched   41ms');
-  });
-});
-
 describe('formatValidation', () => {
   const type = (t: Partial<TypeReport>): TypeReport => ({
     exists: 0,
@@ -421,17 +402,20 @@ describe('plumb check', () => {
   const BASELINE = join(FIXTURE, 'baseline.json');
   const check = async (...argv: string[]) => {
     let stderr = '';
+    let stdout = '';
     const code = await run(['check', ...argv], {
       cwd: FIXTURE,
       env: {},
       isTTY: false,
       typescript: ts,
-      stdout: () => {},
+      stdout: (text) => {
+        stdout += text;
+      },
       stderr: (text) => {
         stderr += text;
       },
     });
-    return { code, stderr };
+    return { code, stderr, stdout };
   };
   afterEach(() => rmSync(BASELINE, { force: true }));
 
@@ -439,6 +423,19 @@ describe('plumb check', () => {
     const { code, stderr } = await check();
     expect(code).toBe(1);
     expect(stderr).toMatch(/✖ check {5}2 new, 0 in the baseline, in 3 files/);
+    const { stdout } = await check('--json');
+    expect(JSON.parse(stdout).steps).toEqual([
+      {
+        name: 'check',
+        ms: expect.any(Number),
+        summary: '2 new, 0 in the baseline, in 3 files',
+        warnings: [
+          'src/reads.ts:7:9  readResource Patient  → readProfiled',
+          'src/reads.ts:12:9  searchOne Patient  → searchProfiled',
+        ],
+        failed: true,
+      },
+    ]);
     expect(stderr).toContain('src/reads.ts:7:9  readResource Patient  → readProfiled');
     expect(stderr).toContain('src/reads.ts:12:9  searchOne Patient  → searchProfiled');
   });
@@ -555,6 +552,65 @@ describe('exitCode', () => {
 
   test('2 wins: anything that kept the command from running exits 2', () => {
     expect(failed('profile-not-found', 'invalid-bot')).toBe(2);
+  });
+});
+
+// Codes as the source writes them: `code: '…'`, a choice of them, or a named error's.
+const PATTERNS = [
+  /\bcode\??: '([a-z][a-z0-9-]*)'/g,
+  /\bcode: '[a-z0-9-]+'((?: \| '[a-z0-9-]+')+)/g,
+  /\? '[a-z]+-[a-z0-9-]+' : '([a-z]+-[a-z0-9-]+)'/g,
+  /\b(?:Failure|toError|ConnectAsError)\(\s*'([a-z][a-z0-9-]*)'/g,
+];
+// FHIR issue types, which the generated runtime answers with: the server's codes, not Plumb's.
+const ISSUE_TYPES = new Set(['invalid', 'required']);
+
+/** The codes a source file reports, by PATTERNS or in a `…Code` union type. */
+function codesIn(text: string): string[] {
+  const unions = [...text.matchAll(/type \w*Code =([^;]+);/g)].map(([, union]) => union);
+  // A FHIR coding's or issue's code is the server's, not Plumb's.
+  const lines = text.split('\n').filter((line) => !/\bsystem\b|severity/.test(line));
+  const matched = PATTERNS.flatMap((p) =>
+    lines.flatMap((l) => [...l.matchAll(p)].map(([, c]) => c)),
+  );
+  return [...unions, ...matched]
+    .flatMap((codes) => codes?.match(/[a-z][a-z0-9-]*/g) ?? [])
+    .filter((code) => !ISSUE_TYPES.has(code));
+}
+
+describe('the error catalogue', () => {
+  // Each row: | `code` | command | exit | fix |, a `\|` inside a cell escaped.
+  const rows = [
+    ...readFileSync(join(import.meta.dirname, '../docs/errors.md'), 'utf8').matchAll(
+      /^\| `([a-z0-9-]+)` \| [^|]+ \| ([12—]) \|/gm,
+    ),
+  ].map(([, code, exit]) => [code as string, exit === '—' ? undefined : Number(exit)] as const);
+  const catalogue = new Map(rows);
+
+  const src = import.meta.dirname;
+  const found = new Set(
+    readdirSync(src, { recursive: true, encoding: 'utf8' })
+      .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
+      .flatMap((name) => codesIn(readFileSync(join(src, name), 'utf8'))),
+  );
+
+  test('lists each code once', () => {
+    expect(rows.length).toBe(catalogue.size);
+  });
+
+  test('lists every code the source reports', () => {
+    expect([...found].filter((code) => !catalogue.has(code))).toEqual([]);
+  });
+
+  // claim() builds shadowed-<kind> and untagged-<kind> from the type.
+  test('lists only codes the source reports', () => {
+    const built = /^(shadowed|untagged)-/;
+    expect([...catalogue.keys()].filter((c) => !found.has(c) && !built.test(c))).toEqual([]);
+  });
+
+  test("gives each error the exit code commands.ts's table does", () => {
+    const listed = rows.filter(([, exit]) => exit !== undefined);
+    expect(Object.fromEntries(listed)).toEqual(exitCodes);
   });
 });
 

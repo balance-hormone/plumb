@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Patient } from '@medplum/fhirtypes';
 import { beforeAll, describe, expect, test } from 'vitest';
+import type { LoadedConfig, PlumbConfig } from '../../src/config.js';
 import { fetchPackages } from '../../src/packages.js';
 import { superAdmin } from '../../src/server.js';
 import { connectAs, createTestProject, type TestProject } from '../../src/testing.js';
@@ -31,7 +32,7 @@ describe.skipIf(!server)(
       const lockPath = join(mkdtempSync(join(tmpdir(), 'plumb-terminology-')), 'plumb.lock');
       await fetchPackages({ igs: [], lockPath });
       const created = await createTestProject(
-        { igs: [], profiles: [PROFILE], local: SYNTHETIC, out: '' },
+        { igs: [], profiles: [PROFILE], local: SYNTHETIC, out: '' } as PlumbConfig as LoadedConfig,
         { lockPath },
       );
       if (!created.ok) throw new Error(created.error.message);

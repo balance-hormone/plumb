@@ -6,11 +6,11 @@ import { join, resolve } from 'node:path';
 import { type MedplumClient, normalizeErrorString } from '@medplum/core';
 import type { Bundle, ProjectMembership, Reference } from '@medplum/fhirtypes';
 import { bundledChecker } from './checker/install.js';
-import type { PlumbConfig } from './config.js';
-import type { EnvStep } from './connect.js';
-import { type MigrateEnvResult, migrateEnvironment } from './migrate.js';
+import type { LoadedConfig, PlumbConfig } from './config.js';
+import type { EnvResult, EnvStep } from './connect.js';
+import { migrateEnvironment } from './migrate.js';
 import { PLUMB_SYSTEM } from './project.js';
-import { type PushResult, push } from './push.js';
+import { push } from './push.js';
 import { BASE_URL, login, newProject, TEST_PROJECT_VARIABLE, type TestProject } from './server.js';
 
 export {
@@ -47,11 +47,20 @@ export interface TestProjectOptions {
   onStep?: (step: EnvStep<string>) => void;
 }
 
+/** What a push or a migration run did, as a test needs it: never its plans, which may change. */
+export interface TestRun {
+  ok: boolean;
+  errors: { code: string; message: string; step: string }[];
+  steps: EnvStep<string>[];
+}
+
+const summary = ({ ok, errors, steps }: EnvResult<string>): TestRun => ({ ok, errors, steps });
+
 export type CreateTestProjectResult =
-  | ({ ok: true; push: PushResult } & TestProject)
+  | ({ ok: true; push: TestRun } & TestProject)
   | {
       ok: false;
-      push: PushResult;
+      push: TestRun;
       error: { code: 'push-failed' | 'seed-refused'; message: string };
     };
 
@@ -61,7 +70,7 @@ export type CreateTestProjectResult =
  * order through the project's admin client.
  */
 export async function createTestProject(
-  config: PlumbConfig,
+  config: LoadedConfig,
   options: TestProjectOptions,
 ): Promise<CreateTestProjectResult> {
   const project = await newProject(
@@ -93,14 +102,14 @@ export async function createTestProject(
     ].join('\n');
     return {
       ok: false,
-      push: result,
+      push: summary(result),
       error: { code: 'push-failed', message: `The push into the test project failed.\n${failed}` },
     };
   }
   const refused = await loadSeed(project, options.seed ?? config.test?.seed ?? []);
   if (refused)
-    return { ok: false, push: result, error: { code: 'seed-refused', message: refused } };
-  return { ok: true, push: result, ...project };
+    return { ok: false, push: summary(result), error: { code: 'seed-refused', message: refused } };
+  return { ok: true, push: summary(result), ...project };
 }
 
 export interface TestMigrateOptions {
@@ -122,12 +131,12 @@ export interface TestMigrateOptions {
  * holds only synthetic data. A test seeds stale records, migrates, and
  * asserts on the counts or on what the project then holds.
  */
-export function migrate(
+export async function migrate(
   project: TestProject,
-  config: PlumbConfig,
+  config: LoadedConfig,
   options: TestMigrateOptions,
-): Promise<MigrateEnvResult> {
-  return migrateEnvironment({
+): Promise<TestRun> {
+  const result = await migrateEnvironment({
     config,
     environment: { name: 'test', ...project, synthetic: true },
     lockPath: options.lockPath,
@@ -139,6 +148,7 @@ export function migrate(
     ...(options.rerun ? { rerun: options.rerun } : {}),
     onStep: options.onStep,
   });
+  return summary(result);
 }
 
 /** `bots`, and `cron` when a bot has a schedule, so the declared bots run as they would. */
