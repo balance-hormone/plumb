@@ -222,9 +222,9 @@ describe.skipIf(!server)('plumb migrate', { timeout: 120_000 }, () => {
     expect(await state(GENDER)).toMatchObject({ status: 'applied' });
   });
 
-  test('a run whose lease is ten minutes old is taken over', async () => {
+  test('a run whose lease is thirty minutes old is taken over', async () => {
     const held = (await ledger(GENDER)) as Basic;
-    const stale = new Date(Date.now() - 11 * 60_000).toISOString();
+    const stale = new Date(Date.now() - 31 * 60_000).toISOString();
     await medplum.updateResource<Basic>({
       ...held,
       extension: [
