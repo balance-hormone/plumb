@@ -44,7 +44,10 @@ describe('inOrder', () => {
 
 describe("pendingMigrations, for push's gate", () => {
   // A project holding no ledger entries: every declared migration is pending.
-  const empty = { searchOne: async () => undefined } as unknown as MedplumClient;
+  const empty = {
+    getProject: () => ({ resourceType: 'Project', id: 'p1' }),
+    searchOne: async () => undefined,
+  } as unknown as MedplumClient;
   const modules = (...sources: [string, string][]) => {
     const dir = mkdtempSync(join(tmpdir(), 'plumb-pending-'));
     for (const [name, source] of sources) writeFileSync(join(dir, name), source);
@@ -62,6 +65,7 @@ describe("pendingMigrations, for push's gate", () => {
     writeFileSync(join(out, '_routes.ts'), '// the routing now');
     const state = { status: 'applied', hash: 'the routing then', counts: {}, pages: 1 };
     const applied = {
+      getProject: () => ({ resourceType: 'Project', id: 'p1' }),
       searchOne: async () => ({
         resourceType: 'Basic',
         extension: [{ url: `${PLUMB_SYSTEM}#migration`, valueString: JSON.stringify(state) }],
