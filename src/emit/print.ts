@@ -1136,6 +1136,8 @@ export interface MigrationPageResult {
   written: { id: string; versionId: string }[];
   /** The cursor for the next page, absent on the last. */
   next?: string;
+  /** Stopped by the project's rate limit: run the same page again once it resets. */
+  limited?: true;
 }
 
 type Outcome =
@@ -1170,8 +1172,17 @@ export function handleMigrations(migrations: MigrationDefinition[]) {
       written: [],
     };
     const changed: Resource[] = [];
+    let limited = false;
     for (const record of records) {
-      const outcome = await migrateRecord(medplum, migration, record, page.write === true);
+      const outcome = await migrateRecord(medplum, migration, record, page.write === true).catch((err: unknown) => {
+        if ((err as { outcome?: { id?: string } } | undefined)?.outcome?.id !== 'too-many-requests') throw err;
+        return undefined;
+      });
+      // Over the project's rate limit: what is written stays counted, and the page runs again.
+      if (!outcome) {
+        limited = true;
+        break;
+      }
       result[outcome.kind]++;
       if (outcome.kind === 'failed') {
         const reason = result.reasons.find((r) => r.message === outcome.reason);
@@ -1192,10 +1203,20 @@ export function handleMigrations(migrations: MigrationDefinition[]) {
       )) as MigrationForecast;
       result.forecast = { stamped: verdict.stamped, failing: verdict.failing, profiles: verdict.profiles };
     }
+    if (limited) return limitedPage(result);
     const next = /[?&]_cursor=([^&]*)/.exec(bundle.link?.find((l) => l.relation === 'next')?.url ?? '');
     if (next?.[1]) result.next = decodeURIComponent(next[1]);
     return result;
   };
+}
+
+/**
+ * A page stopped by the rate limit, as plumb migrate counts it before running
+ * the page again: the records written, which that run no longer reads, and
+ * nothing else, which it reads and counts again.
+ */
+function limitedPage(result: MigrationPageResult): MigrationPageResult {
+  return { ...result, read: result.changed, unchanged: 0, conflict: 0, failed: 0, reasons: [], limited: true };
 }
 
 /** The migration's search, less what the run has written, in the order Medplum pages by cursor. */
@@ -1236,7 +1257,7 @@ async function migrateRecord(
       return { kind: 'changed', resource, versionId: saved.meta?.versionId ?? '' };
     } catch (err) {
       const outcome = (err as { outcome?: { id?: string } } | undefined)?.outcome;
-      // Over the project's rate limit: the page stops, and plumb migrate runs it again.
+      // Over the project's rate limit: the page stops here.
       if (outcome?.id === 'too-many-requests') throw err;
       if (outcome?.id !== 'precondition-failed') return { kind: 'failed', reason: messageOf(err) };
       if (attempt > 0) return { kind: 'conflict' };
