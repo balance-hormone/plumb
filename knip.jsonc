@@ -2,8 +2,15 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   // The hook runs from .claude/settings.json, which knip does not read. The library
   // and CLI are reached through `exports` and `bin` (dist/), which knip cannot map
-  // back to src.
-  "entry": [".claude/hooks/*.mjs", "src/index.ts", "src/testing.ts", "src/vitest.ts", "src/cli.ts"],
+  // back to src. The generated runtime's exports are for the projects it is written into.
+  "entry": [
+    ".claude/hooks/*.mjs",
+    "src/index.ts",
+    "src/testing.ts",
+    "src/vitest.ts",
+    "src/cli.ts",
+    "src/emit/runtime/*.ts"
+  ],
   // Golden files are compared as text, the check fixture is compiled by the
   // analyzer under test, the vitest fixture is a project run in a child process,
   // and the operations and migrations fixtures are modules imported by path.

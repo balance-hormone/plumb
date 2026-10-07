@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Resource } from '@medplum/fhirtypes';
 import { beforeAll, describe, expect, test } from 'vitest';
-import { routeTo } from '../../src/emit/routes.js';
+import { routeTo } from '../../src/emit/runtime/route.js';
 import { usCoreCases } from './fixtures.js';
 import { type GeneratedRoutes, generatedRoutes } from './routes.js';
 
@@ -216,6 +216,17 @@ describe('route, on the US Core 9.0.0 examples', () => {
   test.each(claimed)('$name routes to the profile it claims, or one more specific', (c) => {
     const routed = r.route(c.resource) as string;
     expect([routed, ...r.parentsOf(routed)]).toContain(c.profile);
-    expect(checker(r, c.resource)).toEqual(generated(r, c.resource));
+  });
+
+  // Every example, claimed or not. The checker forecasts only types with rows,
+  // as conformance passes them; route leaves any other type unprofiled.
+  test("the checker's routeTo agrees with the generated route on every example", () => {
+    const routed = usCoreCases.filter((c) => r.routing.routes[c.resource.resourceType]);
+    const verdicts = (route: (r: GeneratedRoutes, resource: Resource) => object) =>
+      routed.map((c) => ({ name: c.name, ...route(r, c.resource) }));
+    expect(verdicts(checker)).toEqual(verdicts(generated));
+    for (const c of usCoreCases.filter((c) => !routed.includes(c))) {
+      expect(r.route(c.resource)).toBeUndefined();
+    }
   });
 });

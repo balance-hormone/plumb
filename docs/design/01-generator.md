@@ -229,6 +229,11 @@ src/fhir/generated/            ← `out` in plumb.config.ts
   constrains the extension further, and imports it from its file.
 - **`.ts`, not `.d.ts`,** because the slice and code helpers are small runtime
   functions. The app's own build compiles them.
+- **The fixed code is real source in Plumb:** `src/emit/runtime/*.ts`,
+  typechecked, linted and unit-tested with the rest, and embedded as text at
+  build (`?raw`: esbuild's text loader, Vite's under Vitest). Each file's lines
+  above `// Generated files hold what follows this line.` only let it compile
+  alone; `print.ts` writes the imports and tables around the rest.
 - **The only import is types from `@medplum/fhirtypes`,** so apps take no
   runtime dependency on Plumb.
 - **Relative imports carry `.js` suffixes** (`./USCorePatient.js`), which work

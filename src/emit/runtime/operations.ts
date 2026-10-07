@@ -1,0 +1,221 @@
+// SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
+// SPDX-License-Identifier: Apache-2.0
+
+// _operations.ts after its imports, which name generated siblings; these name their sources.
+import type {
+  OperationOutcome,
+  OperationOutcomeIssue,
+  Parameters,
+  Resource,
+  ResourceType,
+} from '@medplum/fhirtypes';
+import { asProfiled } from './reads.js';
+import type { ProfileTypes, ProfileUrl } from './route.js';
+
+// Generated files hold what follows this line.
+/** The Standard Schema interface (standardschema.dev), which Zod, Valibot, ArkType and others implement. */
+export interface StandardSchemaV1<Input = unknown, Output = Input> {
+  readonly '~standard': {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly validate: (value: unknown) => StandardResult<Output> | Promise<StandardResult<Output>>;
+    readonly types?: { readonly input: Input; readonly output: Output } | undefined;
+  };
+}
+
+type StandardResult<Output> =
+  | { readonly value: Output; readonly issues?: undefined }
+  | { readonly issues: readonly StandardIssue[] };
+
+interface StandardIssue {
+  readonly message: string;
+  readonly path?: readonly (PropertyKey | { readonly key: PropertyKey })[] | undefined;
+}
+
+/** One side of an operation: a resource type, a selected profile, or a Standard Schema for plain JSON. */
+export type OperationSide = ResourceType | ProfileUrl | StandardSchemaV1;
+
+type FhirType<S> = S extends ProfileUrl
+  ? ProfileTypes[S]
+  : S extends ResourceType
+    ? Extract<Resource, { resourceType: S }>
+    : never;
+
+/** What a side takes: a schema's input, or the FHIR type. */
+export type SideInput<S> = S extends StandardSchemaV1 ? NonNullable<S['~standard']['types']>['input'] : FhirType<S>;
+
+/** What a side gives once checked: a schema's output, or the FHIR type. */
+export type SideOutput<S> = S extends StandardSchemaV1 ? NonNullable<S['~standard']['types']>['output'] : FhirType<S>;
+
+// TypeScript 5.4's NoInfer, for the 5.0 the generated code supports: a side is
+// fixed by the contract, never inferred from a caller's input or a handler's return.
+type Fixed<T> = [T][T extends unknown ? 0 : never];
+
+/** A custom operation, implemented by a bot: what it takes and what it returns. */
+export interface OperationContract<I extends OperationSide = OperationSide, O extends OperationSide = OperationSide> {
+  /** Called as `$code`. */
+  code: string;
+  level: 'system' | 'type' | 'instance';
+  /** The resource type a type or instance operation is on. */
+  resource?: ResourceType;
+  /** The key in `bots` of the bot that implements it. */
+  bot: string;
+  input: I;
+  output: O;
+}
+
+/** Types a contract; returns it unchanged. */
+export function defineOperation<const I extends OperationSide, const O extends OperationSide>(
+  contract: OperationContract<I, O>,
+): OperationContract<I, O> {
+  return contract;
+}
+
+/** An operation's failed check, here or in the bot, with the OperationOutcome that says why. */
+export class OperationError extends Error {
+  readonly outcome: OperationOutcome;
+  constructor(code: string, outcome: OperationOutcome) {
+    const reasons = outcome.issue.map((i) => i.details?.text ?? i.diagnostics ?? i.code);
+    super(`$${code}: ${reasons.join('; ')}`);
+    this.name = 'OperationError';
+    this.outcome = outcome;
+  }
+}
+
+/**
+ * What `callOperation` needs of a client: a MedplumClient fits. Typed
+ * without `URL`, so a project needs neither the DOM lib nor @types/node.
+ */
+export interface OperationClient {
+  fhirUrl(...path: string[]): { toString(): string };
+  post(url: string, body: unknown, contentType?: string): Promise<unknown>;
+}
+
+/**
+ * Calls an operation: checks the input, POSTs it as is, and checks what comes
+ * back. A failed check, or the server's refusal, throws an OperationError.
+ * An instance operation runs on `options.id`, or the input's own id.
+ */
+export async function callOperation<I extends OperationSide, O extends OperationSide>(
+  medplum: OperationClient,
+  operation: OperationContract<I, O>,
+  input: SideInput<Fixed<I>>,
+  options: { id?: string } = {},
+): Promise<SideOutput<O>> {
+  await checked(operation.code, operation.input, 'input', input);
+  const id = options.id ?? (input as { id?: string } | undefined)?.id;
+  if (operation.level === 'instance' && !id) {
+    throw new OperationError(operation.code, {
+      resourceType: 'OperationOutcome',
+      issue: [{ severity: 'error', code: 'required', details: { text: 'an instance operation needs options.id, or an input with an id' } }],
+    });
+  }
+  const path =
+    operation.level === 'system'
+      ? []
+      : operation.level === 'type'
+        ? [operation.resource ?? '']
+        : [operation.resource ?? '', id as string];
+  const json = isSchema(operation.input);
+  let response: unknown;
+  try {
+    response = await medplum.post(
+      medplum.fhirUrl(...path, `$${operation.code}`).toString(),
+      input,
+      json ? 'application/json' : 'application/fhir+json',
+    );
+  } catch (err) {
+    const outcome = (err as { outcome?: OperationOutcome } | undefined)?.outcome;
+    if (outcome?.resourceType === 'OperationOutcome') throw new OperationError(operation.code, outcome);
+    throw err;
+  }
+  return checked(operation.code, operation.output, 'output', unwrap(response, operation.output));
+}
+
+/** A Standard Schema side, which may be an object or, as ArkType's are, a function. */
+const isSchema = (side: OperationSide): side is StandardSchemaV1 => typeof side !== 'string';
+
+/**
+ * A bot's handler for an operation: the input is checked before `handler`
+ * runs, and its return before it goes back. A resource is returned as is,
+ * which Medplum sends back through the `return` out parameter; JSON as
+ * `{ result }`, a string Medplum maps to the `result` out parameter, as
+ * every release does. A failed check throws, which Medplum answers with a 400.
+ */
+export function handleOperation<I extends OperationSide, O extends OperationSide, Client>(
+  operation: OperationContract<I, O>,
+  handler: (
+    medplum: Client,
+    input: SideOutput<Fixed<I>>,
+  ) => SideInput<Fixed<O>> | Promise<SideInput<Fixed<O>>>,
+): (medplum: Client, event: { input: unknown }) => Promise<Resource | { result: string }> {
+  return async (medplum, event) => {
+    const input = await checked(operation.code, operation.input, 'input', event.input);
+    const output = await handler(medplum, input as SideOutput<Fixed<I>>);
+    await checked(operation.code, operation.output, 'output', output);
+    // The handler's own value, not the schema's output, so the caller's check reads it as written.
+    return isSchema(operation.output)
+      ? { result: JSON.stringify(output) }
+      : (output as Resource);
+  };
+}
+
+/** A side's checked value, or an OperationError naming each issue. */
+async function checked<S extends OperationSide>(
+  code: string,
+  side: S,
+  which: 'input' | 'output',
+  value: unknown,
+): Promise<SideOutput<S>> {
+  const issues = await problems(side, value);
+  if ('value' in issues) return issues.value as SideOutput<S>;
+  throw new OperationError(code, {
+    resourceType: 'OperationOutcome',
+    issue: issues.problems.map((text): OperationOutcomeIssue => ({
+      severity: 'error',
+      code: 'invalid',
+      details: { text: `${which}${text}` },
+    })),
+  });
+}
+
+async function problems(side: OperationSide, value: unknown): Promise<{ value: unknown } | { problems: string[] }> {
+  if (isSchema(side)) {
+    const result = await side['~standard'].validate(value);
+    if (!result.issues) return { value: result.value };
+    return { problems: result.issues.map((i) => `${pathOf(i.path)}: ${i.message}`) };
+  }
+  const resource = value as Resource | undefined;
+  // A profile is named by its canonical URL; a resource type never holds a ':'.
+  if (side.includes(':')) {
+    try {
+      return { value: asProfiled(resource as Resource, side as ProfileUrl) };
+    } catch (err) {
+      return { problems: [`: ${(err as Error).message}`] };
+    }
+  }
+  return resource?.resourceType === side
+    ? { value: resource }
+    : { problems: [`: expected a ${side}, not ${resource?.resourceType ?? typeof value}`] };
+}
+
+const pathOf = (path: StandardIssue['path']) =>
+  (path ?? [])
+    .map((p) => (typeof p === 'object' ? p.key : p))
+    .map((key) => (typeof key === 'number' ? `[${key}]` : `.${String(key)}`))
+    .join('');
+
+/**
+ * A `Parameters` response's `return` resource, or its `result` string read
+ * as JSON. An operation whose output is itself `Parameters` gets them as
+ * sent, or from `return` where Medplum 5.1.0 wraps them.
+ */
+function unwrap(response: unknown, output: OperationSide): unknown {
+  const parameters = response as Parameters | undefined;
+  if (parameters?.resourceType !== 'Parameters') return response;
+  const parameter = parameters.parameter?.find((p) => p.name === 'return' || p.name === 'result');
+  if (output === 'Parameters') {
+    return parameter?.resource?.resourceType === 'Parameters' ? parameter.resource : response;
+  }
+  return parameter?.name === 'result' ? JSON.parse(parameter.valueString ?? 'null') : parameter?.resource;
+}

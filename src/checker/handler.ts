@@ -13,7 +13,8 @@ import {
   validateResource,
 } from '@medplum/core';
 import type { Resource, ResourceType, StructureDefinition } from '@medplum/fhirtypes';
-import { type Route, routeTo } from '../emit/routes.js';
+import type { Route } from '../emit/routes.js';
+import { routeTo } from '../emit/runtime/route.js';
 
 // The checker bot: bundled with @medplum/core into one file, it runs inside the
 // project, so stored resources never leave Medplum; only counts, reasons and
