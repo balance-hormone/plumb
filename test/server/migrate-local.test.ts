@@ -110,6 +110,81 @@ export default defineMigration({
   });
 });
 
+// The run reads what the server last updated before it started, by the
+// server's clock: a CLI whose clock is behind must not skip records.
+describe.skipIf(!server)('migrate, with the CLI clock skewed', { timeout: 120_000 }, () => {
+  let project: TestProject;
+  let config: PlumbConfig;
+  let lockPath: string;
+
+  beforeAll(async () => {
+    project = await newProject();
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-migrate-skew-'));
+    mkdirSync(join(dir, 'migrations'));
+    writeFileSync(
+      join(dir, `migrations/${BIRTHDATE}.ts`),
+      `import { defineMigration } from '../generated/index.js';
+export default defineMigration({
+  id: '${BIRTHDATE}',
+  resourceType: 'Patient',
+  search: { 'birthdate:missing': 'true' },
+  transform: (p) => (p.birthDate ? undefined : [{ op: 'add', path: '/birthDate', value: '1900-01-01' }]),
+});
+`,
+    );
+    writeFiles(
+      join(dir, 'generated'),
+      printFiles([], () => 'test', undefined, [], [], undefined, [`../migrations/${BIRTHDATE}.js`]),
+    );
+    config = {
+      igs: [],
+      profiles: [PATIENT],
+      local: SYNTHETIC,
+      out: join(dir, 'generated'),
+      bots: { migrator: { file: join(dir, 'migrator.cjs') } },
+      migrations: { bot: 'migrator', modules: [join(dir, 'migrations/*.ts')] },
+    };
+    lockPath = join(dir, 'plumb.lock');
+    await fetchPackages({ igs: [], lockPath });
+  }, 120_000);
+
+  const run = (skew: number, write: boolean, rerun?: string[]) =>
+    migrateEnvironment({
+      config,
+      environment: { name: 'test', ...project, synthetic: true },
+      lockPath,
+      checker: bundledChecker(),
+      local: true,
+      write,
+      now: () => new Date(Date.now() + skew),
+      ...(rerun ? { rerun } : {}),
+    });
+
+  test('a dry run and a write with a slow clock read every record once', async () => {
+    const medplum = await connectAs(project);
+    for (let i = 0; i < 3; i++) {
+      await medplum.createResource<Patient>({ resourceType: 'Patient', name: [{ family: 'S' }] });
+    }
+    const dry = await run(-120_000, false);
+    expect(dry.migrations[BIRTHDATE]).toMatchObject({ counts: { read: 3, changed: 3 } });
+    const written = await run(-120_000, true);
+    expect(written.migrations[BIRTHDATE]).toMatchObject({ counts: { read: 3, changed: 3 } });
+    expect(await medplum.searchResources('Patient', { 'birthdate:missing': 'true' })).toHaveLength(
+      0,
+    );
+  });
+
+  test('a write with a fast clock does not read its own writes again', async () => {
+    const medplum = await connectAs(project);
+    for (let i = 0; i < 3; i++) {
+      await medplum.createResource<Patient>({ resourceType: 'Patient', name: [{ family: 'F' }] });
+    }
+    // Applied by the test before, so run again: a fresh pass over what is now stale.
+    const written = await run(120_000, true, [BIRTHDATE]);
+    expect(written.migrations[BIRTHDATE]).toMatchObject({ counts: { read: 3, changed: 3 } });
+  });
+});
+
 // A module edited while its pass is paused would leave the pages already
 // written with the old transform's output: it is refused as edited until
 // --rerun, and the run that follows uses the edited module, not a cached one.
@@ -140,31 +215,6 @@ describe.skipIf(!server)('migrate, with a module edited mid-pass', { timeout: 12
     writeFiles(
       join(dir, 'generated'),
       printFiles([], () => 'test', undefined, [], [], undefined, [`../migrations/${GENDER}.js`]),
-// The run reads what the server last updated before it started, by the
-// server's clock: a CLI whose clock is behind must not skip records.
-describe.skipIf(!server)('migrate, with the CLI clock skewed', { timeout: 120_000 }, () => {
-  let project: TestProject;
-  let config: PlumbConfig;
-  let lockPath: string;
-
-  beforeAll(async () => {
-    project = await newProject();
-    const dir = mkdtempSync(join(tmpdir(), 'plumb-migrate-skew-'));
-    mkdirSync(join(dir, 'migrations'));
-    writeFileSync(
-      join(dir, `migrations/${BIRTHDATE}.ts`),
-      `import { defineMigration } from '../generated/index.js';
-export default defineMigration({
-  id: '${BIRTHDATE}',
-  resourceType: 'Patient',
-  search: { 'birthdate:missing': 'true' },
-  transform: (p) => (p.birthDate ? undefined : [{ op: 'add', path: '/birthDate', value: '1900-01-01' }]),
-});
-`,
-    );
-    writeFiles(
-      join(dir, 'generated'),
-      printFiles([], () => 'test', undefined, [], [], undefined, [`../migrations/${BIRTHDATE}.js`]),
     );
     config = {
       igs: [],
@@ -208,39 +258,5 @@ export default defineMigration({
     const rerun = await migrateEnvironment({ ...options(), rerun: [GENDER] });
     expect(rerun.ok).toBe(true);
     expect(await medplum.searchResources('Patient', { gender: 'other' })).toHaveLength(5);
-  const run = (skew: number, write: boolean, rerun?: string[]) =>
-    migrateEnvironment({
-      config,
-      environment: { name: 'test', ...project, synthetic: true },
-      lockPath,
-      checker: bundledChecker(),
-      local: true,
-      write,
-      now: () => new Date(Date.now() + skew),
-      ...(rerun ? { rerun } : {}),
-    });
-
-  test('a dry run and a write with a slow clock read every record once', async () => {
-    const medplum = await connectAs(project);
-    for (let i = 0; i < 3; i++) {
-      await medplum.createResource<Patient>({ resourceType: 'Patient', name: [{ family: 'S' }] });
-    }
-    const dry = await run(-120_000, false);
-    expect(dry.migrations[BIRTHDATE]).toMatchObject({ counts: { read: 3, changed: 3 } });
-    const written = await run(-120_000, true);
-    expect(written.migrations[BIRTHDATE]).toMatchObject({ counts: { read: 3, changed: 3 } });
-    expect(await medplum.searchResources('Patient', { 'birthdate:missing': 'true' })).toHaveLength(
-      0,
-    );
-  });
-
-  test('a write with a fast clock does not read its own writes again', async () => {
-    const medplum = await connectAs(project);
-    for (let i = 0; i < 3; i++) {
-      await medplum.createResource<Patient>({ resourceType: 'Patient', name: [{ family: 'F' }] });
-    }
-    // Applied by the test before, so run again: a fresh pass over what is now stale.
-    const written = await run(120_000, true, [BIRTHDATE]);
-    expect(written.migrations[BIRTHDATE]).toMatchObject({ counts: { read: 3, changed: 3 } });
   });
 });
