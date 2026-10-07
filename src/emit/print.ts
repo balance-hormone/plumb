@@ -209,14 +209,20 @@ export async function callOperation<I extends OperationSide, O extends Operation
   options: { id?: string } = {},
 ): Promise<SideOutput<O>> {
   await checked(operation.code, operation.input, 'input', input);
-  const id = options.id ?? (input as { id?: string } | undefined)?.id ?? '';
+  const id = options.id ?? (input as { id?: string } | undefined)?.id;
+  if (operation.level === 'instance' && !id) {
+    throw new OperationError(operation.code, {
+      resourceType: 'OperationOutcome',
+      issue: [{ severity: 'error', code: 'required', details: { text: 'an instance operation needs options.id, or an input with an id' } }],
+    });
+  }
   const path =
     operation.level === 'system'
       ? []
       : operation.level === 'type'
         ? [operation.resource ?? '']
-        : [operation.resource ?? '', id];
-  const json = typeof operation.input === 'object';
+        : [operation.resource ?? '', id as string];
+  const json = isSchema(operation.input);
   let response: unknown;
   try {
     response = await medplum.post(
@@ -229,8 +235,11 @@ export async function callOperation<I extends OperationSide, O extends Operation
     if (outcome?.resourceType === 'OperationOutcome') throw new OperationError(operation.code, outcome);
     throw err;
   }
-  return checked(operation.code, operation.output, 'output', unwrap(response));
+  return checked(operation.code, operation.output, 'output', unwrap(response, operation.output));
 }
+
+/** A Standard Schema side, which may be an object or, as ArkType's are, a function. */
+const isSchema = (side: OperationSide): side is StandardSchemaV1 => typeof side !== 'string';
 
 /**
  * A bot's handler for an operation: the input is checked before \`handler\`
@@ -251,7 +260,7 @@ export function handleOperation<I extends OperationSide, O extends OperationSide
     const output = await handler(medplum, input as SideOutput<Fixed<I>>);
     await checked(operation.code, operation.output, 'output', output);
     // The handler's own value, not the schema's output, so the caller's check reads it as written.
-    return typeof operation.output === 'object'
+    return isSchema(operation.output)
       ? { result: JSON.stringify(output) }
       : (output as Resource);
   };
@@ -277,7 +286,7 @@ async function checked<S extends OperationSide>(
 }
 
 async function problems(side: OperationSide, value: unknown): Promise<{ value: unknown } | { problems: string[] }> {
-  if (typeof side === 'object') {
+  if (isSchema(side)) {
     const result = await side['~standard'].validate(value);
     if (!result.issues) return { value: result.value };
     return { problems: result.issues.map((i) => \`\${pathOf(i.path)}: \${i.message}\`) };
@@ -302,11 +311,18 @@ const pathOf = (path: StandardIssue['path']) =>
     .map((key) => (typeof key === 'number' ? \`[\${key}]\` : \`.\${String(key)}\`))
     .join('');
 
-/** A \`Parameters\` response's \`return\` resource, or its \`result\` string read as JSON. */
-function unwrap(response: unknown): unknown {
+/**
+ * A \`Parameters\` response's \`return\` resource, or its \`result\` string read
+ * as JSON. An operation whose output is itself \`Parameters\` gets them as
+ * sent, or from \`return\` where Medplum 5.1.0 wraps them.
+ */
+function unwrap(response: unknown, output: OperationSide): unknown {
   const parameters = response as Parameters | undefined;
   if (parameters?.resourceType !== 'Parameters') return response;
   const parameter = parameters.parameter?.find((p) => p.name === 'return' || p.name === 'result');
+  if (output === 'Parameters') {
+    return parameter?.resource?.resourceType === 'Parameters' ? parameter.resource : response;
+  }
   return parameter?.name === 'result' ? JSON.parse(parameter.valueString ?? 'null') : parameter?.resource;
 }
 `;
