@@ -721,7 +721,7 @@ function printRoutes(routing: RoutingTable, typeNames: Map<string, string>): str
       const name = typeNames.get(url);
       return name ? [[url, name] as const] : [];
     })
-    .sort(([a], [b]) => a.localeCompare(b));
+    .sort(([a], [b]) => (a < b ? -1 : 1));
   const lines = [`${MARKER}. Do not edit.`, "import type { Resource } from '@medplum/fhirtypes';"];
   lines.push("import { matches } from './_plumb.js';");
   for (const name of [...new Set(selected.map(([, n]) => n))].sort()) {
@@ -760,7 +760,7 @@ function printRoutes(routing: RoutingTable, typeNames: Map<string, string>): str
 
 function printRows(type: string, routes: Route[]): string[] {
   if (routes.length === 0) return [`  ${type}: [],`];
-  const rows = [...routes].sort((a, b) => a.profile.localeCompare(b.profile));
+  const rows = [...routes].sort((a, b) => (a.profile < b.profile ? -1 : 1));
   return [
     `  ${type}: [`,
     ...rows.flatMap((row) => [
@@ -990,7 +990,7 @@ function refusal(profile: ProfileUrl, name: string): ProfileReadError {
 /** A table by profile URL, sorted, one entry per line. */
 function printTable(name: string, type: string, rows: [string, unknown[]][]): string[] {
   if (rows.length === 0) return [`const ${name}: ${type} = {};`];
-  const entries = [...rows].sort(([a], [b]) => a.localeCompare(b));
+  const entries = [...rows].sort(([a], [b]) => (a < b ? -1 : 1));
   return [
     `const ${name}: ${type} = {`,
     ...entries.flatMap(([url, values]) =>
@@ -1035,7 +1035,7 @@ function printReads(models: ProfileModel[], routing: RoutingTable): string {
       : [
           'const typeOf: Partial<Record<string, ResourceType>> = {',
           ...[...selected]
-            .sort((a, b) => a.url.localeCompare(b.url))
+            .sort((a, b) => (a.url < b.url ? -1 : 1))
             .map((m) => `  ${quote(m.url)}: ${quote(m.sd.type)},`),
           '};',
         ]),

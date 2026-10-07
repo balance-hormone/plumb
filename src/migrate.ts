@@ -307,7 +307,7 @@ export async function migrationStatus(
     report(migration.id, held.get(migration.id), migration);
     held.delete(migration.id);
   }
-  for (const [id, state] of [...held].sort(([a], [b]) => a.localeCompare(b))) report(id, state);
+  for (const [id, state] of [...held].sort(([a], [b]) => (a < b ? -1 : 1))) report(id, state);
   result.ok = result.steps.every((s) => !s.failed);
   return step.done();
 }
@@ -443,7 +443,7 @@ export function inOrder(migrations: Migration[]): Migration[] {
     }
     ordered.push(m);
   };
-  for (const m of [...migrations].sort((a, b) => a.id.localeCompare(b.id))) visit(m);
+  for (const m of [...migrations].sort((a, b) => (a.id < b.id ? -1 : 1))) visit(m);
   return ordered;
 }
 
