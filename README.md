@@ -1112,6 +1112,13 @@ subscriptions: {
 - **Removal is gentle:** `--prune` clears a removed bot's schedule and turns
   a removed Subscription off. A bot is never deleted, since that would break
   every webhook pointing at it.
+- **Scoped to some environments:** `environments: ['dev']` on a bot keeps
+  it, and the operations it implements, out of every other environment, so
+  a bot still being built never runs on a schedule or answers a webhook in
+  production. A Subscription takes its bot's scope unless it names a
+  narrower one. Each push and `--check` lists what it left out in a `scope`
+  step; one an environment already holds is treated as removed. A test
+  project runs every bot, and the migrations bot has no scope.
 - **Existing bots and Subscriptions** the project made by hand are adopted
   with `--adopt`: a bot by its name, keeping its id, membership and webhook
   URL; a Subscription by its criteria and endpoint. Until then, `push` names
@@ -1383,7 +1390,8 @@ the rest. Each generated type's doc comment lists the rules it cannot check.
   longer matches its profile reads typed; `validate` finds it.
   `searchProfiled` reads one page, as `searchResources` does.
 - **Plumb never sets strict mode** or `features`; a super admin does.
-- **Content is the same in every environment.** Two environments that need
+- **Content is the same in every environment,** and so is each field of a
+  bot or Subscription where it is deployed. Two environments that need
   different Questionnaires or Organizations are two configs.
 - **Every failure blocks `push`:** a baseline of accepted failures comes
   later. Another writer can still load StructureDefinitions around `push`

@@ -21,6 +21,7 @@ import {
   type PlumbConfig,
   type ProjectConfig,
   resolveEnvironment,
+  scopeConfig,
 } from './config.js';
 import { loadProfiles } from './loader.js';
 
@@ -1038,6 +1039,86 @@ function observation(fields: Partial<Observation>): Observation {
 function coded(system: string, code: string): CodeableConcept {
   return { coding: [{ system, code }] };
 }
+
+const withScope = (fields: string) =>
+  load({
+    'plumb.config.ts': `export default { igs: [], profiles: [], out: './out',
+      environments: {
+        dev: { baseUrl: 'http://localhost:8103/', clientId: { env: 'ID' }, clientSecret: { env: 'SECRET' } },
+        prod: { baseUrl: 'https://example.org/', clientId: { env: 'ID' }, clientSecret: { env: 'SECRET' } },
+      },
+      ${fields} };`,
+  });
+
+describe('environment scope', () => {
+  test('a scope names declared environments, and a Subscription goes no wider than its bot', () => {
+    const result = withScope(`
+      bots: {
+        draft: { file: './draft.cjs', environments: ['dev'] },
+        typo: { file: './typo.cjs', environments: ['staging'] },
+        empty: { file: './empty.cjs', environments: [] },
+      },
+      subscriptions: {
+        inherits: { criteria: 'Patient', bot: 'draft' },
+        narrower: { criteria: 'Patient', bot: 'draft', environments: ['dev'] },
+        wider: { criteria: 'Patient', bot: 'draft', environments: ['dev', 'prod'] },
+        url: { criteria: 'Patient', url: 'https://example.org/hook', environments: ['qa'] },
+      },`);
+    expect(paths(result)).toEqual([
+      ['invalid-bot', 'bots.typo.environments'],
+      ['invalid-bot', 'bots.empty.environments'],
+      ['invalid-subscription', 'subscriptions.wider.environments'],
+      ['invalid-subscription', 'subscriptions.url.environments'],
+    ]);
+    const messages = result.ok ? [] : result.errors.map((e) => e.message);
+    expect(messages).toContain(
+      '"bots.typo.environments" names "staging", which is not a key in environments.',
+    );
+    expect(messages).toContain(
+      '"subscriptions.wider.environments" includes "prod", where bot "draft" is not deployed.',
+    );
+  });
+
+  test('migrations run in every environment, so their bot has no scope', () => {
+    const result = withScope(`
+      bots: { migrator: { file: './migrator.cjs', environments: ['dev'] } },
+      migrations: { bot: 'migrator', modules: ['./m/*.ts'] },`);
+    expect(paths(result)).toEqual([['invalid-migration', 'migrations.bot']]);
+  });
+
+  test('scopeConfig leaves out what an environment is not in, and says where it goes', () => {
+    const config: PlumbConfig = {
+      igs: [],
+      profiles: [],
+      out: './out',
+      bots: {
+        live: { file: 'live.cjs' },
+        draft: { file: 'draft.cjs', environments: ['dev'] },
+      },
+      subscriptions: {
+        toLive: { criteria: 'Patient', bot: 'live' },
+        toDraft: { criteria: 'Patient', bot: 'draft' },
+        devOnly: { criteria: 'Patient', bot: 'live', environments: ['dev'] },
+        hook: { criteria: 'Patient', url: 'https://example.org/hook' },
+      },
+    };
+    const prod = scopeConfig(config, 'prod');
+    expect(Object.keys(prod.config.bots ?? {})).toEqual(['live']);
+    expect(Object.keys(prod.config.subscriptions ?? {})).toEqual(['toLive', 'hook']);
+    expect(prod.out).toEqual([
+      { kind: 'Bot', key: 'draft', environments: ['dev'] },
+      { kind: 'Subscription', key: 'toDraft', environments: ['dev'] },
+      { kind: 'Subscription', key: 'devOnly', environments: ['dev'] },
+    ]);
+    const dev = scopeConfig(config, 'dev');
+    expect(dev.config).toEqual(config);
+    expect(dev.out).toEqual([]);
+    // Nothing declared stays nothing, so push skips the step as before.
+    expect(
+      scopeConfig({ igs: [], profiles: [], out: './out' }, 'prod').config.bots,
+    ).toBeUndefined();
+  });
+});
 
 const withMigrations = (migrations: string, environment = '') =>
   load({

@@ -82,6 +82,7 @@ export async function createTestProject(
     config: {
       ...config,
       ...(config.bots ? { bots: testBots(config) } : {}),
+      ...(config.subscriptions ? { subscriptions: unscoped(config.subscriptions) } : {}),
       environments: { test: { ...ENV_REFS, baseUrl: BASE_URL, settings: config.test?.settings } },
     },
     environment: { name: 'test', ...project },
@@ -161,10 +162,19 @@ const defaultFeatures = (config: PlumbConfig) =>
  */
 function testBots(config: PlumbConfig): PlumbConfig['bots'] {
   return Object.fromEntries(
-    Object.entries(config.bots ?? {}).map(([key, bot]) => [
+    Object.entries(unscoped(config.bots ?? {})).map(([key, bot]) => [
       key,
       { ...bot, runtime: 'vmcontext' as const, ...config.test?.bots?.[key] },
     ]),
+  );
+}
+
+/** A test project has every bot and Subscription, whichever environments they are scoped to. */
+function unscoped<T extends { environments?: string[] }>(
+  record: Record<string, T>,
+): Record<string, Omit<T, 'environments'>> {
+  return Object.fromEntries(
+    Object.entries(record).map(([key, { environments: _, ...entry }]) => [key, entry]),
   );
 }
 

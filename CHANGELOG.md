@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **`environments` on a bot or Subscription** scopes it to some
+  environments: `push` leaves it, and the operations a scoped bot
+  implements, out of the others, and lists them in a `scope` step on every
+  push and `--check`. A Subscription takes its bot's scope unless it names a
+  narrower one; a wider one, an unknown environment or a scoped migrations
+  bot is refused offline. A test project runs every bot (#264).
 - **push** refuses a contract whose code a linked project's
   OperationDefinition already has, even one Plumb tagged there, as
   `shadowed-operation`, instead of creating a second one Medplum might run
