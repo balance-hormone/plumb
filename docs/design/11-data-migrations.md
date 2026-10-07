@@ -305,13 +305,15 @@ Each migration has one `Basic` per project, found by Plumb's tag with its
 - **the module's SHA-256,** and the git commit when known;
 - **the run's start,** its cursor, its pages, its counts and its last error;
 - **a lease:** the time a running run last wrote, so a run whose CLI died is
-  taken over once the lease is ten minutes old.
+  taken over once the lease is thirty minutes old, longer than one page with
+  its quota waits can take.
 
 The state is one JSON extension on the `Basic`, so the entry stays one small
 resource however many pages a pass takes. The ids and versions each page
 wrote stay in that page's `AsyncJob`, in the project, not in the ledger.
-Ctrl-C during `--write` stops after the current page and leaves the
-migration `paused`. A pass that ends with records failed or conflicted is
+Ctrl-C during `--write` stops after the current page, or at once during a
+quota wait, and leaves the migration `paused`; a second Ctrl-C does not
+stop it sooner. A pass that ends with records failed or conflicted is
 `errored` with no cursor, so the next `--write` makes a fresh pass, which
 changes only what the transform still finds.
 

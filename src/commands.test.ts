@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as ts from 'typescript5';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { bareSushiProject } from '../test/sushi-stub.js';
 import { formatStep, formatValidation, run } from './commands.js';
 import type { TypeReport, ValidateEnvResult } from './conformance.js';
@@ -510,6 +510,46 @@ describe('plumb migrate new', () => {
     expect(small.code).toBe(2);
     expect(small.stderr).toContain('--page-size must be a whole number from 20 to 1000');
   });
+
+  test.skipIf(!existsSync(CHECKER) && !process.env.CI)(
+    'Ctrl-C pauses a write, and a second Ctrl-C does not kill it mid-save',
+    async () => {
+      const { cwd } = await cli(['generate']);
+      const config = join(cwd, 'plumb.config.ts');
+      const migrations =
+        "bots: { migrator: { file: './migrator.cjs' } }, migrations: { bot: 'migrator', modules: ['./src/migrations/*.ts'] },";
+      writeFileSync(
+        config,
+        readFileSync(config, 'utf8').replace('environments:', `${migrations} environments:`),
+      );
+      // The login hangs until the test lets it fail, so the run is caught mid-way.
+      let offline = () => {};
+      const login = new Promise<void>((resolve) => {
+        offline = resolve;
+      });
+      let called = false;
+      vi.stubGlobal('fetch', async () => {
+        called = true;
+        await login;
+        throw new Error('offline');
+      });
+      const before = process.listenerCount('SIGINT');
+      try {
+        const env = { PROD_CLIENT_ID: 'id', PROD_CLIENT_SECRET: 'secret' };
+        const running = cli(['migrate', '--env', 'prod', '--write'], cwd, env);
+        await vi.waitFor(() => expect(called).toBe(true));
+        process.emit('SIGINT');
+        process.emit('SIGINT');
+        expect(process.listenerCount('SIGINT')).toBe(before + 1);
+        offline();
+        const { stderr } = await running;
+        expect(stderr).toContain('Pausing after the current page');
+        expect(process.listenerCount('SIGINT')).toBe(before);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   test('exits 2 for a config without migrations, and for a missing name', async () => {
     const none = await cli(['migrate', 'new', 'patient-birthdate']);

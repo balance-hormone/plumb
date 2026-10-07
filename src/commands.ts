@@ -212,8 +212,13 @@ async function migrateCommand(ids: string[], values: Values, io: CliIo): Promise
   const { bad, say, problem } = printer(io, quiet);
   say(`plumb migrate --env ${values.env}${values.write ? ' --write' : ''}`);
   const controller = new AbortController();
-  const pause = () => controller.abort();
-  process.once('SIGINT', pause);
+  // Every Ctrl-C, not only the first: a second would otherwise kill the
+  // process mid-page and leave the migration running, under its lease.
+  const pause = () => {
+    if (!controller.signal.aborted) say('Pausing after the current page...');
+    controller.abort();
+  };
+  process.on('SIGINT', pause);
   const { root, env: _env, onPage: _onPage, ...shared } = options;
   let result: MigrateEnvResult;
   try {
