@@ -117,6 +117,14 @@ describe('loadConfig', () => {
     expect(result.config.local).toMatch(/[/\\]fsh[/\\]fsh-generated[/\\]resources$/);
   });
 
+  test('fsh accepts sushi-config.yml, as SUSHI does', () => {
+    const result = load({
+      'plumb.config.ts': `export default { igs: [], profiles: [], fsh: './fsh', out: './out' };`,
+      'fsh/sushi-config.yml': 'canonical: http://example.org/fhir\n',
+    });
+    expect(result.ok).toBe(true);
+  });
+
   test('fsh-and-local, for both', () => {
     const result = load({
       'plumb.config.ts': `export default { igs: [], profiles: [], fsh: '.', local: './profiles', out: './out' };`,

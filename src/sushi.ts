@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { sushiConfig } from './config.js';
 import type { Stale } from './emit/write.js';
 
 interface SushiError {
@@ -130,11 +131,12 @@ export function compareBuild(built: string, committed: string): Stale[] {
 export function dependencyWarnings(project: string, igs: string[]): string[] {
   const selected = new Map(igs.map((ig) => ig.split('@') as [string, string]));
   const warnings: string[] = [];
-  for (const [name, version] of fshDependencies(project)) {
+  const file = sushiConfig(project) as string;
+  for (const [name, version] of fshDependencies(join(project, file))) {
     const chosen = selected.get(name);
     if (chosen && chosen !== version) {
       warnings.push(
-        `sushi-config.yaml depends on ${name} ${version}, but igs selects ${chosen}. SUSHI builds against ${version} and Plumb types against ${chosen}: make them the same.`,
+        `${file} depends on ${name} ${version}, but igs selects ${chosen}. SUSHI builds against ${version} and Plumb types against ${chosen}: make them the same.`,
       );
     }
   }
@@ -146,8 +148,8 @@ export function dependencyWarnings(project: string, igs: string[]): string[] {
  * `name:` with an indented `version:`. Plumb takes no YAML dependency for
  * this one block.
  */
-function fshDependencies(project: string): Map<string, string> {
-  const lines = readFileSync(join(project, 'sushi-config.yaml'), 'utf8')
+function fshDependencies(file: string): Map<string, string> {
+  const lines = readFileSync(file, 'utf8')
     .split(/\r?\n/)
     .map((line) => line.replace(/\s+#.*$/, ''))
     .filter((line) => line.trim() && !line.trimStart().startsWith('#'));

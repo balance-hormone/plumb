@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   type InternalTypeSchema,
@@ -39,7 +39,9 @@ type LoadErrorCode =
   | 'not-r4'
   | 'unresolved-reference'
   | 'duplicate-definition'
-  | 'unparseable';
+  | 'unparseable'
+  | 'local-not-found'
+  | 'invalid-local-json';
 
 interface LoadIssue<Code extends string> {
   code: Code;
@@ -120,10 +122,34 @@ function folderSource(id: string, dir: string, keepContent: boolean): Source {
   for (const name of readdirSync(dir).sort()) {
     if (!name.endsWith('.json') || name === 'package.json' || name.startsWith('.')) continue;
     const file = join(dir, name);
-    const resource = JSON.parse(readFileSync(file, 'utf8')) as Conformance;
+    let resource: Conformance;
+    try {
+      resource = JSON.parse(readFileSync(file, 'utf8')) as Conformance;
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+      throw new SyntaxError(`${file} is not valid JSON: ${err.message}`);
+    }
     addEntry(source, resource, keepContent ? undefined : file);
   }
   return source;
+}
+
+/**
+ * The project's own folder, unlike a verified package, may be missing or hold
+ * a hand-edited file that is not JSON; either is named, not thrown.
+ */
+function localSource(dir: string, errors: LoadIssue<LoadErrorCode>[]): Source | undefined {
+  if (!existsSync(dir)) {
+    errors.push({ code: 'local-not-found', message: `The local folder ${dir} does not exist.` });
+    return undefined;
+  }
+  try {
+    return folderSource('local', dir, true);
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) throw err;
+    errors.push({ code: 'invalid-local-json', message: err.message });
+    return undefined;
+  }
 }
 
 const core = bundleSource('base', CORE_FILES);
@@ -223,7 +249,7 @@ function expand(options: LoadProfilesOptions, packages: Map<string, { source: So
 /** Indexes base R4, the packages and the local folder, and works out each IG's scope. */
 function gather(options: LoadProfilesOptions) {
   const errors: LoadIssue<LoadErrorCode>[] = [];
-  const local = options.local ? folderSource('local', options.local, true) : undefined;
+  const local = options.local ? localSource(options.local, errors) : undefined;
   const packages = new Map(
     options.packages.map((p) => [
       `${p.name}@${p.version}`,
