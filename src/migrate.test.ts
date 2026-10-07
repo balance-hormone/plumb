@@ -119,7 +119,7 @@ describe("pendingMigrations, for push's gate", () => {
 });
 
 describe('migrate --write, against a fake Medplum', () => {
-  const BASE = 'https://medplum.test/';
+  const BASE = 'https://medplum.example.org/';
   const NOW = new Date('2026-10-07T12:00:00Z');
   const json = (body: object, status = 200, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), {
