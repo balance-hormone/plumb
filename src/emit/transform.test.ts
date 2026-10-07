@@ -262,14 +262,72 @@ describe('transform', () => {
           ],
         },
       });
-      expect(field(t, 'name').type).toMatchObject({
+      // Ordered but open: other names may come first, so no position is fixed.
+      expect(field(t, 'name').type).toEqual({
+        kind: 'array',
+        of: { kind: 'ref', name: 'HumanName' },
+      });
+    });
+
+    test('ordered slicing is a tuple only as far as its positions are fixed', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'plumb-ordered-'));
+      cpSync(LOCAL, dir, { recursive: true });
+      const sd = JSON.parse(
+        readFileSync(join(LOCAL, 'StructureDefinition-sliced-patient.json'), 'utf8'),
+      );
+      // The name slicing with other rules and official's and nickname's cardinality.
+      const variant = (id: string, rules: string, official: number, nickname: number) => {
+        const element = (e: { id: string; slicing?: object; min?: number }) => ({
+          ...e,
+          ...(e.id === 'Patient.name' ? { slicing: { ...e.slicing, rules } } : {}),
+          ...(e.id === 'Patient.name:official' ? { min: official } : {}),
+          ...(e.id === 'Patient.name:nickname' ? { min: nickname } : {}),
+        });
+        writeFileSync(
+          join(dir, `${id}.json`),
+          JSON.stringify({
+            ...sd,
+            id,
+            url: `${PLUMB}/${id}`,
+            name: pascal(id),
+            snapshot: { element: sd.snapshot.element.map(element) },
+            differential: { element: sd.differential.element.map(element) },
+          }),
+        );
+      };
+      const pascal = (id: string) =>
+        id.replace(/(^|-)(\w)/g, (_, _d, c: string) => c.toUpperCase());
+      variant('closed-optional-first', 'closed', 0, 1);
+      variant('at-end-both-required', 'openAtEnd', 1, 1);
+      const loaded = loadProfiles({
+        packages: [],
+        igs: [],
+        local: dir,
+        profiles: [`${PLUMB}/closed-optional-first`, `${PLUMB}/at-end-both-required`],
+      });
+      const [closed, atEnd] = transform(loaded).models as [ProfileModel, ProfileModel];
+      // An optional first slice lets the second move up: no fixed position.
+      expect(field(decl(closed), 'name').type).toEqual({
+        kind: 'array',
+        of: {
+          kind: 'union',
+          of: [
+            { kind: 'ref', name: 'ClosedOptionalFirstOfficial' },
+            { kind: 'ref', name: 'ClosedOptionalFirstNickname' },
+          ],
+        },
+      });
+      expect(field(decl(atEnd), 'name').type).toEqual({
         kind: 'tuple',
         of: [
-          { kind: 'ref', name: 'SlicedPatientOfficial' },
-          { kind: 'optional' },
-          { kind: 'rest' },
+          { kind: 'ref', name: 'AtEndBothRequiredOfficial' },
+          { kind: 'ref', name: 'AtEndBothRequiredNickname' },
+          { kind: 'rest', of: { kind: 'ref', name: 'HumanName' } },
         ],
       });
+      // Each fixed position must be there, not only its fields where it is.
+      expect(atEnd.required).toContainEqual(['name.0']);
+      expect(atEnd.required).toContainEqual(['name.1']);
     });
 
     test('an extension slice uses its extension type, declared once in its own model', () => {
@@ -648,14 +706,11 @@ describe('transform', () => {
       ]);
     });
 
-    test('closed slicing requires what every slice does; ordered slicing, each position', () => {
+    test('closed slicing requires what every slice does', () => {
       expect(model('sliced-patient').required).toEqual([
         ['identifier'],
         ['identifier.system'],
         ['name'],
-        ['name.0.use'],
-        ['name.0.family'],
-        ['name.1.use'],
       ]);
     });
 
