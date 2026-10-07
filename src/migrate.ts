@@ -215,23 +215,26 @@ type LocalRunner = (
 ) => (medplum: object, event: { input: object }) => Promise<unknown>;
 
 /**
- * The migrations on these resource types that the project has not applied,
- * for push's gate to name when it refuses. A module that does not load is
- * reported rather than thrown: the gate refuses either way.
+ * The migrations on these resource types, Plumb's restamps included, that
+ * the project has not applied as they now stand, for push's gate to name
+ * when it refuses. Migrations that do not load or check are reported rather
+ * than thrown: the gate refuses either way.
  */
 export async function pendingMigrations(
   medplum: MedplumClient,
-  modules: string[] | undefined,
+  config: PlumbConfig,
   resourceTypes: string[],
 ): Promise<{ pending: { id: string; resourceType: string }[]; error?: string }> {
-  if (!modules || resourceTypes.length === 0) return { pending: [] };
-  const declared = await loadMigrations(modules);
-  if (!declared.ok) return { pending: [], error: declared.errors.map((e) => e.message).join(' ') };
+  if (!config.migrations || resourceTypes.length === 0) return { pending: [] };
+  const declared = await declaredMigrations(config, {});
+  if ('errors' in declared) {
+    return { pending: [], error: declared.errors.map((e) => e.message).join(' ') };
+  }
   const pending: { id: string; resourceType: string }[] = [];
   for (const migration of inOrder(declared.migrations)) {
     if (!resourceTypes.includes(migration.resourceType)) continue;
     const held = await findLedger(medplum, migration.id);
-    if (held && stateOf(held).status === 'applied') continue;
+    if (statusOf(held && stateOf(held), migration) === 'applied') continue;
     pending.push({ id: migration.id, resourceType: migration.resourceType });
   }
   return { pending };
@@ -419,11 +422,14 @@ interface Run {
 export function inOrder(migrations: Migration[]): Migration[] {
   const byId = new Map(migrations.map((m) => [m.id, m]));
   const ordered: Migration[] = [];
+  // Marked before its dependencies are walked, so a cycle, which
+  // checkMigrations reports, ends the walk rather than the stack.
+  const seen = new Set<Migration>();
   const visit = (m: Migration) => {
-    if (ordered.includes(m)) return;
+    if (seen.has(m)) return;
+    seen.add(m);
     for (const id of m.dependsOn ?? []) {
       const dependency = byId.get(id);
-      // checkMigrations refuses cycles, so the walk ends.
       if (dependency) visit(dependency);
     }
     ordered.push(m);

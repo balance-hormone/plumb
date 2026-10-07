@@ -727,7 +727,7 @@ async function refusal(
         .map((p) => p.resourceType),
     ),
   ];
-  const found = await pendingMigrations(medplum, options.config.migrations?.modules, types);
+  const found = await pendingMigrations(medplum, options.config, types);
   const lines = found.pending.map((m) => `pending: ${m.id} (${m.resourceType})`);
   if (found.error) lines.push(`Pending migrations not listed: ${found.error}`);
   lines.push(
