@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import { deepEquals, type MedplumClient, normalizeErrorString } from '@medplum/core';
+import { deepEquals, type MedplumClient, normalizeErrorString, resolveId } from '@medplum/core';
 import type { CodeSystem, StructureDefinition, ValueSet } from '@medplum/fhirtypes';
 import {
   applyBots,
@@ -82,7 +82,7 @@ export interface PlannedDefinition {
   resourceType: Definition['resourceType'];
   url: string;
   version?: string;
-  action: 'create' | 'update' | 'unchanged' | 'shadowed';
+  action: 'create' | 'update' | 'unchanged' | 'shadowed' | 'linked';
   /** The version the project holds, when it holds one. */
   held?: string;
   /** Changed content under the version the project already holds. */
@@ -151,7 +151,7 @@ export async function push(options: PushOptions): Promise<PushResult> {
 
   const { planned, held } = await planStep(medplum, loaded, content.files, result, step);
   const changes = result.plan.filter((p) => p.action === 'create' || p.action === 'update');
-  if (result.plan.some((p) => p.action === 'shadowed')) return step.done();
+  if (result.plan.some((p) => p.action === 'shadowed' || p.action === 'linked')) return step.done();
   if (changes.length === 0) return finish(true);
 
   const filename = checkerFilename(options.checker.code, options.checker.version);
@@ -580,16 +580,12 @@ async function planStep(
       loaded,
     ).filter((sd) => loaded.definitions.get(sd.url)?.source !== 'base'),
   ];
-  const held = new Map<string, Definition[]>();
-  for (const definition of planned) {
-    const found = await medplum.searchResources(definition.resourceType, {
-      url: definition.url,
-      _count: '100',
-    });
-    held.set(definition.url as string, found);
-  }
-  result.plan = planLoad(planned, held);
+  const { held, server, ours } = await heldCopies(medplum, planned);
+  // The server's own copy is its business, as base R4 is: nothing is loaded over it.
+  const loading = planned.filter((d) => !server.has(d.url as string));
+  result.plan = planLoad(loading, held, ours);
   const shadowed = result.plan.filter((p) => p.action === 'shadowed');
+  const linked = result.plan.filter((p) => p.action === 'linked');
   step.finish(
     'plan',
     planSummary(result.plan, new Set(loaded.profiles.map((p) => p.url))),
@@ -597,6 +593,11 @@ async function planStep(
       ...shadowed.map(
         (p) => `${p.url}: the project holds more than one; delete all but one, then push again.`,
       ),
+      ...linked.map(
+        (p) =>
+          `${p.url}: a linked project holds it, and a copy here would shadow it; load it there, or unlink the project.`,
+      ),
+      ...(server.size > 0 ? [`${server.size} held by the server itself, so not loaded.`] : []),
       ...result.plan
         .filter((p) => p.edited)
         .map((p) => `${p.url}|${p.version}: changed without a version bump.`),
@@ -606,9 +607,32 @@ async function planStep(
           ]
         : []),
     ],
-    shadowed.length > 0,
+    shadowed.length + linked.length > 0,
   );
-  return { planned, held };
+  return { planned: loading, held };
+}
+
+/**
+ * The copies of each planned definition that matter to this project: its own,
+ * which push updates, and a linked project's, which it must not shadow. A copy
+ * in neither is the server's own, such as the terminology Medplum's base
+ * project holds, which a project admin can neither update nor shadow.
+ */
+async function heldCopies(medplum: MedplumClient, planned: Definition[]) {
+  const project = await medplum.readResource('Project', medplum.getProject()?.id as string);
+  const linked = new Set(project.link?.map((l) => resolveId(l.project)));
+  const held = new Map<string, Definition[]>();
+  const server = new Set<string>();
+  for (const definition of planned) {
+    const url = definition.url as string;
+    const found = await medplum.searchResources(definition.resourceType, { url, _count: '100' });
+    const visible = found.filter(
+      (d) => d.meta?.project === project.id || linked.has(d.meta?.project),
+    );
+    if (visible.length === 0 && found.length > 0) server.add(url);
+    held.set(url, visible);
+  }
+  return { held, server, ours: (d: Definition) => d.meta?.project === project.id };
 }
 
 /** Updates the one definition the project holds for a URL, or creates it. */
@@ -660,13 +684,15 @@ export function boundTerminology(loaded: Pick<LoadProfilesResult, 'definitions'>
 }
 
 /**
- * Compares each planned definition with what the project holds under
- * its URL. Push updates the one it holds rather than adding another, which
- * would shadow it: Medplum picks the "newest" by sorting versions as text.
+ * Compares each planned definition with what the project and its linked
+ * projects hold under its URL. Push updates the one the project holds rather
+ * than adding another, which would shadow it: Medplum picks the "newest" by
+ * sorting versions as text. A linked project's only copy is refused alike.
  */
 export function planLoad(
   planned: Definition[],
   held: Map<string, Definition[]>,
+  ours: (held: Definition) => boolean = () => true,
 ): PlannedDefinition[] {
   return planned.map((sd) => {
     const found = held.get(sd.url as string) ?? [];
@@ -678,6 +704,7 @@ export function planLoad(
     const current = found[0];
     if (found.length > 1) return { ...base, action: 'shadowed' };
     if (!current) return { ...base, action: 'create' };
+    if (!ours(current)) return { ...base, action: 'linked' };
     const was = current.version ? { held: current.version } : {};
     if (sameContent(sd, current)) return { ...base, ...was, action: 'unchanged' };
     return {
@@ -698,7 +725,9 @@ const sameContent = (a: Definition, b: Definition) => {
 /** The selected profiles push loads by name and version, then a count of their dependencies. */
 function planSummary(plan: PlannedDefinition[], selected: Set<string>): string {
   const changes = plan.filter((p) => p.action === 'create' || p.action === 'update');
-  if (plan.some((p) => p.action === 'shadowed')) return 'refusing: profiles are shadowed';
+  if (plan.some((p) => p.action === 'shadowed' || p.action === 'linked')) {
+    return 'refusing: profiles are shadowed';
+  }
   if (changes.length === 0) return `${plan.length} up to date, nothing to load`;
   const named = changes
     .filter((p) => selected.has(p.url))

@@ -225,7 +225,7 @@ export interface CheckResult {
   /** Set when `updateBaseline` wrote the file. */
   baselineWritten?: boolean;
   errors: {
-    code: 'no-check-config' | 'no-compiler-api' | 'no-lock' | 'baseline-growth';
+    code: 'no-check-config' | 'no-compiler-api' | 'no-lock' | 'load-failed' | 'baseline-growth';
     message: string;
   }[];
 }
@@ -277,6 +277,13 @@ export async function checkProject(options: CheckOptions): Promise<CheckResult> 
     local: config.local,
     profiles: config.profiles,
   });
+  // Without the profiles, nothing would be found and an updated baseline would be emptied.
+  if (!loaded.ok) {
+    return {
+      ...fail('load-failed', ''),
+      errors: loaded.errors.map((e) => ({ code: 'load-failed', message: e.message })),
+    };
+  }
   const profiledTypes = enforcedTypes(routingRows(loaded, config).routes, config.defaultProfile);
   const { findings, files } = findRawAccess({
     ts,

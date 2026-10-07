@@ -574,7 +574,9 @@ Done in 76.4s
   they depend on, with what the project holds. A URL the project already
   holds is updated in place, never added again (that would shadow it). A
   StructureDefinition whose content changed without a version bump is
-  flagged, and a URL already shadowed stops the push. The ValueSets and
+  flagged, and a URL already shadowed, or held only by a linked project,
+  stops the push. What the server itself holds, such as the terminology in
+  Medplum's base project, is left to it. The ValueSets and
   CodeSystems the profiles bind are planned with them, CodeSystems first, so
   a project with Medplum's `validate-terminology` feature can resolve every
   binding; a CodeSystem a package ships without its codes (SNOMED CT, LOINC)
