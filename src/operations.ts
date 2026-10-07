@@ -216,8 +216,9 @@ export function operationDefinition(
 
 /**
  * Plans the operations against what the project holds: each found by Plumb's
- * tag with its code. An untagged OperationDefinition with a contract's code,
- * here or in a linked project, stops the step: Medplum would pick either.
+ * tag with its code. Any other OperationDefinition with a contract's code,
+ * untagged here or in a linked project tagged or not, stops the step:
+ * Medplum would pick either.
  */
 export async function planOperations(
   medplum: MedplumClient,
@@ -236,18 +237,18 @@ export async function planOperations(
   return planHeldOperations(
     contracts,
     visible.filter((d) => d.meta?.project === project && tagOf(d) !== undefined),
-    visible.filter((d) => tagOf(d) === undefined),
+    visible.filter((d) => d.meta?.project !== project || tagOf(d) === undefined),
     botIds,
     typeOf,
     options,
   );
 }
 
-/** The plan for the OperationDefinitions a project holds, and those it can see untagged. */
+/** The plan for the OperationDefinitions a project holds, and the others it can see. */
 export function planHeldOperations(
   contracts: Contract[],
   tagged: OperationDefinition[],
-  untagged: OperationDefinition[],
+  others: OperationDefinition[],
   botIds: Record<string, string>,
   typeOf: (profile: string) => string | undefined,
   options: ProjectOptions = {},
@@ -255,13 +256,7 @@ export function planHeldOperations(
   const plan: OperationPlan = { changes: [], blocked: [] };
   const byCode = Map.groupBy(tagged, (d) => tagOf(d) as string);
   for (const contract of contracts) {
-    const planned = planContract(
-      contract,
-      byCode.get(contract.code) ?? [],
-      untagged,
-      botIds,
-      typeOf,
-    );
+    const planned = planContract(contract, byCode.get(contract.code) ?? [], others, botIds, typeOf);
     if (planned && 'message' in planned) plan.blocked.push(planned);
     else if (planned) plan.changes.push(planned);
   }
@@ -279,11 +274,17 @@ export function planHeldOperations(
 function planContract(
   contract: Contract,
   tagged: OperationDefinition[],
-  untagged: OperationDefinition[],
+  others: OperationDefinition[],
   botIds: Record<string, string>,
   typeOf: (profile: string) => string | undefined,
 ): OperationChange | OperationPlan['blocked'][number] | undefined {
-  const shadow = untagged.find((d) => d.code === contract.code);
+  const shadow = others.find((d) => d.code === contract.code);
+  if (shadow && tagOf(shadow) !== undefined) {
+    return {
+      code: 'shadowed-operation',
+      message: `OperationDefinition/${shadow.id} has the code ${contract.code} in a linked project: Medplum would run either. Delete it there, or change the contract's code, then push again.`,
+    };
+  }
   if (shadow) {
     return {
       code: 'shadowed-operation',

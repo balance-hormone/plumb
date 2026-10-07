@@ -1186,9 +1186,9 @@ export const handler = handleOperation(sendMessage, async (medplum: MedplumClien
 - **Checked before anything is written:** a code used twice or one Medplum
   already has, a bot `bots` lacks, a type or instance operation without its
   resource, and a profile that is not selected (`invalid-operation`). An
-  OperationDefinition with the same code that Plumb did not write, in the
-  project or one it links, stops the push (`shadowed-operation`): Medplum
-  would run either.
+  OperationDefinition with the same code that Plumb did not write in the
+  project, or any in a project it links, even one Plumb wrote there, stops
+  the push (`shadowed-operation`): Medplum would run either.
 
 ```text
 ✔ operations     plan: 1 to create, 0 to update, 0 to delete

@@ -157,6 +157,23 @@ describe.skipIf(!server)("a linked project's Plumb resources", { timeout: 120_00
     expect(planned.changes).toEqual([]);
   });
 
+  test("a linked project's tagged OperationDefinition with a contract's code shadows it", async () => {
+    const linked = await connect(theirs);
+    const contract: Contract = {
+      code: 'plumb-linked-tagged',
+      level: 'system',
+      bot: 'echo',
+      input: 'Parameters',
+      output: 'Parameters',
+      from: 'linked.test.ts',
+    };
+    await applyOperations(await planOperations(linked, [contract], () => undefined), linked);
+    const planned = await planOperations(await connect(ours), [contract], () => undefined);
+    expect(planned.blocked).toMatchObject([{ code: 'shadowed-operation' }]);
+    expect(planned.blocked[0]?.message).toContain('in a linked project');
+    expect(planned.changes).toEqual([]);
+  });
+
   test("a linked project's tagged OperationDefinition is neither planned here nor deleted by --prune", async () => {
     const held = await (await connect(theirs)).createResource<OperationDefinition>({
       resourceType: 'OperationDefinition',

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { join } from 'node:path';
+import type { MedplumClient } from '@medplum/core';
 import type { OperationDefinition } from '@medplum/fhirtypes';
 import { describe, expect, test } from 'vitest';
 import {
@@ -12,7 +13,9 @@ import {
   operationDefinition,
   operationsSummary,
   planHeldOperations,
+  planOperations,
 } from './operations.js';
+import { PLUMB_SYSTEM } from './project.js';
 
 const FIXTURE = join(import.meta.dirname, '../test/fixtures/operations');
 const PATIENT = 'http://example.org/fhir/plumb-test/StructureDefinition/cardinality-patient';
@@ -125,5 +128,30 @@ describe('planHeldOperations', () => {
       { kind: '-', code: 'gone', kept: true },
     ]);
     expect(operationsSummary(plan)).toBe('plan: 0 to create, 1 to update, 0 to delete');
+  });
+});
+
+describe('planOperations', () => {
+  test("a linked project's tagged OperationDefinition with a contract's code shadows it", async () => {
+    const linked: OperationDefinition = {
+      ...operationDefinition(contract({}), 'b9', () => undefined),
+      id: 'o9',
+      meta: { project: 'linked', tag: [{ system: PLUMB_SYSTEM, code: 'send-message' }] },
+    };
+    const medplum = {
+      getProject: () => ({ id: 'p1' }),
+      async *searchResourcePages(type: string) {
+        yield type === 'OperationDefinition' ? [linked] : [];
+      },
+    } as unknown as MedplumClient;
+    const plan = await planOperations(medplum, [contract({})], () => undefined);
+    expect(plan.changes).toEqual([]);
+    expect(plan.blocked).toEqual([
+      {
+        code: 'shadowed-operation',
+        message:
+          "OperationDefinition/o9 has the code send-message in a linked project: Medplum would run either. Delete it there, or change the contract's code, then push again.",
+      },
+    ]);
   });
 });
