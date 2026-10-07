@@ -44,7 +44,17 @@ describe('planHeldSubscriptions', () => {
       },
     };
     expect(planHeldSubscriptions(config, [], {}, { env: { TOKEN: 'Basic a:b' } }).blocked).toEqual([
-      "TOKEN holds a ':', at which Medplum cuts header Authorization short; Subscription hook cannot send it.",
+      {
+        code: 'unsendable-header',
+        message:
+          "TOKEN holds a ':', at which Medplum cuts header Authorization short; Subscription hook cannot send it.",
+      },
+    ]);
+    expect(planHeldSubscriptions(config, [], {}).blocked).toEqual([
+      {
+        code: 'unset-variable',
+        message: 'TOKEN is not set: it holds header Authorization for Subscription hook.',
+      },
     ]);
   });
 
@@ -60,7 +70,11 @@ describe('planHeldSubscriptions', () => {
     const bots = { 'send-reminder': 'b1' };
     const plan = planHeldSubscriptions(CONFIG, [untagged], bots);
     expect(plan.blocked).toEqual([
-      'Subscription "Appointment?status=booked → Bot/b1" exists untagged; adopt it with --adopt.',
+      {
+        code: 'untagged-subscription',
+        message:
+          'Subscription "Appointment?status=booked → Bot/b1" exists untagged; adopt it with --adopt.',
+      },
     ]);
     expect(subscriptionsSummary(plan)).toBe('refusing: see below');
     const [adopted] = planHeldSubscriptions(CONFIG, [untagged], bots, { adopt: true }).changes;

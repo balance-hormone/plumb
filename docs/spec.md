@@ -176,7 +176,8 @@ plumb generate            fetch any missing IG packages, then emit the types int
 plumb generate --check    in CI: write nothing to the project; fail on stale output,
                           a lockfile mismatch or a profile without a snapshot
   --config <path>         another config file; --json prints the report, --quiet only problems
-  exit codes              0 success, 1 problems found, 2 usage or config errors
+  exit codes              0 success, 1 problems found, 2 usage, config, set-up or
+                          connection errors
 ```
 
 ```ts
@@ -445,6 +446,17 @@ Done in 2.4s
   for agents and scripts. `--quiet` prints only problems.
 - Colour only in a terminal, and never with `NO_COLOR`; no spinners, so CI
   logs and agents read the same lines a person does.
+- **One exit-code table, by error code,** for every command: 0 on success; 2
+  when the command could not run as asked (usage, config, set-up or
+  connection, fixed before running again), whichever step reports the code;
+  otherwise 1, a problem found. A failed write (`apply-failed`,
+  `bots-failed`, …) is a problem found, as is a code a migration throws.
+- **A blocked plan is a problem found,** never an error: each of `push`'s
+  planners (content, project, bots, operations, Subscriptions) holds
+  `blocked: { code, message }[]`, such as `shadowed-<kind>` and
+  `untagged-<kind>`. Its messages print under the step, `--json` carries the
+  codes in the plan, the command exits 1, and `push --check` still prints its
+  drift line, counting them as blocked.
 
 ### `validateProfiled`
 

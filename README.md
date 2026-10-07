@@ -435,7 +435,7 @@ Failed in 6.2s
   none yet, and `check` exits 2 on it.
 
 Exit codes: 0 when nothing is new, 1 when something is (or the baseline would
-grow), 2 for usage, config and set-up errors.
+grow, or the profiles do not load), 2 for usage, config and set-up errors.
 
 ## Check stored data, then load profiles
 
@@ -590,7 +590,9 @@ Done in 76.4s
   gate and loading. A failure there fails the push (exit 1), and the profiles
   stay loaded, as Postgres keeps a `NOT VALID` constraint.
 
-Exit codes are `validate`'s, and `--json` and `--quiet` work as for `generate`.
+Exit codes are `validate`'s: a write that fails, or a plan blocked by an
+untagged or shadowed resource, exits 1. `--json` and `--quiet` work as for
+`generate`.
 
 **6. Turn strict mode on.** Plumb reports strict mode, and never sets it: only
 a super admin can, so on hosted Medplum ask Medplum's team, and on a

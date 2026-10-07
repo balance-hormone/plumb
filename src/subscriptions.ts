@@ -4,6 +4,7 @@ import { deepEquals, type MedplumClient } from '@medplum/core';
 import type { Bot, Extension, Subscription } from '@medplum/fhirtypes';
 import type { SubscriptionConfig } from './config.js';
 import {
+  type Blocked,
   claim,
   owned,
   PLUMB_SYSTEM,
@@ -54,7 +55,7 @@ export type SubscriptionChange =
 export interface SubscriptionPlan {
   changes: SubscriptionChange[];
   /** Why nothing in the subscriptions step can be applied. */
-  blocked: string[];
+  blocked: Blocked[];
 }
 
 /**
@@ -90,7 +91,7 @@ export function planHeldSubscriptions(
   );
   for (const [key, config] of Object.entries(subscriptions)) {
     const desired = declaredSubscription(key, config, botIds, options.env ?? {});
-    if (typeof desired === 'string') {
+    if ('code' in desired) {
       plan.blocked.push(desired);
       continue;
     }
@@ -101,7 +102,7 @@ export function planHeldSubscriptions(
     );
     const name = `${config.criteria} → ${endpoint ?? `Bot ${config.bot}`}`;
     const claimed = claim('Subscription', key, name, tagged.get(key) ?? [], untagged, options);
-    if (typeof claimed === 'string') plan.blocked.push(claimed);
+    if ('code' in claimed) plan.blocked.push(claimed);
     else {
       const change = planOne(key, config, desired, claimed);
       if (change) plan.changes.push(change);
@@ -137,13 +138,13 @@ function declaredSubscription(
   config: SubscriptionConfig,
   botIds: Record<string, string>,
   env: Record<string, string | undefined>,
-): { subscription: Subscription; variables: Variables } | string {
+): { subscription: Subscription; variables: Variables } | Blocked {
   const variables: Variables = {
     ...(config.secret ? { secret: config.secret.env } : {}),
     headers: Object.entries(config.headers ?? {}).map(([name, { env }]) => [name, env]),
   };
   const values = readValues(key, variables, env);
-  if (typeof values === 'string') return values;
+  if ('code' in values) return values;
   const { secret, header } = values;
   const botId = config.bot ? botIds[config.bot] : undefined;
   const extension: Extension[] = [
@@ -177,9 +178,11 @@ function readValues(
   key: string,
   variables: Variables,
   env: Record<string, string | undefined>,
-): { secret?: string; header: string[] } | string {
-  const missing = (variable: string, what: string) =>
-    `${variable} is not set: it holds ${what} for Subscription ${key}.`;
+): { secret?: string; header: string[] } | Blocked {
+  const missing = (variable: string, what: string) => ({
+    code: 'unset-variable',
+    message: `${variable} is not set: it holds ${what} for Subscription ${key}.`,
+  });
   if (variables.secret && !env[variables.secret]) return missing(variables.secret, 'its secret');
   const header: string[] = [];
   for (const [name, variable] of variables.headers) {
@@ -187,7 +190,10 @@ function readValues(
     if (!value) return missing(variable, `header ${name}`);
     // Medplum splits each header on every ':', so a value holding one is cut short.
     if (value.includes(':')) {
-      return `${variable} holds a ':', at which Medplum cuts header ${name} short; Subscription ${key} cannot send it.`;
+      return {
+        code: 'unsendable-header',
+        message: `${variable} holds a ':', at which Medplum cuts header ${name} short; Subscription ${key} cannot send it.`,
+      };
     }
     header.push(`${name}: ${value}`);
   }

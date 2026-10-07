@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import * as ts from 'typescript5';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { bareSushiProject } from '../test/sushi-stub.js';
-import { formatStep, formatValidation, run } from './commands.js';
+import { exitCode, formatStep, formatValidation, run } from './commands.js';
 import type { TypeReport, ValidateEnvResult } from './conformance.js';
 
 const SYNTHETIC = join(import.meta.dirname, '../test/fixtures/profiles/fsh-generated/resources');
@@ -143,6 +143,18 @@ describe('plumb', () => {
     expect(stderr).toMatch(/^✖ packages {2}No lockfile/m);
   });
 
+  test('an invalid-* code exits 2 whichever step reports it: content in the load step', async () => {
+    const cwd = project();
+    const config = join(cwd, 'plumb.config.ts');
+    writeFileSync(
+      config,
+      readFileSync(config, 'utf8').replace('out:', "content: ['./content/*.json'],\n      out:"),
+    );
+    const { code, stdout } = await cli(['generate', '--json'], cwd);
+    expect(code).toBe(2);
+    expect(JSON.parse(stdout).errors).toMatchObject([{ code: 'invalid-content', step: 'load' }]);
+  });
+
   test('--config takes another path', async () => {
     const cwd = project();
     const { code } = await cli(['generate', '--config', join(cwd, 'plumb.config.ts')], tmpdir());
@@ -225,6 +237,22 @@ describe('plumb', () => {
       expect(code).toBe(2);
       expect(stderr).not.toContain('is not set');
       expect(stderr).toMatch(/✖ connect {3}Could not log in/);
+    },
+  );
+
+  test.skipIf(!existsSync(CHECKER) && !process.env.CI).each(['push', 'validate'])(
+    '%s exits 1 when the profiles do not load, a problem found before connecting',
+    async (command) => {
+      const { cwd } = await cli(['generate']);
+      const config = join(cwd, 'plumb.config.ts');
+      writeFileSync(
+        config,
+        readFileSync(config, 'utf8').replace('cardinality-patient', 'no-such-profile'),
+      );
+      const env = { PROD_CLIENT_ID: 'id', PROD_CLIENT_SECRET: 'secret' };
+      const { code, stdout } = await cli([command, '--env', 'prod', '--json'], cwd, env);
+      expect(code).toBe(1);
+      expect(JSON.parse(stdout).errors).toMatchObject([{ code: 'profile-not-found' }]);
     },
   );
 
@@ -430,7 +458,7 @@ describe('plumb check', () => {
     expect(stderr).toMatch(/✔ check {5}0 new, 2 in the baseline, in 3 files/);
   });
 
-  test('exits 2 when the profiles do not load, and leaves the baseline alone', {
+  test('exits 1 when the profiles do not load, as every command does, and leaves the baseline alone', {
     timeout: 30_000,
   }, async () => {
     const config = join(FIXTURE, 'plumb.config.missing.ts');
@@ -448,7 +476,7 @@ describe('plumb check', () => {
         '--update-baseline',
         '--allow-growth',
       );
-      expect(code).toBe(2);
+      expect(code).toBe(1);
       expect(stderr).toContain('no-such-profile');
       expect(existsSync(BASELINE)).toBe(false);
     } finally {
@@ -469,6 +497,64 @@ describe('plumb check', () => {
     });
     expect(code).toBe(2);
     expect(stderr).toContain('needs TypeScript 5 or 6');
+  });
+});
+
+describe('exitCode', () => {
+  const failed = (...codes: string[]) =>
+    exitCode({ ok: false, errors: codes.map((code) => ({ code })) });
+
+  test('0 on success, and 1 for a problem found with no error, such as a blocked plan', () => {
+    expect(exitCode({ ok: true, errors: [] })).toBe(0);
+    expect(failed()).toBe(1);
+  });
+
+  // One table, by code: the step or command that reports a code does not change its exit.
+  test.each([
+    // generate
+    ['sushi-too-old', 2],
+    ['invalid-route', 2],
+    ['registry-error', 2],
+    ['lock-disagrees', 1],
+    ['sushi-error', 1],
+    ['invalid-lock', 2],
+    ['local-not-found', 2],
+    ['invalid-local-json', 2],
+    // validate and push
+    ['connect-failed', 2],
+    ['checker-missing', 2],
+    ['invalid-bot', 2],
+    ['invalid-operation', 2],
+    ['invalid-content', 2],
+    ['bots-disabled', 2],
+    ['profile-not-found', 1],
+    ['content-refused', 1],
+    ['checker-failed', 1],
+    // push's writes failing are problems found, not misuse
+    ['apply-failed', 1],
+    ['content-failed', 1],
+    ['project-failed', 1],
+    ['bots-failed', 1],
+    ['operations-failed', 1],
+    ['subscriptions-failed', 1],
+    // check
+    ['no-compiler-api', 2],
+    ['load-failed', 1],
+    ['baseline-growth', 1],
+    // migrate and migrate status
+    ['invalid-migration', 2],
+    ['migrator-not-current', 2],
+    ['no-migrations', 2],
+    ['migration-edited', 1],
+    ['migration-paused', 1],
+    // a code a migration throws is its own
+    ['ECONNRESET', 1],
+  ])('%s exits %i', (code, exit) => {
+    expect(failed(code)).toBe(exit);
+  });
+
+  test('2 wins: anything that kept the command from running exits 2', () => {
+    expect(failed('profile-not-found', 'invalid-bot')).toBe(2);
   });
 });
 
@@ -548,6 +634,17 @@ describe('plumb migrate new', () => {
       } finally {
         vi.unstubAllGlobals();
       }
+    },
+  );
+
+  test.skipIf(!existsSync(CHECKER) && !process.env.CI).each([[['status']], [[]]])(
+    'migrate %j exits 2 for a config without migrations, naming the code in --json',
+    async (args) => {
+      const env = { PROD_CLIENT_ID: 'id', PROD_CLIENT_SECRET: 'secret' };
+      const argv = ['migrate', ...args, '--env', 'prod', '--json'];
+      const { code, stdout } = await cli(argv, project(), env);
+      expect(code).toBe(2);
+      expect(JSON.parse(stdout).errors).toMatchObject([{ code: 'no-migrations' }]);
     },
   );
 

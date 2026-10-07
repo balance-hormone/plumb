@@ -43,6 +43,7 @@ import {
 } from './operations.js';
 import {
   applyProject,
+  type Blocked,
   describeChange,
   type ProjectOptions,
   type ProjectPlan,
@@ -297,10 +298,14 @@ function driftOf(result: PushResult): string[] {
   const profiles = drifted.filter((p) => p.resourceType === 'StructureDefinition').length;
   const pending = (changes: { kind: string; kept?: true }[] = []) =>
     changes.filter((c) => !c.kept).length;
-  const blocked = [result.content, result.project, result.subscriptions].reduce(
-    (n, plan) => n + (plan?.blocked.length ?? 0),
-    0,
-  );
+  const plans = [
+    result.content,
+    result.project,
+    result.bots,
+    result.operations,
+    result.subscriptions,
+  ];
+  const blocked = plans.reduce((n, plan) => n + (plan?.blocked.length ?? 0), 0);
   const counts: [number, string, string?][] = [
     [profiles, 'profile', 'profiles'],
     [drifted.length - profiles, 'terminology'],
@@ -346,6 +351,9 @@ async function converge(
   );
 }
 
+/** A blocked plan's lines under its step; its codes are in the plan, for `--json`. */
+const messages = (blocked: Blocked[]) => blocked.map((b) => b.message);
+
 /**
  * Plans the OperationDefinitions, then writes them unless the plan is blocked
  * or this is a dry run. Returns whether it succeeded.
@@ -369,14 +377,15 @@ async function operationsStep(
     return false;
   }
   const plan = result.operations;
-  if (plan.blocked.length > 0) {
-    step.finish('operations', operationsSummary(plan), [], true);
-    step.fail('operations', plan.blocked);
-    return false;
-  }
-  step.finish('operations', operationsSummary(plan), plan.changes.map(describeOperation));
+  const blocked = plan.blocked.length > 0;
+  step.finish(
+    'operations',
+    operationsSummary(plan),
+    [...plan.changes.map(describeOperation), ...messages(plan.blocked)],
+    blocked,
+  );
   const pending = plan.changes.some((c) => !('kept' in c && c.kept));
-  if (options.dryRun || !pending) return true;
+  if (blocked || options.dryRun || !pending) return !blocked;
   try {
     const written = await applyOperations(plan, medplum);
     step.finish('operations', `applied ${written} change${written === 1 ? '' : 's'}`);
@@ -414,7 +423,7 @@ async function subscriptionsStep(
   step.finish(
     'subscriptions',
     subscriptionsSummary(plan),
-    [...plan.changes.map(describeSubscription), ...plan.blocked],
+    [...plan.changes.map(describeSubscription), ...messages(plan.blocked)],
     blocked,
   );
   const pending = plan.changes.some((c) => !('kept' in c && c.kept));
@@ -448,19 +457,21 @@ async function botsStep(
     return false;
   }
   const plan = result.bots;
-  if (plan.blocked.length > 0) {
-    step.finish('bots', botsSummary(plan), [], true);
-    step.fail('bots', plan.blocked);
-    return false;
-  }
+  const blocked = plan.blocked.length > 0;
   const webhooks = (list: BotPlan['webhooks']) => list.map((w) => `webhook  ${w.key}  ${w.url}`);
-  step.finish('bots', botsSummary(plan), [
-    ...plan.changes.map(describeBot),
-    ...webhooks(plan.webhooks),
-    ...plan.warnings,
-  ]);
+  step.finish(
+    'bots',
+    botsSummary(plan),
+    [
+      ...plan.changes.map(describeBot),
+      ...webhooks(plan.webhooks),
+      ...plan.warnings,
+      ...messages(plan.blocked),
+    ],
+    blocked,
+  );
   const pending = plan.changes.some((c) => !('kept' in c && c.kept));
-  if (options.dryRun || !pending) return true;
+  if (blocked || options.dryRun || !pending) return !blocked;
   try {
     const applied = await applyBots(plan, medplum);
     step.finish(
@@ -497,7 +508,7 @@ async function contentStep(
   step.finish(
     'content',
     contentSummary(plan),
-    [...plan.changes.map(describeContent), ...plan.blocked],
+    [...plan.changes.map(describeContent), ...messages(plan.blocked)],
     blocked,
   );
   const pending = plan.changes.some((c) => !('kept' in c && c.kept));
@@ -540,7 +551,7 @@ async function projectStep(
   step.finish(
     'project',
     projectSummary(plan),
-    [...plan.changes.map(describeChange), ...plan.blocked, ...plan.warnings],
+    [...plan.changes.map(describeChange), ...messages(plan.blocked), ...plan.warnings],
     blocked,
   );
   const pending = plan.changes.some((c) => !('kept' in c));

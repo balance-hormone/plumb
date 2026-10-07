@@ -184,11 +184,13 @@ and not by an identifier: AccessPolicy and ClientApplication have none.
 - **A tagged resource is Plumb's.** It is updated to match the config, and
   listed for removal when its key leaves the config.
 - **An untagged resource is never touched,** even one whose name matches a key.
-  The plan names it (`AccessPolicy "clinician" exists untagged; adopt it with
-  --adopt`), and `--adopt` tags it and then converges it, so an existing
+  The plan names it (`untagged-access-policy`: `AccessPolicy "clinician"
+  exists untagged; adopt it with --adopt`), and `--adopt` tags it and then converges it, so an existing
   project can come under `push` without recreating its clients.
-- **Two resources with one tag** stop the push, as two StructureDefinitions for
-  one URL do: Plumb will not guess which is meant.
+- **Two resources with one tag** stop the push (`shadowed-<type>`, such as
+  `shadowed-client-application`), as two StructureDefinitions for one URL do:
+  Plumb will not guess which is meant. A blocked plan is `{ code, message }`
+  in every planner, exits 1, and `--check` counts it as blocked (#229).
 - **Only the target project's own resources.** A project can read what its
   linked projects hold, but linking is a super-admin field and a linked
   project's resources are not this one's to write. Every lookup, tagged or by

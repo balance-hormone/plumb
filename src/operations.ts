@@ -9,7 +9,14 @@ import type {
   ResourceType,
 } from '@medplum/fhirtypes';
 import { type ConfigError, importModules } from './config.js';
-import { owned, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
+import {
+  type Blocked,
+  owned,
+  PLUMB_SYSTEM,
+  type ProjectOptions,
+  searchAll,
+  tagOf,
+} from './project.js';
 
 const IMPLEMENTATION =
   'https://medplum.com/fhir/StructureDefinition/operationDefinition-implementation';
@@ -150,7 +157,7 @@ export type OperationChange =
 export interface OperationPlan {
   changes: OperationChange[];
   /** Why nothing in the operations step can be applied. */
-  blocked: { code: string; message: string }[];
+  blocked: Blocked[];
 }
 
 /** The fields of an OperationDefinition a contract writes. */

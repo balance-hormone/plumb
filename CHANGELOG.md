@@ -42,6 +42,13 @@ test first, against a real Medplum where the server is involved.
   `local-not-found`, `invalid-local-json`); a partial cache folder is
   replaced; `fsh` accepts `sushi-config.yml` (#226). Typed answers read a
   linkId such as `constructor` or `__proto__` as any other (#228).
+- **Exit codes** come from one table by error code, the same in every
+  command and step: a failed write (`apply-failed`, `bots-failed`, …) exits
+  1; every config-shaped code (`invalid-bot`, `invalid-content`, …) and
+  `registry-error` exit 2; `check` exits 1 when the profiles do not load. A
+  blocked plan is `{ code, message }` in all five planners
+  (`shadowed-<kind>`, `untagged-<kind>`, and `shadowed-content` at last),
+  exits 1, and leaves `push --check` its drift line (#229).
 - **operations:** callable Standard Schemas (ArkType), `Parameters` outputs,
   and a named error for an instance call without an id (#241); an instance
   operation's input must be its resource, which is all Medplum hands the

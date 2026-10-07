@@ -110,7 +110,11 @@ describe.skipIf(!server)(
         },
       } as Record<string, SubscriptionConfig>;
       expect((await plan(config)).blocked).toEqual([
-        'PLUMB_TEST_HOOK_SECRET is not set: it holds its secret for Subscription lab-hook.',
+        {
+          code: 'unset-variable',
+          message:
+            'PLUMB_TEST_HOOK_SECRET is not set: it holds its secret for Subscription lab-hook.',
+        },
       ]);
       const env = { PLUMB_TEST_HOOK_SECRET: 's3cret-value', PLUMB_TEST_HOOK_TOKEN: 'Bearer t0ken' };
       const planned = await plan(config, { env });

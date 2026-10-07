@@ -6,7 +6,14 @@ import { extname } from 'node:path';
 import { deepEquals, type MedplumClient } from '@medplum/core';
 import type { AccessPolicy, Bot, Project, ProjectMembership, Reference } from '@medplum/fhirtypes';
 import type { BotConfig } from './config.js';
-import { claim, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
+import {
+  type Blocked,
+  claim,
+  PLUMB_SYSTEM,
+  type ProjectOptions,
+  searchAll,
+  tagOf,
+} from './project.js';
 
 // @medplum/fhirtypes 5.1.0 has no rawBody on Bot.
 type BotFields = Bot & { rawBody?: boolean };
@@ -63,7 +70,7 @@ export type BotChange =
 export interface BotPlan {
   changes: BotChange[];
   /** Why nothing in the bots step can be applied. */
-  blocked: { code: string; message: string }[];
+  blocked: Blocked[];
   warnings: string[];
   /** Each public webhook's URL, by key, for the bots the project already holds. */
   webhooks: { key: string; url: string }[];
@@ -188,9 +195,8 @@ export function planHeld(
     const untagged = held.filter((h) => identifierOf(h.bot) === undefined && h.bot.name === name);
     const found = byKey.get(key) ?? [];
     const claimed = claim('Bot', key, name, found, untagged, options);
-    if (typeof claimed === 'string') {
-      const code = found.length > 1 ? 'shadowed-bot' : 'untagged-bot';
-      plan.blocked.push({ code, message: claimed });
+    if ('code' in claimed) {
+      plan.blocked.push(claimed);
       continue;
     }
     const planned = planBot(key, config, claimed, policyIds);
@@ -238,7 +244,7 @@ function planBot(
   config: BotConfig,
   { current, adopt }: { current?: HeldBot; adopt?: true },
   policyIds: Record<string, string>,
-): { change?: BotChange } | { code: string; message: string } {
+): { change?: BotChange } | Blocked {
   const code = readFileSync(config.file);
   const deploy = { file: config.file, filename: botFilename(key, code, config.file) };
   const declared = declaredBot(key, config);

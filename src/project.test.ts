@@ -12,6 +12,7 @@ import { describe, expect, test } from 'vitest';
 import type { ProjectConfig } from './config.js';
 import {
   applyProject,
+  claim,
   describeChange,
   type HeldClient,
   PLUMB_SYSTEM,
@@ -170,7 +171,12 @@ describe('planPolicies', () => {
     const refused = planPolicies(config, [untagged]);
     expect(refused).toEqual({
       changes: [],
-      blocked: ['AccessPolicy "clinician" exists untagged; adopt it with --adopt.'],
+      blocked: [
+        {
+          code: 'untagged-access-policy',
+          message: 'AccessPolicy "clinician" exists untagged; adopt it with --adopt.',
+        },
+      ],
       warnings: [],
       policyIds: {},
     });
@@ -192,15 +198,39 @@ describe('planPolicies', () => {
   test('refuses two resources with one tag, or two untagged with one name', () => {
     const twice = planPolicies(CONFIG, [CLINICIAN, { ...CLINICIAN, id: 'a2' }, CI_DEPLOY]);
     expect(twice.blocked).toEqual([
-      'AccessPolicy "clinician": 2 resources carry its tag; delete all but one, then push again.',
+      {
+        code: 'shadowed-access-policy',
+        message:
+          'AccessPolicy "clinician": 2 resources carry its tag; delete all but one, then push again.',
+      },
     ]);
     const untagged = held('u', { name: 'clinician' });
     const ambiguous = planPolicies(CONFIG, [untagged, { ...untagged, id: 'u2' }, CI_DEPLOY], {
       adopt: true,
     });
     expect(ambiguous.blocked).toEqual([
-      'AccessPolicy "clinician" exists 2 times untagged; delete all but one, then adopt it with --adopt.',
+      {
+        code: 'untagged-access-policy',
+        message:
+          'AccessPolicy "clinician" exists 2 times untagged; delete all but one, then adopt it with --adopt.',
+      },
     ]);
+  });
+});
+
+describe('claim', () => {
+  test('names why a key is blocked: shadowed-<kind> or untagged-<kind>, the type by default', () => {
+    const blocked = (found: number, untagged: number, kind?: string) => {
+      const [tagged, bare] = [Array(found).fill({}), Array(untagged).fill({})];
+      const claimed = claim('ValueSet', 'k', 'k', tagged, bare, {}, kind);
+      return 'code' in claimed ? claimed.code : undefined;
+    };
+    expect(blocked(2, 0)).toBe('shadowed-value-set');
+    expect(blocked(0, 1)).toBe('untagged-value-set');
+    expect(blocked(0, 2)).toBe('untagged-value-set');
+    expect(blocked(2, 0, 'content')).toBe('shadowed-content');
+    expect(blocked(0, 1, 'content')).toBe('untagged-content');
+    expect(blocked(1, 0)).toBeUndefined();
   });
 });
 
@@ -283,10 +313,23 @@ describe('planClients', () => {
     });
   });
 
+  test('blocks a tagged client without a membership', () => {
+    const { client: orphan } = client('o', 'app', {}, 'app');
+    expect(planClients(CLIENTS, [{ client: orphan }], {}).blocked).toEqual([
+      {
+        code: 'client-without-membership',
+        message: 'ClientApplication "app" has no ProjectMembership; delete it, then push again.',
+      },
+    ]);
+  });
+
   test('adopts an untagged client only with adopt, and prunes a removed key with its membership', () => {
     const untagged = client('u', 'app', {});
     expect(planClients(CLIENTS, [untagged], {}).blocked).toEqual([
-      'ClientApplication "app" exists untagged; adopt it with --adopt.',
+      {
+        code: 'untagged-client-application',
+        message: 'ClientApplication "app" exists untagged; adopt it with --adopt.',
+      },
     ]);
     expect(planClients(CLIENTS, [untagged], {}, { adopt: true }).changes).toContainEqual(
       expect.objectContaining({ kind: '~', key: 'app', id: 'u', fields: [], adopt: true }),
@@ -391,8 +434,11 @@ describe('planFields', () => {
     expect(plan).toEqual({
       changes: [],
       blocked: [
-        'UNSET is not set: it holds secret API_KEY.',
-        'secret MISSING is not in the project: set it in the console.',
+        { code: 'unset-variable', message: 'UNSET is not set: it holds secret API_KEY.' },
+        {
+          code: 'missing-secret',
+          message: 'secret MISSING is not in the project: set it in the console.',
+        },
       ],
     });
   });

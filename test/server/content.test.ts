@@ -173,6 +173,13 @@ describe.skipIf(!server)('push converges reference content', { timeout: 120_000 
 
     const refused = await push(options);
     expect(refused.ok).toBe(false);
+    expect(refused.errors).toEqual([]);
+    expect(refused.content?.blocked).toEqual([
+      {
+        code: 'untagged-content',
+        message: `CodeSystem "${CODES}" exists untagged; adopt it with --adopt.`,
+      },
+    ]);
     expect(step(refused)[0]?.warnings).toEqual([
       `CodeSystem "${CODES}" exists untagged; adopt it with --adopt.`,
     ]);
