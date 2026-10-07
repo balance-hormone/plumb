@@ -11,7 +11,14 @@ import { type CheckerInput, handler as checker } from './checker/handler.js';
 import { checkerInput } from './checker/input.js';
 import { CHECKER_IDENTIFIER, checkerFilename, findChecker } from './checker/install.js';
 import { importModules, type PlumbConfig } from './config.js';
-import { notCurrent, QUOTA_RETRY, QUOTA_TRIES, QUOTA_WAIT_MS, runPage } from './conformance.js';
+import {
+  notCurrent,
+  QUOTA_RETRY,
+  QUOTA_TRIES,
+  QUOTA_WAIT_MS,
+  runPage,
+  serverTime,
+} from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
 import { checkMigrations, loadMigrations, type Migration, migrationHash } from './migrations.js';
@@ -556,18 +563,6 @@ async function begin(
   // when its ledger entry was saved, before any record is written.
   pass.state.start ??= pass.basic?.meta?.lastUpdated ?? (await serverTime(run.medplum));
   return pass;
-}
-
-/**
- * The server's time, from its Date header, rounded up to the next second so
- * that nothing updated in the current second is left out. For a dry run,
- * which writes nothing it could read again.
- */
-async function serverTime(medplum: MedplumClient): Promise<string> {
-  const response = await fetch(new URL('healthcheck', medplum.getBaseUrl()));
-  const date = Date.parse(response.headers.get('date') ?? '');
-  if (Number.isNaN(date)) throw new Error(`${medplum.getBaseUrl()} sent no Date header.`);
-  return new Date(date + 1000).toISOString();
 }
 
 /** Runs the pass's pages, saving the ledger after each; false when stopped by the signal. */

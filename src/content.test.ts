@@ -164,4 +164,38 @@ describe('planContent', () => {
       { kind: '~', id: 'o1', resource: { meta: { project: 'p1', security, tag: [other, plumb] } } },
     ]);
   });
+
+  test.each([
+    ['a profile', { profile: [ORGANIZATION] }],
+    ['a tag', { tag: [{ system: 'http://example.org/tags', code: 'reviewed' }] }],
+    ['a security label', { security: [{ system: 'http://example.org/security', code: 'r' }] }],
+  ])('a file that adds %s to meta is a change', async (_, meta) => {
+    const plumb = { system: PLUMB_SYSTEM, code: 'main-clinic' };
+    // As the server holds it: its own meta fields, and Plumb's tag.
+    const held = {
+      resourceType: 'Organization',
+      id: 'o1',
+      name: CLINIC.name,
+      meta: { project: 'p1', versionId: '2', lastUpdated: '2026-01-01T00:00:00Z', tag: [plumb] },
+    } as Organization;
+    const medplum = {
+      getProject: () => ({ id: 'p1' }),
+      async *searchResourcePages(type: string) {
+        yield type === 'Organization' ? [held] : [];
+      },
+      searchResources: async () => [],
+    } as unknown as MedplumClient;
+    const plan = (resource: Organization) =>
+      planContent(medplum, [{ file: 'c.json', resource, key: 'main-clinic' }]);
+    expect((await plan(CLINIC as Organization)).changes).toEqual([]);
+    const changes = (await plan({ ...CLINIC, meta } as Organization)).changes;
+    expect(changes).toMatchObject([{ kind: '~', id: 'o1', fields: ['meta'] }]);
+    const written = (changes[0] as { resource: Organization }).resource;
+    for (const [key, value] of Object.entries(meta)) {
+      expect(written.meta?.[key as keyof typeof meta]).toEqual(expect.arrayContaining(value));
+    }
+    // Once written, the server copy carries it, and there is nothing to do.
+    held.meta = { ...written.meta, versionId: '3' };
+    expect((await plan({ ...CLINIC, meta } as Organization)).changes).toEqual([]);
+  });
 });

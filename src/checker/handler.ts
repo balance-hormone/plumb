@@ -33,6 +33,11 @@ export interface CheckerInput {
   /** The server's `_cursor` from the previous page; the first page has none. */
   cursor?: string;
   /**
+   * When the run began, by the server's clock: only what was last updated
+   * before it is read, so a record updated mid-run is not read twice.
+   */
+  before?: string;
+  /**
    * Read every resource of the type, to break down the stamps that name no
    * selected profile. Otherwise only resources with a selected stamp are
    * read, and the rest are counted by query.
@@ -108,6 +113,7 @@ export async function handler(
     profiles,
     definitions,
     cursor,
+    before,
     full,
     forecast,
     resources: given,
@@ -118,8 +124,10 @@ export async function handler(
     return checkPage(given, selected);
   }
   // Medplum matches each stamp exactly, so this finds no url|version stamp.
+  const bounded: Record<string, string> = before ? { _lastUpdated: `lt${before}` } : {};
   const stamped: Record<string, string> = full ? {} : { _profile: profiles.join(',') };
   const bundle = await medplum.search(resourceType, {
+    ...bounded,
     ...(forecast ? { '_profile:missing': 'true' } : stamped),
     _count: PAGE_SIZE,
     _sort: '_lastUpdated',
@@ -132,7 +140,7 @@ export async function handler(
   const after = nextCursor ? { next: nextCursor } : {};
   if (forecast) return { ...forecastPage(resources, selected, forecast), ...after };
   const page = checkPage(resources, selected);
-  const totals = full || cursor ? undefined : await count(medplum, resourceType, stamped);
+  const totals = full || cursor ? undefined : await count(medplum, resourceType, bounded, stamped);
   return { ...page, ...(totals ? { totals } : {}), ...after };
 }
 
@@ -167,10 +175,11 @@ function forecastPage(
 async function count(
   medplum: MedplumClient,
   resourceType: ResourceType,
+  bounded: Record<string, string>,
   stamped: Record<string, string>,
 ): Promise<Totals> {
   const total = async (params: Record<string, string>) =>
-    (await medplum.search(resourceType, { ...params, _summary: 'count' })).total ?? 0;
+    (await medplum.search(resourceType, { ...bounded, ...params, _summary: 'count' })).total ?? 0;
   const [readable, unstamped, selected] = await Promise.all([
     total({}),
     total({ '_profile:missing': 'true' }),

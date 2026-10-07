@@ -109,6 +109,8 @@ export interface ValidateEnvOptions extends EnvOptions {
 interface Saved {
   key: string;
   complete: boolean;
+  /** When the run began, by the server's clock: it reads only what was updated before. */
+  before: string;
   pages: number;
   /** `of`: how many resources the run will read, for progress. */
   types: Record<string, TypeReport & { cursor?: string; done: boolean; of?: number }>;
@@ -218,20 +220,21 @@ export async function checkStored(
   const key = createHash('sha256')
     .update(JSON.stringify([options.filename, profiles, ...modes]))
     .digest('hex');
-  const { saved, warnings } = start(options, key);
+  const { saved, warnings } = await start(medplum, options, key);
   const resumed = saved.pages;
   let core: string | undefined;
   const resourceTypes = [...new Set(loaded.profiles.map((p) => p.sd.type))].sort();
   for (const resourceType of resourceTypes) {
     const input = {
       ...checkerInput(loaded, resourceType as ResourceType),
+      before: saved.before,
       ...(options.full ? { full: true } : {}),
     };
     await checkType(medplum, saved, options, botId, input, (c) => {
       core = c;
     });
     if (options.forecast) {
-      const base = checkerInput(loaded, resourceType as ResourceType);
+      const base = { ...checkerInput(loaded, resourceType as ResourceType), before: saved.before };
       await forecastType(medplum, saved, options, botId, base, options.forecast);
     }
   }
@@ -321,15 +324,39 @@ async function forecastType(
 }
 
 /** A fresh run, or with `resume` the interrupted one for the same checker and profiles. */
-function start(options: Pick<ValidateEnvOptions, 'reportPath' | 'resume'>, key: string) {
+async function start(
+  medplum: MedplumClient,
+  options: Pick<ValidateEnvOptions, 'reportPath' | 'resume'>,
+  key: string,
+) {
   const previous = options.resume ? read(options.reportPath) : undefined;
   const resumable = previous?.key === key && !previous.complete;
   const saved: Saved = resumable
     ? previous
-    : { key, complete: false, pages: 0, types: {}, profiles: {} };
+    : {
+        key,
+        complete: false,
+        before: await serverTime(medplum),
+        pages: 0,
+        types: {},
+        profiles: {},
+      };
   const warnings =
     options.resume && !resumable ? ['Nothing to resume: checked from the start.'] : [];
   return { saved, warnings };
+}
+
+/**
+ * The server's time, from its Date header, rounded up to the next second so
+ * that nothing updated in the current second is left out. For a run that
+ * writes nothing it could read again: validate, push's gate, a migration's
+ * dry run.
+ */
+export async function serverTime(medplum: MedplumClient): Promise<string> {
+  const response = await fetch(new URL('healthcheck', medplum.getBaseUrl()));
+  const date = Date.parse(response.headers.get('date') ?? '');
+  if (Number.isNaN(date)) throw new Error(`${medplum.getBaseUrl()} sent no Date header.`);
+  return new Date(date + 1000).toISOString();
 }
 
 /** Failing resources fail the run, and so does a type the checker could read none of. */
