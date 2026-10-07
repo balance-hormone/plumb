@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+Hardening: an audit of the whole design, with each fix proven by a failing
+test first, against a real Medplum where the server is involved.
+
+- **push** plans only the project's own definitions: the server's base
+  terminology is skipped, and a copy in a linked project is refused, never
+  updated (#235). Every read it plans from pages through all results (#243).
+  The gate checks every resource profile push loads, a selected profile's
+  parents included (#250), survives a `dependsOn` cycle and names restamp
+  migrations (#237).
+- **check** fails when the profiles do not load, so `--update-baseline`
+  cannot wipe the baseline (#236).
+- **migrate:** a run's start is the server's time, not the CLI's (#238); a
+  module edited mid-pass is refused as `migration-edited`, and `--local`
+  reloads it (#239); bot, ledger and endpoint lookups see only the project's
+  own resources, not a linked project's (#240); the lease belongs to a run
+  (#248); the hash covers imported helpers and line endings, and the bot
+  refuses a stale bundle (#247); a page stopped by the rate limit keeps
+  what it wrote in the counts (#249).
+- **generate:** output sorts by code point, not the machine's locale (#242);
+  bindings on choice elements keep their path (#244); slice types never
+  share a name with another generated type (#245); ordered slicing is a
+  tuple only where positions are fixed, and typed reads check the tuple's
+  length (#246).
+- **operations:** callable Standard Schemas (ArkType), `Parameters` outputs,
+  and a named error for an instance call without an id (#241); an instance
+  operation's input must be its resource, which is all Medplum hands the
+  bot (#251).
+
 ## 0.14.0 (2026-10-06)
 
 Data migrations ([design 11](docs/design/11-data-migrations.md)).
