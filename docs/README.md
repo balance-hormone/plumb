@@ -400,6 +400,14 @@
   migration per routed type hashed by `_routes.ts` (#194). The README covers
   migrations, design 11 is marked implemented with what differs as built,
   and the changelog gains v0.14 (#196). **v0.14 is complete.**
+- **v0.15, hardening:** an audit of the whole design found defects, each
+  with a concrete failure path, grouped in four tiers. Tiers 1 (wrong data
+  or a broken core flow) and 2 (wrong output or silent misreporting) are
+  fixed, each with a failing test first and a real-server test where the
+  server is involved; the changelog lists them. Next: tier 3 (named errors
+  in place of raw throws, and edges), then tier 4 (architecture: one
+  project-scoped lookup, one exit-code table, the generated runtime as real
+  `.ts`, an error-code catalogue) before input validation.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), reference content (built), behaviour (built) and data over time
