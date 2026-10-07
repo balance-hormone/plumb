@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 (2026-10-07)
 
 Hardening: an audit of the whole design, with each fix proven by a failing
-test first, against a real Medplum where the server is involved.
+test first, against a real Medplum where the server is involved. The
+checker changes, so the next `push` redeploys it, and `validate` waits for
+that push.
 
 - **push** plans only the project's own definitions: the server's base
   terminology is skipped, and a copy in a linked project is refused, never

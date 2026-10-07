@@ -401,13 +401,17 @@
   migrations, design 11 is marked implemented with what differs as built,
   and the changelog gains v0.14 (#196). **v0.14 is complete.**
 - **v0.15, hardening:** an audit of the whole design found defects, each
-  with a concrete failure path, grouped in four tiers. Tiers 1 (wrong data
-  or a broken core flow) and 2 (wrong output or silent misreporting) are
-  fixed, each with a failing test first and a real-server test where the
-  server is involved; the changelog lists them. Next: tier 3 (named errors
-  in place of raw throws, and edges), then tier 4 (architecture: one
-  project-scoped lookup, one exit-code table, the generated runtime as real
-  `.ts`, an error-code catalogue) before input validation.
+  with a concrete failure path, grouped in four tiers, each fixed with a
+  failing test first and a real-server test where the server is involved;
+  the changelog lists them. Tier 3 gave named errors in place of raw throws
+  (#226) and fixed `migrate`'s 429s, lease and Ctrl-C (#227) and runtime
+  edges (#228). Tier 4 gave one tag helper (#230), one exit-code table and
+  blocked shape (#229), an error-code catalogue in
+  [`errors.md`](errors.md) with one `--json` step shape and a slimmer
+  `plumb-fhir/test` (#232), the generated runtime as real source (#231),
+  doc comments that list the same invariants for every profile (#234), and
+  real-server tests for every documented server claim but the quota wait
+  (#233). **v0.15 is complete.**
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), reference content (built), behaviour (built) and data over time
@@ -422,6 +426,8 @@
 
 - [`spec.md`](spec.md): what Plumb is, its goals, principles and design
   decisions.
+- [`errors.md`](errors.md): every error code, the command that reports it,
+  its exit code and its fix.
 - [`design/`](design/): one design note per feature, written before it is built.
   - [01: profile compiler and type generator](design/01-generator.md)
   - [02: conformance check](design/02-conformance-check.md)
