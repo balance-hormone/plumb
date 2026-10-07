@@ -11,11 +11,10 @@ import {
 } from '@medplum/core';
 import type { AsyncJob, Bot, ResourceType } from '@medplum/fhirtypes';
 import type { PageResult, Reason } from './checker/handler.js';
-import { checkerInput } from './checker/input.js';
+import { checkerInput, type Gated } from './checker/input.js';
 import { checkerFilename, deployedVersion, findChecker } from './checker/install.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import { type Routing, routingRows } from './emit/routes.js';
-import type { LoadProfilesResult } from './loader.js';
 
 type ValidateStepName = 'load' | 'connect' | 'checker' | 'profiles' | 'validate';
 
@@ -206,7 +205,7 @@ export interface Checked {
  */
 export async function checkStored(
   medplum: MedplumClient,
-  loaded: Pick<LoadProfilesResult, 'profiles' | 'definitions'>,
+  loaded: Gated,
   botId: string,
   options: Pick<ValidateEnvOptions, 'reportPath' | 'resume' | 'full' | 'onPage'> & {
     filename: string;

@@ -4,7 +4,13 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } fro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MedplumClient } from '@medplum/core';
-import type { Encounter, Patient, Project, StructureDefinition } from '@medplum/fhirtypes';
+import type {
+  Encounter,
+  Observation,
+  Patient,
+  Project,
+  StructureDefinition,
+} from '@medplum/fhirtypes';
 import { build } from 'esbuild';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
@@ -176,5 +182,47 @@ describe.skipIf(!server)('push loads profiles through the gate', { timeout: 60_0
     await medplum.updateResource<Project>({ ...stored, strictMode: false });
     const again = await connect(project);
     expect(again.getProject()?.strictMode).toBe(true);
+  });
+});
+
+// Push loads a selected profile's parents too, so the gate checks what is
+// stamped with them, although the config does not select them.
+describe.skipIf(!server)('the gate checks the parents push loads', { timeout: 60_000 }, () => {
+  test('refuses while a resource stamped only with a planned parent would fail it', async () => {
+    const project = await newProject();
+    const medplum = await connect(project);
+    const parent = `${PLUMB}/parent-observation`;
+    const child = `${PLUMB}/child-observation`;
+    // No subject or effective[x], which the parent requires.
+    await medplum.createResource<Observation>({
+      resourceType: 'Observation',
+      meta: { profile: [parent] },
+      status: 'final',
+      code: { text: 'Synthetic' },
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-gate-parent-'));
+    const local = join(dir, 'profiles');
+    mkdirSync(local);
+    for (const name of ['parent-observation', 'child-observation']) {
+      copyFileSync(join(SYNTHETIC, file(name)), join(local, file(name)));
+    }
+    const lockPath = join(dir, 'plumb.lock');
+    await fetchPackages({ igs: [], lockPath });
+    const code = (await build({ ...CHECKER_BUILD, write: false })).outputFiles[0]?.text ?? '';
+    const result = await push({
+      config: { igs: [], profiles: [child], local, out: '' },
+      environment: { name: 'test', ...project },
+      lockPath,
+      checker: { code, version: '0.2.0' },
+      reportPath: join(dir, '.plumb', 'validate-test.json'),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.plan.map((p) => [p.url, p.action]).sort()).toEqual([
+      [child, 'create'],
+      [parent, 'create'],
+    ]);
+    expect(result.steps.at(-1)).toMatchObject({ name: 'gate', failed: true });
+    expect(result.gate?.profiles[parent]).toMatchObject({ checked: 1, failing: 1 });
+    expect(await medplum.searchResources('StructureDefinition', { url: parent })).toHaveLength(0);
   });
 });
