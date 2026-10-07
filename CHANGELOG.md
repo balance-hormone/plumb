@@ -13,7 +13,12 @@ test first, against a real Medplum where the server is involved.
   migrations (#237). Updating a policy, client, content resource or
   Subscription keeps the server copy's `meta` (a hand-set `security` or
   `account`), and a tag the file and server both carry is listed once
-  (#230).
+  (#230). A content file's `meta.profile`, `tag` or `security` that the
+  server copy lacks is a change, and `--check` reports it; the gate reads
+  only what was updated before it began, by the server's clock (#228).
+- **validate** reads only what was updated before the run began, by the
+  server's clock, so a record updated mid-run is not counted twice; a
+  resumed run keeps its start (#228).
 - **check** fails when the profiles do not load, so `--update-baseline`
   cannot wipe the baseline (#236).
 - **migrate:** a run's start is the server's time, not the CLI's (#238); a
@@ -25,7 +30,9 @@ test first, against a real Medplum where the server is involved.
   what it wrote in the counts (#249); the CLI's own requests wait out a 429,
   the lease lasts thirty minutes, and Ctrl-C pauses during a quota wait,
   where a second Ctrl-C no longer kills the run; a first run whose create
-  Postgres aborts as racing another's is `migration-running` (#227).
+  Postgres aborts as racing another's is `migration-running` (#227). A JSON
+  Patch path without a leading `/` is refused, and an array's `length` is
+  not an element (#228).
 - **generate:** output sorts by code point, not the machine's locale (#242);
   bindings on choice elements keep their path (#244); slice types never
   share a name with another generated type (#245); ordered slicing is a
@@ -33,7 +40,8 @@ test first, against a real Medplum where the server is involved.
   length (#246). A malformed `plumb.lock`, a missing `local` folder and a
   file in it that is not JSON are named errors (`invalid-lock`,
   `local-not-found`, `invalid-local-json`); a partial cache folder is
-  replaced; `fsh` accepts `sushi-config.yml` (#226).
+  replaced; `fsh` accepts `sushi-config.yml` (#226). Typed answers read a
+  linkId such as `constructor` or `__proto__` as any other (#228).
 - **operations:** callable Standard Schemas (ArkType), `Parameters` outputs,
   and a named error for an instance call without an id (#241); an instance
   operation's input must be its resource, which is all Medplum hands the

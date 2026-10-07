@@ -1,7 +1,12 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { globSync, readFileSync } from 'node:fs';
-import { type MedplumClient, OperationOutcomeError, validateResource } from '@medplum/core';
+import {
+  deepEquals,
+  type MedplumClient,
+  OperationOutcomeError,
+  validateResource,
+} from '@medplum/core';
 import type {
   CodeSystem,
   OperationOutcomeIssue,
@@ -250,12 +255,16 @@ function planOne(
   const type = file.resource.resourceType;
   const desired = withTag(file, current);
   if (!current) return { kind: '+', type, key: file.key, resource: desired };
-  const fields = differing(desired, current);
+  const content = differing(desired, current);
+  const fields = metaDrifted(file.resource, desired, current)
+    ? [...content, 'meta'].sort()
+    : content;
   if (fields.length === 0 && !adopt) return undefined;
   const version = 'version' in desired ? desired.version : undefined;
+  // Meta labels the resource, so changing it alone needs no version bump.
   const edited =
     type !== 'Organization' &&
-    fields.length > 0 &&
+    content.length > 0 &&
     version === (current as { version?: string }).version;
   return {
     kind: '~',
@@ -267,6 +276,22 @@ function planOne(
     ...(edited ? { edited: true as const } : {}),
     resource: desired,
   };
+}
+
+/**
+ * Whether the server copy lacks meta the file declares. Only these fields:
+ * the server sets the rest. Tags compare as a set, since the merge keeps
+ * any the server copy has.
+ */
+function metaDrifted(file: Content, desired: Content, current: Content): boolean {
+  const declared = (['profile', 'security', 'tag'] as const).filter((k) => file.meta?.[k]);
+  return declared.some((k) =>
+    k === 'tag'
+      ? !(desired.meta?.tag ?? []).every((t) =>
+          current.meta?.tag?.some((u) => u.system === t.system && u.code === t.code),
+        )
+      : !deepEquals(desired.meta?.[k], current.meta?.[k]),
+  );
 }
 
 /** The file as written, less its id (an Organization's key, never its server id), tagged. */

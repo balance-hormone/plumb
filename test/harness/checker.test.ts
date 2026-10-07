@@ -251,6 +251,19 @@ describe('a page', () => {
     expect(last.searches[0]).toMatchObject({ _cursor: '1' });
     expect(last.result.next).toBeUndefined();
   });
+
+  test('reads and counts only what the server last updated before the run began', async () => {
+    const before = '2026-10-06T21:00:01.000Z';
+    const pages = [[stamped(valid as Resource, 'a', [PATIENT])]];
+    for (const forecast of [undefined, { routes: [], stamps: {} }]) {
+      const { searches } = await run(
+        { ...input('Patient'), before, ...(forecast ? { forecast } : {}) },
+        pages,
+      );
+      expect(searches.length).toBeGreaterThan(0);
+      for (const params of searches) expect(params._lastUpdated).toBe(`lt${before}`);
+    }
+  });
 });
 
 describe('records given by the migration bot', () => {

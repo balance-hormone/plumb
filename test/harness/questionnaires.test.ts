@@ -97,6 +97,32 @@ describe('typed Questionnaire answers', () => {
     ).toThrow(`The response answers ${BASE}/Questionnaire/other, not ${INTAKE.url}.`);
   });
 
+  test('a linkId named like an Object.prototype member is read as any other', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'plumb-questionnaire-'));
+    expect(writeFiles(out, files).ok).toBe(true);
+    const { readAnswers } = await import(join(out, '_plumb.ts'));
+    const answers = readAnswers(
+      {
+        resourceType: 'QuestionnaireResponse',
+        questionnaire: INTAKE.url,
+        status: 'completed',
+        item: [
+          { linkId: 'constructor', answer: [{ valueString: 'a' }] },
+          { linkId: 'toString', answer: [{ valueString: 'b' }, { valueString: 'c' }] },
+          { linkId: '__proto__', answer: [{ valueString: 'd' }] },
+        ],
+      },
+      INTAKE.url,
+      ['toString'],
+    );
+    expect(Object.getPrototypeOf(answers)).toBe(Object.prototype);
+    expect(Object.entries(answers)).toEqual([
+      ['constructor', 'a'],
+      ['toString', ['b', 'c']],
+      ['__proto__', 'd'],
+    ]);
+  });
+
   test('tsc accepts the answers as typed, and rejects a misspelled linkId and a code outside the options', () => {
     const source = `
 import type { QuestionnaireResponse } from '@medplum/fhirtypes';

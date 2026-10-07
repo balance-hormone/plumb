@@ -90,16 +90,17 @@ export function readAnswers(
 ): Record<string, unknown> {
   const answered = response.questionnaire?.split('|')[0];
   if (answered !== url) throw new Error(\`The response answers \${answered ?? 'no Questionnaire'}, not \${url}.\`);
-  const answers: Record<string, unknown> = {};
+  // A Map, then own properties: a linkId such as \`constructor\` or \`__proto__\` is any other key.
+  const answers = new Map<string, unknown>();
   const walk = (items: QuestionnaireResponseItem[] = []): void => {
     for (const item of items) {
       for (const answer of item.answer ?? []) {
         const key = Object.keys(answer).find((k) => k.startsWith('value'));
         const value = key ? (answer as Record<string, unknown>)[key] : undefined;
         if (value !== undefined && repeats.includes(item.linkId)) {
-          answers[item.linkId] = [...((answers[item.linkId] as unknown[]) ?? []), value];
-        } else if (value !== undefined && !(item.linkId in answers)) {
-          answers[item.linkId] = value;
+          answers.set(item.linkId, [...((answers.get(item.linkId) as unknown[]) ?? []), value]);
+        } else if (value !== undefined && !answers.has(item.linkId)) {
+          answers.set(item.linkId, value);
         }
         walk(answer.item);
       }
@@ -107,7 +108,7 @@ export function readAnswers(
     }
   };
   walk(response.item);
-  return answers;
+  return Object.fromEntries(answers);
 }
 `;
 
@@ -1306,13 +1307,18 @@ function applyJsonPatch<T>(target: T, operations: JsonPatchOperation[]): T {
 const clone = (value: unknown): unknown => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 
 /** A JSON Pointer's tokens, unescaped. */
-const tokens = (pointer: string): string[] =>
-  pointer === '' ? [] : pointer.slice(1).split('/').map((t) => t.replaceAll('~1', '/').replaceAll('~0', '~'));
+function tokens(pointer: string): string[] {
+  if (pointer === '') return [];
+  if (!pointer.startsWith('/')) throw new Error('not a JSON Pointer: ' + pointer);
+  return pointer.slice(1).split('/').map((t) => t.replaceAll('~1', '/').replaceAll('~0', '~'));
+}
 
 function valueAt(doc: unknown, pointer: string): unknown {
   let value = doc;
   for (const token of tokens(pointer)) {
-    if (typeof value !== 'object' || value === null || !Object.hasOwn(value, token)) {
+    // An array's elements only, not its own \`length\`.
+    const notIndex = Array.isArray(value) && !/^(0|[1-9][0-9]*)$/.test(token);
+    if (typeof value !== 'object' || value === null || notIndex || !Object.hasOwn(value, token)) {
       throw new Error('nothing at ' + pointer);
     }
     value = (value as Record<string, unknown>)[token];

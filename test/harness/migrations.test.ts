@@ -344,6 +344,10 @@ describe('handleMigrations', () => {
     [[{ op: 'replace', path: '/gender', value: 'other' }], 'nothing at /gender'],
     [[{ op: 'add', path: '/name/5', value: {} }], 'no index 5 at /name/5'],
     [[{ op: 'remove', path: '' }], 'cannot remove the whole record'],
+    // RFC 6901: a pointer is empty or starts with '/'; 'active' would write 'ctive'.
+    [[{ op: 'add', path: 'active', value: true }], 'not a JSON Pointer: active'],
+    // An array's own `length` is not an element.
+    [[{ op: 'test', path: '/name/length', value: 1 }], 'nothing at /name/length'],
   ])('refuses JSON Patch %j', async (patch, reason) => {
     const { medplum } = client([patient('a', { name: [{ family: 'A' }] })]);
     const result = await run([{ ...birthdate, transform: () => patch }], medplum, {});

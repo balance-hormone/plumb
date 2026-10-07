@@ -1,9 +1,13 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { MedplumClient } from '@medplum/core';
-import type { AsyncJob } from '@medplum/fhirtypes';
-import { describe, expect, test } from 'vitest';
-import { runPage } from './conformance.js';
+import type { AsyncJob, StructureDefinition } from '@medplum/fhirtypes';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import type { CheckerInput } from './checker/handler.js';
+import { checkStored, runPage } from './conformance.js';
 
 const page = { core: '5.1.42', next: undefined, results: [] };
 const done: AsyncJob = {
@@ -89,5 +93,74 @@ describe('runPage', () => {
       "The checker's job ended completed: Bot not found",
     );
     expect(calls()).toBe(1);
+  });
+});
+
+describe('checkStored', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const PROFILE = 'http://example.org/fhir/StructureDefinition/plumb-test-patient';
+  const gated = {
+    profiles: [{ url: PROFILE, sd: { type: 'Patient' } as StructureDefinition }],
+    definitions: new Map(),
+  };
+  const result = (next?: string) => ({
+    core: '5.1.42',
+    read: 1,
+    stamped: 1,
+    failing: 0,
+    unstamped: 0,
+    silent: { versioned: 0, empty: 0 },
+    otherStamps: {},
+    profiles: {},
+    ...(next ? { next } : {}),
+  });
+  const job = (body: object): AsyncJob => ({
+    ...done,
+    output: {
+      resourceType: 'Parameters',
+      parameter: [{ name: 'responseBody', valueString: JSON.stringify(body) }],
+    },
+  });
+  // The server's clock, by its Date header.
+  const serverAt = (date: string) =>
+    vi.stubGlobal('fetch', async () => new Response(null, { headers: { date } }));
+
+  function checker(fail?: number) {
+    const inputs: CheckerInput[] = [];
+    const medplum = {
+      getBaseUrl: () => 'http://example.org/',
+      fhirUrl: (...path: string[]) => path.join('/'),
+      search: async () => ({ resourceType: 'Bundle', type: 'searchset', total: 2 }),
+      post: async (_url: string, input: CheckerInput) => {
+        inputs.push(input);
+        if (inputs.length === fail) throw new Error('interrupted');
+        return job(result(input.cursor ? undefined : '1'));
+      },
+    } as unknown as MedplumClient;
+    return { medplum, inputs };
+  }
+
+  test("reads what the server last updated before the run began, by the server's clock, resumed or not", async () => {
+    const options = {
+      reportPath: join(mkdtempSync(join(tmpdir(), 'plumb-check-')), 'validate.json'),
+      filename: 'plumb-checker.js',
+    };
+    serverAt('Tue, 06 Oct 2026 21:00:00 GMT');
+    const first = checker(2);
+    await expect(checkStored(first.medplum, gated, 'bot', options)).rejects.toThrow('interrupted');
+    expect(first.inputs.map((i) => i.before)).toEqual([
+      '2026-10-06T21:00:01.000Z',
+      '2026-10-06T21:00:01.000Z',
+    ]);
+
+    serverAt('Tue, 06 Oct 2026 22:00:00 GMT');
+    const resumed = checker();
+    await checkStored(resumed.medplum, gated, 'bot', { ...options, resume: true });
+    expect(resumed.inputs.map((i) => [i.cursor, i.before])).toEqual([
+      ['1', '2026-10-06T21:00:01.000Z'],
+    ]);
   });
 });

@@ -74,16 +74,17 @@ export function readAnswers(
 ): Record<string, unknown> {
   const answered = response.questionnaire?.split('|')[0];
   if (answered !== url) throw new Error(`The response answers ${answered ?? 'no Questionnaire'}, not ${url}.`);
-  const answers: Record<string, unknown> = {};
+  // A Map, then own properties: a linkId such as `constructor` or `__proto__` is any other key.
+  const answers = new Map<string, unknown>();
   const walk = (items: QuestionnaireResponseItem[] = []): void => {
     for (const item of items) {
       for (const answer of item.answer ?? []) {
         const key = Object.keys(answer).find((k) => k.startsWith('value'));
         const value = key ? (answer as Record<string, unknown>)[key] : undefined;
         if (value !== undefined && repeats.includes(item.linkId)) {
-          answers[item.linkId] = [...((answers[item.linkId] as unknown[]) ?? []), value];
-        } else if (value !== undefined && !(item.linkId in answers)) {
-          answers[item.linkId] = value;
+          answers.set(item.linkId, [...((answers.get(item.linkId) as unknown[]) ?? []), value]);
+        } else if (value !== undefined && !answers.has(item.linkId)) {
+          answers.set(item.linkId, value);
         }
         walk(answer.item);
       }
@@ -91,5 +92,5 @@ export function readAnswers(
     }
   };
   walk(response.item);
-  return answers;
+  return Object.fromEntries(answers);
 }
