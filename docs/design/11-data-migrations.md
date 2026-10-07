@@ -13,6 +13,9 @@ As built, these details differ from or add to the text below:
   `If-Match`, which every release honours (#190).
 - **Over the write quota, a page waits a minute** and runs again, up to ten
   times, rather than reading the reset time from the 429's extension (#191).
+- **A run's start is the server's time,** not the CLI's: when its ledger
+  entry was saved, or for a dry run the server's `Date` header, so a skewed
+  clock neither skips records nor reads a pass's own writes again (#212).
 - **A new ledger entry is a conditional create** (`If-None-Exist` on its
   tag), so two first runs cannot both make one; later writes use `If-Match`
   (#191).
