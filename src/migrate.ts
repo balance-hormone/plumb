@@ -215,23 +215,26 @@ type LocalRunner = (
 ) => (medplum: object, event: { input: object }) => Promise<unknown>;
 
 /**
- * The migrations on these resource types that the project has not applied,
- * for push's gate to name when it refuses. A module that does not load is
- * reported rather than thrown: the gate refuses either way.
+ * The migrations on these resource types, Plumb's restamps included, that
+ * the project has not applied as they now stand, for push's gate to name
+ * when it refuses. Migrations that do not load or check are reported rather
+ * than thrown: the gate refuses either way.
  */
 export async function pendingMigrations(
   medplum: MedplumClient,
-  modules: string[] | undefined,
+  config: PlumbConfig,
   resourceTypes: string[],
 ): Promise<{ pending: { id: string; resourceType: string }[]; error?: string }> {
-  if (!modules || resourceTypes.length === 0) return { pending: [] };
-  const declared = await loadMigrations(modules);
-  if (!declared.ok) return { pending: [], error: declared.errors.map((e) => e.message).join(' ') };
+  if (!config.migrations || resourceTypes.length === 0) return { pending: [] };
+  const declared = await declaredMigrations(config, {});
+  if ('errors' in declared) {
+    return { pending: [], error: declared.errors.map((e) => e.message).join(' ') };
+  }
   const pending: { id: string; resourceType: string }[] = [];
   for (const migration of inOrder(declared.migrations)) {
     if (!resourceTypes.includes(migration.resourceType)) continue;
     const held = await findLedger(medplum, migration.id);
-    if (held && stateOf(held).status === 'applied') continue;
+    if (statusOf(held && stateOf(held), migration) === 'applied') continue;
     pending.push({ id: migration.id, resourceType: migration.resourceType });
   }
   return { pending };
@@ -426,11 +429,14 @@ interface Run {
 export function inOrder(migrations: Migration[]): Migration[] {
   const byId = new Map(migrations.map((m) => [m.id, m]));
   const ordered: Migration[] = [];
+  // Marked before its dependencies are walked, so a cycle, which
+  // checkMigrations reports, ends the walk rather than the stack.
+  const seen = new Set<Migration>();
   const visit = (m: Migration) => {
-    if (ordered.includes(m)) return;
+    if (seen.has(m)) return;
+    seen.add(m);
     for (const id of m.dependsOn ?? []) {
       const dependency = byId.get(id);
-      // checkMigrations refuses cycles, so the walk ends.
       if (dependency) visit(dependency);
     }
     ordered.push(m);
@@ -524,8 +530,24 @@ async function begin(
   const pass: Pass = options.write
     ? await takeLease(run.medplum, migration, held, hash, now, options)
     : { state: { status: 'running', hash, counts: zero(), pages: 0 } };
-  pass.state.start ??= now.toISOString();
+  // The pass reads what the server last updated before it began, so the
+  // cutoff is the server's time, never this machine's: a slow clock would
+  // skip records, a fast one read the pass's own writes again. A write's is
+  // when its ledger entry was saved, before any record is written.
+  pass.state.start ??= pass.basic?.meta?.lastUpdated ?? (await serverTime(run.medplum));
   return pass;
+}
+
+/**
+ * The server's time, from its Date header, rounded up to the next second so
+ * that nothing updated in the current second is left out. For a dry run,
+ * which writes nothing it could read again.
+ */
+async function serverTime(medplum: MedplumClient): Promise<string> {
+  const response = await fetch(new URL('healthcheck', medplum.getBaseUrl()));
+  const date = Date.parse(response.headers.get('date') ?? '');
+  if (Number.isNaN(date)) throw new Error(`${medplum.getBaseUrl()} sent no Date header.`);
+  return new Date(date + 1000).toISOString();
 }
 
 /** Runs the pass's pages, saving the ledger after each; false when stopped by the signal. */
