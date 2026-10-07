@@ -82,6 +82,19 @@ test('plans each definition against the one the project holds under its URL', ()
   ]);
 });
 
+test("refuses a URL only a linked project holds, rather than updating that project's copy", () => {
+  const url = 'http://example.org/fhir/theirs';
+  const theirs = sd(url, '1.0.0', { meta: { project: 'linked' } });
+  const plan = planLoad(
+    [sd(url, '1.0.0')],
+    new Map([[url, [theirs]]]),
+    (d) => d.meta?.project === 'ours',
+  );
+  expect(plan).toEqual([
+    { resourceType: 'StructureDefinition', url, version: '1.0.0', action: 'linked' },
+  ]);
+});
+
 test('plans the ValueSets and CodeSystems the selected profiles bind, CodeSystems first', () => {
   const loaded = loadProfiles({
     packages: [],
