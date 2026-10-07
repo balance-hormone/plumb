@@ -52,7 +52,9 @@ function meets(resource: object, row: readonly string[]): boolean {
     nodes = key.endsWith('*') ? deep(nodes, key.slice(0, -1)) : nodes.flatMap((n) => step(n, key));
   }
   const keys = row.map((path) => path.slice(path.lastIndexOf('.') + 1));
-  return nodes.flat().every((node) => keys.some((key) => step(node, key).length > 0));
+  // A row ending in a number asks for that entry of the array, not a key of each entry.
+  const parents = keys.every((key) => /^\\d+$/.test(key)) ? nodes : nodes.flat();
+  return parents.every((node) => keys.some((key) => step(node, key).length > 0));
 }
 
 /** The values present at \`key\`: in each entry of an array, or one entry by its index. */
@@ -209,14 +211,20 @@ export async function callOperation<I extends OperationSide, O extends Operation
   options: { id?: string } = {},
 ): Promise<SideOutput<O>> {
   await checked(operation.code, operation.input, 'input', input);
-  const id = options.id ?? (input as { id?: string } | undefined)?.id ?? '';
+  const id = options.id ?? (input as { id?: string } | undefined)?.id;
+  if (operation.level === 'instance' && !id) {
+    throw new OperationError(operation.code, {
+      resourceType: 'OperationOutcome',
+      issue: [{ severity: 'error', code: 'required', details: { text: 'an instance operation needs options.id, or an input with an id' } }],
+    });
+  }
   const path =
     operation.level === 'system'
       ? []
       : operation.level === 'type'
         ? [operation.resource ?? '']
-        : [operation.resource ?? '', id];
-  const json = typeof operation.input === 'object';
+        : [operation.resource ?? '', id as string];
+  const json = isSchema(operation.input);
   let response: unknown;
   try {
     response = await medplum.post(
@@ -229,8 +237,11 @@ export async function callOperation<I extends OperationSide, O extends Operation
     if (outcome?.resourceType === 'OperationOutcome') throw new OperationError(operation.code, outcome);
     throw err;
   }
-  return checked(operation.code, operation.output, 'output', unwrap(response));
+  return checked(operation.code, operation.output, 'output', unwrap(response, operation.output));
 }
+
+/** A Standard Schema side, which may be an object or, as ArkType's are, a function. */
+const isSchema = (side: OperationSide): side is StandardSchemaV1 => typeof side !== 'string';
 
 /**
  * A bot's handler for an operation: the input is checked before \`handler\`
@@ -251,7 +262,7 @@ export function handleOperation<I extends OperationSide, O extends OperationSide
     const output = await handler(medplum, input as SideOutput<Fixed<I>>);
     await checked(operation.code, operation.output, 'output', output);
     // The handler's own value, not the schema's output, so the caller's check reads it as written.
-    return typeof operation.output === 'object'
+    return isSchema(operation.output)
       ? { result: JSON.stringify(output) }
       : (output as Resource);
   };
@@ -277,7 +288,7 @@ async function checked<S extends OperationSide>(
 }
 
 async function problems(side: OperationSide, value: unknown): Promise<{ value: unknown } | { problems: string[] }> {
-  if (typeof side === 'object') {
+  if (isSchema(side)) {
     const result = await side['~standard'].validate(value);
     if (!result.issues) return { value: result.value };
     return { problems: result.issues.map((i) => \`\${pathOf(i.path)}: \${i.message}\`) };
@@ -302,11 +313,18 @@ const pathOf = (path: StandardIssue['path']) =>
     .map((key) => (typeof key === 'number' ? \`[\${key}]\` : \`.\${String(key)}\`))
     .join('');
 
-/** A \`Parameters\` response's \`return\` resource, or its \`result\` string read as JSON. */
-function unwrap(response: unknown): unknown {
+/**
+ * A \`Parameters\` response's \`return\` resource, or its \`result\` string read
+ * as JSON. An operation whose output is itself \`Parameters\` gets them as
+ * sent, or from \`return\` where Medplum 5.1.0 wraps them.
+ */
+function unwrap(response: unknown, output: OperationSide): unknown {
   const parameters = response as Parameters | undefined;
   if (parameters?.resourceType !== 'Parameters') return response;
   const parameter = parameters.parameter?.find((p) => p.name === 'return' || p.name === 'result');
+  if (output === 'Parameters') {
+    return parameter?.resource?.resourceType === 'Parameters' ? parameter.resource : response;
+  }
   return parameter?.name === 'result' ? JSON.parse(parameter.valueString ?? 'null') : parameter?.resource;
 }
 `;
@@ -705,7 +723,7 @@ function printRoutes(routing: RoutingTable, typeNames: Map<string, string>): str
       const name = typeNames.get(url);
       return name ? [[url, name] as const] : [];
     })
-    .sort(([a], [b]) => a.localeCompare(b));
+    .sort(([a], [b]) => (a < b ? -1 : 1));
   const lines = [`${MARKER}. Do not edit.`, "import type { Resource } from '@medplum/fhirtypes';"];
   lines.push("import { matches } from './_plumb.js';");
   for (const name of [...new Set(selected.map(([, n]) => n))].sort()) {
@@ -744,7 +762,7 @@ function printRoutes(routing: RoutingTable, typeNames: Map<string, string>): str
 
 function printRows(type: string, routes: Route[]): string[] {
   if (routes.length === 0) return [`  ${type}: [],`];
-  const rows = [...routes].sort((a, b) => a.profile.localeCompare(b.profile));
+  const rows = [...routes].sort((a, b) => (a.profile < b.profile ? -1 : 1));
   return [
     `  ${type}: [`,
     ...rows.flatMap((row) => [
@@ -974,7 +992,7 @@ function refusal(profile: ProfileUrl, name: string): ProfileReadError {
 /** A table by profile URL, sorted, one entry per line. */
 function printTable(name: string, type: string, rows: [string, unknown[]][]): string[] {
   if (rows.length === 0) return [`const ${name}: ${type} = {};`];
-  const entries = [...rows].sort(([a], [b]) => a.localeCompare(b));
+  const entries = [...rows].sort(([a], [b]) => (a < b ? -1 : 1));
   return [
     `const ${name}: ${type} = {`,
     ...entries.flatMap(([url, values]) =>
@@ -1019,7 +1037,7 @@ function printReads(models: ProfileModel[], routing: RoutingTable): string {
       : [
           'const typeOf: Partial<Record<string, ResourceType>> = {',
           ...[...selected]
-            .sort((a, b) => a.url.localeCompare(b.url))
+            .sort((a, b) => (a.url < b.url ? -1 : 1))
             .map((m) => `  ${quote(m.url)}: ${quote(m.sd.type)},`),
           '};',
         ]),
@@ -1122,6 +1140,8 @@ export interface MigrationPageResult {
   written: { id: string; versionId: string }[];
   /** The cursor for the next page, absent on the last. */
   next?: string;
+  /** Stopped by the project's rate limit: run the same page again once it resets. */
+  limited?: true;
 }
 
 type Outcome =
@@ -1160,8 +1180,17 @@ export function handleMigrations(migrations: MigrationDefinition[]) {
       written: [],
     };
     const changed: Resource[] = [];
+    let limited = false;
     for (const record of records) {
-      const outcome = await migrateRecord(medplum, migration, record, page.write === true);
+      const outcome = await migrateRecord(medplum, migration, record, page.write === true).catch((err: unknown) => {
+        if ((err as { outcome?: { id?: string } } | undefined)?.outcome?.id !== 'too-many-requests') throw err;
+        return undefined;
+      });
+      // Over the project's rate limit: what is written stays counted, and the page runs again.
+      if (!outcome) {
+        limited = true;
+        break;
+      }
       result[outcome.kind]++;
       if (outcome.kind === 'failed') {
         const reason = result.reasons.find((r) => r.message === outcome.reason);
@@ -1182,10 +1211,20 @@ export function handleMigrations(migrations: MigrationDefinition[]) {
       )) as MigrationForecast;
       result.forecast = { stamped: verdict.stamped, failing: verdict.failing, profiles: verdict.profiles };
     }
+    if (limited) return limitedPage(result);
     const next = /[?&]_cursor=([^&]*)/.exec(bundle.link?.find((l) => l.relation === 'next')?.url ?? '');
     if (next?.[1]) result.next = decodeURIComponent(next[1]);
     return result;
   };
+}
+
+/**
+ * A page stopped by the rate limit, as plumb migrate counts it before running
+ * the page again: the records written, which that run no longer reads, and
+ * nothing else, which it reads and counts again.
+ */
+function limitedPage(result: MigrationPageResult): MigrationPageResult {
+  return { ...result, read: result.changed, unchanged: 0, conflict: 0, failed: 0, reasons: [], limited: true };
 }
 
 /** The migration's search, less what the run has written, in the order Medplum pages by cursor. */
@@ -1226,7 +1265,7 @@ async function migrateRecord(
       return { kind: 'changed', resource, versionId: saved.meta?.versionId ?? '' };
     } catch (err) {
       const outcome = (err as { outcome?: { id?: string } } | undefined)?.outcome;
-      // Over the project's rate limit: the page stops, and plumb migrate runs it again.
+      // Over the project's rate limit: the page stops here.
       if (outcome?.id === 'too-many-requests') throw err;
       if (outcome?.id !== 'precondition-failed') return { kind: 'failed', reason: messageOf(err) };
       if (attempt > 0) return { kind: 'conflict' };

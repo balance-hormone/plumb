@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type BotEvent, type MedplumClient, normalizeErrorString } from '@medplum/core';
@@ -9,11 +10,11 @@ import { type CheckerInput, handler as checker } from './checker/handler.js';
 import { checkerInput } from './checker/input.js';
 import { CHECKER_IDENTIFIER, checkerFilename, findChecker } from './checker/install.js';
 import { importModules, type PlumbConfig } from './config.js';
-import { notCurrent, runPage } from './conformance.js';
+import { notCurrent, QUOTA_TRIES, QUOTA_WAIT_MS, runPage } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
 import { checkMigrations, loadMigrations, type Migration, migrationHash } from './migrations.js';
-import { owned, PLUMB_SYSTEM } from './project.js';
+import { owned, PLUMB_SYSTEM, searchAll } from './project.js';
 
 type MigrateStepName = string;
 
@@ -43,6 +44,8 @@ interface LedgerState {
   lastError?: string;
   /** The last time a running pass wrote: older than ten minutes, another run takes it over. */
   lease?: string;
+  /** The run holding the lease: two runs started in the same millisecond share a time, never this. */
+  holder?: string;
 }
 
 /** The checker's verdict on the changed records, summed over a run. */
@@ -283,9 +286,10 @@ export async function migrationStatus(
   if (!connected.ok) return step.fail('connect', [connected.error]);
   step.finish('connect', options.environment.baseUrl);
 
-  const entries = await connected.medplum.searchResources(
+  const entries = await searchAll(
+    connected.medplum,
     'Basic',
-    owned(connected.medplum, { code: `${PLUMB_SYSTEM}|migration`, _count: '1000' }),
+    owned(connected.medplum, { code: `${PLUMB_SYSTEM}|migration` }),
   );
   const held = new Map(entries.map((basic) => [tagOf(basic), stateOf(basic)]));
   const report = (id: string, state: LedgerState | undefined, migration?: Migration) => {
@@ -304,7 +308,7 @@ export async function migrationStatus(
     report(migration.id, held.get(migration.id), migration);
     held.delete(migration.id);
   }
-  for (const [id, state] of [...held].sort(([a], [b]) => a.localeCompare(b))) report(id, state);
+  for (const [id, state] of [...held].sort(([a], [b]) => (a < b ? -1 : 1))) report(id, state);
   result.ok = result.steps.every((s) => !s.failed);
   return step.done();
 }
@@ -451,7 +455,7 @@ export function inOrder(migrations: Migration[]): Migration[] {
     }
     ordered.push(m);
   };
-  for (const m of [...migrations].sort((a, b) => a.id.localeCompare(b.id))) visit(m);
+  for (const m of [...migrations].sort((a, b) => (a.id < b.id ? -1 : 1))) visit(m);
   return ordered;
 }
 
@@ -577,32 +581,61 @@ async function runPages(
     count: options.pageSize ?? 100,
     ...(forecast ? { forecast } : {}),
   };
-  do {
-    let page: PageResult;
-    try {
-      const cursor = state.cursor ? { cursor: state.cursor } : {};
-      page = await run.page({ ...input, ...cursor });
-    } catch (err) {
-      await savePass(medplum, pass, {
-        ...state,
-        status: 'errored',
-        lastError: normalizeErrorString(err),
-      });
-      throw err;
-    }
+  let limited = 0;
+  for (;;) {
+    const cursor = state.cursor ? { cursor: state.cursor } : {};
+    const page = await pageOf(run, pass, { ...input, ...cursor });
     add(report, page);
     state.counts = { ...report.counts };
-    state.cursor = page.next;
     state.pages++;
+    if (page.limited) {
+      limited = await holdOff(run, pass, limited + 1);
+      continue;
+    }
+    limited = 0;
+    state.cursor = page.next;
     state.lease = (options.now ?? (() => new Date()))().toISOString();
     await savePass(medplum, pass, state);
     await options.onPage?.(migration.id, report.counts);
-    if (state.cursor && options.signal?.aborted) {
+    if (!state.cursor) return true;
+    if (options.signal?.aborted) {
       await savePass(medplum, pass, { ...state, status: 'paused' });
       return false;
     }
-  } while (state.cursor);
-  return true;
+  }
+}
+
+/** One page; a failure leaves the pass errored, to resume from its cursor. */
+async function pageOf(run: Run, pass: Pass, input: object): Promise<PageResult> {
+  try {
+    return await run.page(input);
+  } catch (err) {
+    await savePass(run.medplum, pass, {
+      ...pass.state,
+      status: 'errored',
+      lastError: normalizeErrorString(err),
+    });
+    throw err;
+  }
+}
+
+/**
+ * Over the project's rate limit: saves what the page wrote, with the lease,
+ * and waits for the limit to reset before the same page runs again.
+ */
+async function holdOff(run: Run, pass: Pass, tries: number): Promise<number> {
+  const { medplum, options } = run;
+  pass.state.lease = (options.now ?? (() => new Date()))().toISOString();
+  if (tries >= QUOTA_TRIES) {
+    const lastError = `Still over the project's rate limit after ${QUOTA_TRIES} tries.`;
+    await savePass(medplum, pass, { ...pass.state, status: 'errored', lastError });
+    throw new Error(lastError);
+  }
+  await savePass(medplum, pass, pass.state);
+  await (options.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(
+    QUOTA_WAIT_MS,
+  );
+  return tries;
 }
 
 /** A finished pass is applied, or errored and run again from the start when it left records behind. */
@@ -613,7 +646,7 @@ async function close(
   report: MigrationReport,
 ) {
   const left = report.counts.failed + report.counts.conflict;
-  const { start, lease, lastError, ...rest } = state;
+  const { start, lease, holder, lastError, ...rest } = state;
   await saveLedger(
     medplum,
     basic,
@@ -633,6 +666,8 @@ interface PageResult extends Counts {
     >;
   };
   next?: string;
+  /** Stopped by the project's rate limit: what it wrote is counted, and the page runs again. */
+  limited?: true;
 }
 
 function add(report: MigrationReport, page: PageResult): void {
@@ -726,6 +761,7 @@ async function takeLease(
     counts: resume ? previous.counts : zero(),
     pages: resume ? previous.pages : 0,
     lease: now.toISOString(),
+    holder: randomUUID(),
   };
   if (!held) {
     const created = await medplum.createResource<Basic>(ledgerResource(migration.id, state), {
@@ -736,7 +772,7 @@ async function takeLease(
       },
     });
     // A conditional create that found one returns it: another run made it first.
-    if (stateOf(created).lease !== state.lease) throw running(migration.id);
+    if (stateOf(created).holder !== state.holder) throw running(migration.id);
     return { basic: created, state };
   }
   return { basic: await saveLedger(medplum, held, state), state };

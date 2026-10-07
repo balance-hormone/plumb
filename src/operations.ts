@@ -9,7 +9,7 @@ import type {
   ResourceType,
 } from '@medplum/fhirtypes';
 import { type ConfigError, importModules } from './config.js';
-import { owned, PLUMB_SYSTEM, type ProjectOptions, tagOf } from './project.js';
+import { owned, PLUMB_SYSTEM, type ProjectOptions, searchAll, tagOf } from './project.js';
 
 const IMPLEMENTATION =
   'https://medplum.com/fhir/StructureDefinition/operationDefinition-implementation';
@@ -83,7 +83,8 @@ function builtInCodes(): Set<string> {
 /**
  * The contracts against the config and the selected profiles: a code used
  * twice or one Medplum already has, a bot `bots` lacks, a profile side not
- * selected, a type or instance operation without its resource.
+ * selected, a type or instance operation without its resource, an instance
+ * operation whose input is not its resource.
  */
 export function checkOperations(
   contracts: Contract[],
@@ -109,9 +110,8 @@ export function checkOperations(
     if (!Object.hasOwn(bots, contract.bot)) {
       errors.push(invalid(`names the bot "${contract.bot}", which is not a key in bots`));
     }
-    if (contract.level !== 'system' && !contract.resource) {
-      errors.push(invalid(`is a ${contract.level} operation without a resource`));
-    }
+    const level = levelProblem(contract);
+    if (level) errors.push(invalid(level));
     for (const side of [contract.input, contract.output]) {
       if (typeof side === 'string' && side.includes(':') && !profiles.includes(side)) {
         errors.push(invalid(`names the profile ${side}, which is not selected`));
@@ -119,6 +119,19 @@ export function checkOperations(
     }
     return errors;
   });
+}
+
+/**
+ * A type or instance operation needs its resource. Medplum drops an instance
+ * operation's body and hands the bot the stored resource, on 5.1.0 and 5.1.42
+ * alike, so any other input never arrives.
+ */
+function levelProblem({ level, resource, input }: Contract): string | undefined {
+  if (level !== 'system' && !resource) return `is a ${level} operation without a resource`;
+  if (level !== 'instance') return undefined;
+  if (typeof input === 'string' && (input === resource || input.includes(':'))) return undefined;
+  const side = typeof input === 'string' ? input : 'JSON';
+  return `is an instance operation, so its input is the stored ${resource} Medplum hands the bot, not ${side}`;
 }
 
 /** One write `push` plans for an operation: `+` create, `~` update, `-` delete. */
@@ -206,10 +219,10 @@ export async function planOperations(
   options: ProjectOptions = {},
 ): Promise<OperationPlan> {
   const project = medplum.getProject()?.id;
-  const visible = await medplum.searchResources('OperationDefinition', { _count: '1000' });
-  const bots = (
-    await medplum.searchResources('Bot', { identifier: `${PLUMB_SYSTEM}|`, _count: '1000' })
-  ).filter((b) => b.meta?.project === project);
+  const visible = await searchAll(medplum, 'OperationDefinition', {});
+  const bots = (await searchAll(medplum, 'Bot', { identifier: `${PLUMB_SYSTEM}|` })).filter(
+    (b) => b.meta?.project === project,
+  );
   const botIds = Object.fromEntries(
     bots.map((b) => [b.identifier?.find((i) => i.system === PLUMB_SYSTEM)?.value, b.id as string]),
   );

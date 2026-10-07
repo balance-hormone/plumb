@@ -164,4 +164,61 @@ export const handler = handleOperation(activate, (_medplum, patient) => ({ ...pa
     await applyOperations(await plan(removed, { prune: true }), await connect(project));
     expect(await medplum.searchOne('OperationDefinition', { code: 'plumb-shout' })).toBeUndefined();
   });
+
+  test('an instance operation hands the bot the stored resource, not the body sent', async () => {
+    const stamp = { ...activate(), code: 'plumb-stamp', level: 'instance' } as Contract;
+    await applyOperations(await plan([activate() as Contract, stamp]), await connect(project));
+    const stored = await medplum.createResource<Patient>({
+      resourceType: 'Patient',
+      name: [{ family: 'Stored' }],
+    });
+    const sent = { ...stored, name: [{ family: 'Sent' }] };
+    expect(await generated.callOperation(medplum, stamp, sent)).toMatchObject({
+      id: stored.id,
+      name: [{ family: 'Stored' }],
+      active: true,
+    });
+  });
+});
+
+// Parameters is the most natural output for a FHIR operation: the caller
+// reads it as the Parameters the bot returned, whatever the release.
+describe.skipIf(!server)('an operation whose output is Parameters', { timeout: 120_000 }, () => {
+  test('callOperation reads back the Parameters the bot returned', async () => {
+    const project = await newProject();
+    const medplum = await connect(project);
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-operations-parameters-'));
+    writeFiles(
+      join(dir, 'generated'),
+      printFiles([], () => 'test', undefined, [], ['x']),
+    );
+    const contract = join(dir, 'count.ts');
+    writeFileSync(
+      contract,
+      `export const count = { code: 'plumb-count', level: 'system', bot: 'counter', input: 'Parameters', output: 'Parameters' } as const;`,
+    );
+    const counter = await bundle(
+      dir,
+      'counter',
+      `import { handleOperation } from './generated/_operations.ts';
+import { count } from ${JSON.stringify(contract)};
+export const handler = handleOperation(count, () => ({ resourceType: 'Parameters', parameter: [{ name: 'count', valueInteger: 3 }] }));`,
+    );
+    await applyBots(
+      await planBots(medplum, { counter: { file: counter, runtime: 'vmcontext' } }),
+      medplum,
+    );
+    const loaded = await loadOperations([contract]);
+    if (!loaded.ok) throw new Error(JSON.stringify(loaded.errors));
+    await applyOperations(
+      await planOperations(medplum, loaded.contracts, () => undefined),
+      await connect(project),
+    );
+    const generated = (await import(join(dir, 'generated/_operations.ts'))) as Generated;
+    const input = { resourceType: 'Parameters', parameter: [{ name: 'of', valueString: 'x' }] };
+    expect(await generated.callOperation(medplum, loaded.contracts[0], input)).toEqual({
+      resourceType: 'Parameters',
+      parameter: [{ name: 'count', valueInteger: 3 }],
+    });
+  });
 });

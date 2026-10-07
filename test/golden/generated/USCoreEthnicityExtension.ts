@@ -20,11 +20,13 @@ export const USCoreEthnicityExtensionProfileUrl = 'http://hl7.org/fhir/us/core/S
  *
  * Not checked by this type; checked by validateProfiled and the server:
  * - Extension.extension: at least 1 entry.
- * - value[x] is bound to http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113883.4.642.40.2.48.3,
- * which has codes that cannot be listed offline; only a server checks it.
+ * - Extension.extension:ombCategory.value[x] is bound to
+ * http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113883.4.642.40.2.48.3, which has codes that
+ * cannot be listed offline; only a server checks it.
  * - Extension.extension:ombCategory: 0..1.
- * - value[x] is bound to http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113883.4.642.40.2.48.1,
- * which has codes that cannot be listed offline; only a server checks it.
+ * - Extension.extension:detailed.value[x] is bound to
+ * http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113883.4.642.40.2.48.1, which has codes that
+ * cannot be listed offline; only a server checks it.
  * - Extension.extension:detailed: 0..*.
  * - Extension.extension:text: 1..1.
  */

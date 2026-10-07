@@ -193,7 +193,7 @@ const key = (f: Finding) => `${f.file}|${f.method}|${f.resourceTypes.join(',')}`
 export function countFindings(findings: Finding[]): Baseline {
   const counts: Baseline = {};
   for (const f of findings) counts[key(f)] = (counts[key(f)] ?? 0) + 1;
-  return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
+  return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : 1)));
 }
 
 export interface BaselineComparison {

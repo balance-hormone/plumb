@@ -113,3 +113,14 @@ test('every generated export is re-exported by the index or imported by a siblin
   });
   expect(unused).toEqual([]);
 });
+
+// localeCompare follows the machine's locale (Danish sorts "aa" after "z"), so
+// a developer abroad would generate rows in another order and fail --check.
+// Whatever orders output or execution compares code points instead.
+test('nothing in src sorts by locale', () => {
+  const src = join(import.meta.dirname, '../../src');
+  const sorted = readdirSync(src, { recursive: true, encoding: 'utf8' })
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+    .filter((f) => readFileSync(join(src, f), 'utf8').includes('localeCompare'));
+  expect(sorted).toEqual([]);
+});

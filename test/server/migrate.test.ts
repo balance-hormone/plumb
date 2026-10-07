@@ -205,10 +205,16 @@ describe.skipIf(!server)('plumb migrate', { timeout: 120_000 }, () => {
   });
 
   test('of two runs started together, one runs and the other is migration-running', async () => {
+    // In the same millisecond, as two CI jobs can be: the lease must still tell them apart.
+    const instant = new Date();
     const both = await Promise.all(
-      [0, 1].map(() => migrateEnvironment({ ...options, ids: [GENDER], write: true })),
+      [0, 1].map(() =>
+        migrateEnvironment({ ...options, ids: [GENDER], write: true, now: () => instant }),
+      ),
     );
-    expect(both.map((r) => r.errors.map((e) => e.code)).sort()).toEqual([
+    // The messages too, so a failure says what the losing run hit.
+    const errors = both.map((r) => r.errors);
+    expect(errors.map((e) => e.map((x) => x.code)).sort(), JSON.stringify(errors)).toEqual([
       [],
       ['migration-running'],
     ]);

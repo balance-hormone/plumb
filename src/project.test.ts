@@ -14,6 +14,7 @@ import {
   planPolicies,
   planProject,
   planSummary,
+  searchAll,
 } from './project.js';
 
 const PROJECT_ID = 'p1';
@@ -439,5 +440,19 @@ describe('planProject', () => {
   test("does not warn that push's own policy writes StructureDefinition", async () => {
     const plan = await planProject(CONFIG, client([CLINICIAN, CI_DEPLOY], { accessPolicy: 'b' }));
     expect(plan.warnings).toEqual(['strictMode on, features: bots']);
+  });
+});
+
+describe('searchAll', () => {
+  test('reads every page, so a resource past the first is found', async () => {
+    const page = (ids: string[]) => ids.map((id) => ({ resourceType: 'Subscription', id }));
+    const medplum = {
+      async *searchResourcePages() {
+        yield page(['a', 'b']);
+        yield page(['c']);
+      },
+    } as unknown as MedplumClient;
+    const found = await searchAll(medplum, 'Subscription', {});
+    expect(found.map((s) => s.id)).toEqual(['a', 'b', 'c']);
   });
 });

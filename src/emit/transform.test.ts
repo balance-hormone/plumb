@@ -262,14 +262,72 @@ describe('transform', () => {
           ],
         },
       });
-      expect(field(t, 'name').type).toMatchObject({
+      // Ordered but open: other names may come first, so no position is fixed.
+      expect(field(t, 'name').type).toEqual({
+        kind: 'array',
+        of: { kind: 'ref', name: 'HumanName' },
+      });
+    });
+
+    test('ordered slicing is a tuple only as far as its positions are fixed', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'plumb-ordered-'));
+      cpSync(LOCAL, dir, { recursive: true });
+      const sd = JSON.parse(
+        readFileSync(join(LOCAL, 'StructureDefinition-sliced-patient.json'), 'utf8'),
+      );
+      // The name slicing with other rules and official's and nickname's cardinality.
+      const variant = (id: string, rules: string, official: number, nickname: number) => {
+        const element = (e: { id: string; slicing?: object; min?: number }) => ({
+          ...e,
+          ...(e.id === 'Patient.name' ? { slicing: { ...e.slicing, rules } } : {}),
+          ...(e.id === 'Patient.name:official' ? { min: official } : {}),
+          ...(e.id === 'Patient.name:nickname' ? { min: nickname } : {}),
+        });
+        writeFileSync(
+          join(dir, `${id}.json`),
+          JSON.stringify({
+            ...sd,
+            id,
+            url: `${PLUMB}/${id}`,
+            name: pascal(id),
+            snapshot: { element: sd.snapshot.element.map(element) },
+            differential: { element: sd.differential.element.map(element) },
+          }),
+        );
+      };
+      const pascal = (id: string) =>
+        id.replace(/(^|-)(\w)/g, (_, _d, c: string) => c.toUpperCase());
+      variant('closed-optional-first', 'closed', 0, 1);
+      variant('at-end-both-required', 'openAtEnd', 1, 1);
+      const loaded = loadProfiles({
+        packages: [],
+        igs: [],
+        local: dir,
+        profiles: [`${PLUMB}/closed-optional-first`, `${PLUMB}/at-end-both-required`],
+      });
+      const [closed, atEnd] = transform(loaded).models as [ProfileModel, ProfileModel];
+      // An optional first slice lets the second move up: no fixed position.
+      expect(field(decl(closed), 'name').type).toEqual({
+        kind: 'array',
+        of: {
+          kind: 'union',
+          of: [
+            { kind: 'ref', name: 'ClosedOptionalFirstOfficial' },
+            { kind: 'ref', name: 'ClosedOptionalFirstNickname' },
+          ],
+        },
+      });
+      expect(field(decl(atEnd), 'name').type).toEqual({
         kind: 'tuple',
         of: [
-          { kind: 'ref', name: 'SlicedPatientOfficial' },
-          { kind: 'optional' },
-          { kind: 'rest' },
+          { kind: 'ref', name: 'AtEndBothRequiredOfficial' },
+          { kind: 'ref', name: 'AtEndBothRequiredNickname' },
+          { kind: 'rest', of: { kind: 'ref', name: 'HumanName' } },
         ],
       });
+      // Each fixed position must be there, not only its fields where it is.
+      expect(atEnd.required).toContainEqual(['name.0']);
+      expect(atEnd.required).toContainEqual(['name.1']);
     });
 
     test('an extension slice uses its extension type, declared once in its own model', () => {
@@ -293,6 +351,61 @@ describe('transform', () => {
         value: 'instruction',
       });
       expect(note.helpers.map((h) => h.name)).toContain('instruction');
+    });
+
+    test('a slice named like a narrowed backbone, or another profile, gets another name', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'plumb-slice-names-'));
+      cpSync(LOCAL, dir, { recursive: true });
+      const sd = JSON.parse(
+        readFileSync(join(LOCAL, 'StructureDefinition-sliced-patient.json'), 'utf8'),
+      );
+      // The member slice renamed contact, and contact.name required: the backbone
+      // type SliceClashContact and the slice type would share a name.
+      const renamed = (e: { id: string; path: string; sliceName?: string; min?: number }) => ({
+        ...e,
+        id: e.id.replace('identifier:member', 'identifier:contact'),
+        ...(e.sliceName === 'member' ? { sliceName: 'contact' } : {}),
+        ...(e.path === 'Patient.contact.name' ? { min: 1 } : {}),
+      });
+      writeFileSync(
+        join(dir, 'slice-clash.json'),
+        JSON.stringify({
+          ...sd,
+          id: 'slice-clash',
+          url: `${PLUMB}/slice-clash`,
+          name: 'SliceClash',
+          snapshot: { element: sd.snapshot.element.map(renamed) },
+          differential: {
+            element: [
+              ...sd.differential.element.map(renamed),
+              { id: 'Patient.contact.name', path: 'Patient.contact.name', min: 1 },
+            ],
+          },
+        }),
+      );
+      // A selected profile named as the mrn slice's type would be.
+      const other = JSON.parse(
+        readFileSync(join(LOCAL, 'StructureDefinition-cardinality-patient.json'), 'utf8'),
+      );
+      writeFileSync(
+        join(dir, 'slice-clash-mrn.json'),
+        JSON.stringify({
+          ...other,
+          id: 'slice-clash-mrn',
+          url: `${PLUMB}/slice-clash-mrn`,
+          name: 'SliceClashMrn',
+        }),
+      );
+      const loaded = loadProfiles({
+        packages: [],
+        igs: [],
+        local: dir,
+        profiles: [`${PLUMB}/slice-clash`, `${PLUMB}/slice-clash-mrn`],
+      });
+      const names = transform(loaded).models.flatMap((m) => m.decls.map((d) => d.name));
+      expect(names).toContain('SliceClashContact');
+      expect(names).toContain('SliceClashMrn');
+      expect(new Set(names).size).toBe(names.length);
     });
 
     test('an extension whose name a profile already has gets another', () => {
@@ -467,6 +580,67 @@ describe('transform', () => {
       });
     });
 
+    test('required bindings on two choice elements each export their own codes, by path', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'plumb-choice-binding-'));
+      cpSync(LOCAL, dir, { recursive: true });
+      const sd = JSON.parse(
+        readFileSync(join(LOCAL, 'StructureDefinition-bindings-observation.json'), 'utf8'),
+      );
+      const vs = 'http://example.org/fhir/plumb-test/ValueSet';
+      const bound: Record<string, string> = {
+        'Observation.value[x]': `${vs}/plumb-test-colors-vs`,
+        'Observation.component.value[x]': `${vs}/plumb-test-units-vs`,
+      };
+      // Each value[x] a CodeableConcept from its own value set, required.
+      const element = (e: { path: string }) => {
+        const valueSet = bound[e.path];
+        if (!valueSet) return e;
+        return {
+          ...e,
+          type: [{ code: 'CodeableConcept' }],
+          binding: { strength: 'required', valueSet },
+        };
+      };
+      const under = (e: { path: string }) =>
+        Object.keys(bound).some((path) => e.path.startsWith(`${path}.`));
+      writeFileSync(
+        join(dir, 'choice-binding.json'),
+        JSON.stringify({
+          ...sd,
+          id: 'choice-binding',
+          url: `${PLUMB}/choice-binding`,
+          name: 'ChoiceBinding',
+          snapshot: {
+            element: sd.snapshot.element.filter((e: { path: string }) => !under(e)).map(element),
+          },
+          differential: {
+            element: sd.differential.element
+              .filter((e: { path: string }) => !under(e))
+              .map(element),
+          },
+        }),
+      );
+      const loaded = loadProfiles({
+        packages: [],
+        igs: [],
+        local: dir,
+        profiles: [`${PLUMB}/choice-binding`],
+      });
+      const [m] = transform(loaded).models as [ProfileModel];
+      const systems = (name: string) => [
+        ...new Set(m.constants.find((c) => c.name === name)?.codes.map((c) => c.system)),
+      ];
+      expect(m.constants.map((c) => c.name).sort()).toEqual([
+        'ChoiceBindingComponentValueXCodes',
+        'ChoiceBindingValueXCodes',
+      ]);
+      expect(systems('ChoiceBindingValueXCodes')).toEqual([colors]);
+      expect(systems('ChoiceBindingComponentValueXCodes')).toEqual([
+        'http://example.org/fhir/plumb-test/CodeSystem/plumb-test-units',
+      ]);
+      expect(m.doc.join('\n')).toContain('Observation.component.value[x] must hold a coding');
+    });
+
     test('a value set that cannot be listed, or is too large, keeps the base type and is documented', () => {
       const patient = model('bindings-patient');
       const meta = field(decl(patient), 'meta').type;
@@ -532,14 +706,11 @@ describe('transform', () => {
       ]);
     });
 
-    test('closed slicing requires what every slice does; ordered slicing, each position', () => {
+    test('closed slicing requires what every slice does', () => {
       expect(model('sliced-patient').required).toEqual([
         ['identifier'],
         ['identifier.system'],
         ['name'],
-        ['name.0.use'],
-        ['name.0.family'],
-        ['name.1.use'],
       ]);
     });
 

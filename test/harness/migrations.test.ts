@@ -270,9 +270,18 @@ describe('handleMigrations', () => {
     expect(none.calls.bots).toEqual([]);
   });
 
-  test("over the project's rate limit, the page stops, for plumb migrate to run it again", async () => {
-    const { medplum } = client([patient('a')], [429]);
-    await expect(run([birthdate], medplum, { write: true })).rejects.toThrow();
+  test("over the project's rate limit, the page stops, counting only what it wrote, to run again", async () => {
+    const { medplum, calls } = client([patient('a'), patient('b'), patient('c')], ['v2', 429]);
+    const result = await run([birthdate], medplum, {
+      write: true,
+      forecast: { checker: { system: 'x', value: 'checker' }, profiles: [], definitions: '[]' },
+    });
+    // The record written is counted and forecast; those not, read again with the page, are not.
+    expect(result).toMatchObject({ limited: true, read: 1, changed: 1, unchanged: 0, failed: 0 });
+    expect(result.written).toEqual([{ id: 'a', versionId: 'v2' }]);
+    expect(result.next).toBeUndefined();
+    expect(calls.writes).toHaveLength(2);
+    expect(calls.bots).toHaveLength(1);
   });
 
   test('a page for another version of a migration than the bot was built from is refused', async () => {

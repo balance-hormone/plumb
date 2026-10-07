@@ -19,11 +19,13 @@ export const USCoreRaceExtensionProfileUrl = 'http://hl7.org/fhir/us/core/Struct
  *
  * Not checked by this type; checked by validateProfiled and the server:
  * - Extension.extension: at least 1 entry.
- * - value[x] is bound to http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113883.4.642.2.575, which
- * has codes that cannot be listed offline; only a server checks it.
+ * - Extension.extension:ombCategory.value[x] is bound to
+ * http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113883.4.642.2.575, which has codes that cannot
+ * be listed offline; only a server checks it.
  * - Extension.extension:ombCategory: 0..6.
- * - value[x] is bound to http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113762.1.4.1267.25, which
- * has codes that cannot be listed offline; only a server checks it.
+ * - Extension.extension:detailed.value[x] is bound to
+ * http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113762.1.4.1267.25, which has codes that cannot
+ * be listed offline; only a server checks it.
  * - Extension.extension:detailed: 0..*.
  * - Extension.extension:text: 1..1.
  * - us-core-23: If "ASKU" or "UNK" are present, then no other OMB race categories can be present.

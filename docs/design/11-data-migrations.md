@@ -13,6 +13,9 @@ As built, these details differ from or add to the text below:
   `If-Match`, which every release honours (#190).
 - **Over the write quota, a page waits a minute** and runs again, up to ten
   times, rather than reading the reset time from the 429's extension (#191).
+  A page the limit stops part-way returns what it wrote, counted and
+  forecast, and runs again for the rest, which the cutoff no longer reads
+  twice; `--local` waits and runs it again too (#223).
 - **A module edited mid-pass is `migration-edited` too:** once a pass has
   written, a paused or errored one whose module changed is refused until
   `--rerun`, which starts a fresh pass, rather than resumed with two

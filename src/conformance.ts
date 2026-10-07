@@ -11,11 +11,10 @@ import {
 } from '@medplum/core';
 import type { AsyncJob, Bot, ResourceType } from '@medplum/fhirtypes';
 import type { PageResult, Reason } from './checker/handler.js';
-import { checkerInput } from './checker/input.js';
+import { checkerInput, type Gated } from './checker/input.js';
 import { checkerFilename, deployedVersion, findChecker } from './checker/install.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import { type Routing, routingRows } from './emit/routes.js';
-import type { LoadProfilesResult } from './loader.js';
 
 type ValidateStepName = 'load' | 'connect' | 'checker' | 'profiles' | 'validate';
 
@@ -206,7 +205,7 @@ export interface Checked {
  */
 export async function checkStored(
   medplum: MedplumClient,
-  loaded: Pick<LoadProfilesResult, 'profiles' | 'definitions'>,
+  loaded: Gated,
   botId: string,
   options: Pick<ValidateEnvOptions, 'reportPath' | 'resume' | 'full' | 'onPage'> & {
     filename: string;
@@ -437,8 +436,8 @@ const READY_WAIT_MS = 2_000;
 const READY_TIMEOUT_MS = 60_000;
 // Over the project's FHIR quota, which Medplum counts per minute.
 const QUOTA = /too many requests|too-many-requests/i;
-const QUOTA_WAIT_MS = 60_000;
-const QUOTA_TRIES = 10;
+export const QUOTA_WAIT_MS = 60_000;
+export const QUOTA_TRIES = 10;
 
 /**
  * One page, as an async job: a page can outlast an HTTP request, not the

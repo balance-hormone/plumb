@@ -196,6 +196,8 @@ interface Context {
   maxCodes: number;
   /** The type of an extension profile, generated once in its own file. */
   extension: (url: string) => string | undefined;
+  /** The profile and extension type names, which share one namespace with every slice type. */
+  taken: ReadonlySet<string>;
 }
 
 /** Turns one parsed profile into its type declarations. */
@@ -245,7 +247,9 @@ class ProfileTransform {
     this.helpers.length = 0;
     this.constants.length = 0;
     this.sliceDecls.length = 0;
+    // A slice type is named last, so around the profile's own type and its backbones.
     this.usedNames.clear();
+    for (const name of [this.typeName, ...this.inner.values()]) this.usedNames.add(name);
     const root = getDataType(this.schema.type).elements;
     const decls = [
       {
@@ -284,8 +288,9 @@ class ProfileTransform {
       if (key.includes('.')) continue;
       const be = baseElements[key];
       const children = childrenOf(elements, key);
-      if (key.endsWith('[x]')) this.choice(baseName, key, e, be, children, { fields, omit, oneOf });
-      else this.member(key, e, be, children, `${path}.${key}`, { fields, omit, required });
+      if (key.endsWith('[x]')) {
+        this.choice(baseName, key, `${path}.${key}`, e, be, children, { fields, omit, oneOf });
+      } else this.member(key, e, be, children, `${path}.${key}`, { fields, omit, required });
     }
     if (fields.length === 0 && oneOf.length === 0 && omit.length === 0) {
       return required.length > 0
@@ -396,34 +401,55 @@ class ProfileTransform {
   private uniqueName(stem: string, key: string, slice: string): string {
     const plain = `${stem}${pascal(slice)}`;
     const qualified = `${stem}${pascal(key)}${pascal(slice)}`;
-    let name = this.usedNames.has(plain) ? qualified : plain;
-    for (let n = 2; this.usedNames.has(name); n++) name = `${qualified}${n}`;
+    const used = (n: string) => this.usedNames.has(n) || this.ctx.taken.has(n);
+    let name = used(plain) ? qualified : plain;
+    for (let n = 2; used(name); n++) name = `${qualified}${n}`;
     this.usedNames.add(name);
     return name;
   }
 
-  /** Ordered slicing: each slice in its place, then any other entries when the slicing is open. */
+  /**
+   * Ordered slicing, typed only as far as positions are fixed: the leading
+   * slices that must appear exactly once, each in its place. What follows
+   * may be any later slice, or any other entry when open at the end. Open
+   * slicing lets other entries come first, and an optional slice lets the
+   * next one move up, so neither has a fixed place: a tuple there would
+   * refuse resources that conform.
+   */
   private tuple(
     shapes: { slice: SliceDefinition; type: TypeExpr }[],
     slicing: SlicingRules,
     item: TypeExpr,
-  ): TypeExpr {
-    const of: TypeExpr[] = [];
-    let optional = false;
-    for (const [i, { slice, type }] of shapes.entries()) {
-      if (slice.max > 1) {
-        // A repeating slice can only be the tuple's rest, so only the last may repeat.
-        if (i !== shapes.length - 1 || slicing.rule !== 'closed') {
-          return { kind: 'array', of: { kind: 'union', of: [...shapes.map((s) => s.type), item] } };
-        }
-        of.push({ kind: 'rest', of: type });
-        return { kind: 'tuple', of };
-      }
-      optional ||= slice.min === 0;
-      of.push(optional ? { kind: 'optional', of: type } : type);
+  ): TypeExpr | undefined {
+    if (slicing.rule === 'open') return undefined;
+    const fixed = shapes.findIndex(({ slice }) => slice.min < 1 || slice.max !== 1);
+    const lead = fixed === -1 ? shapes : shapes.slice(0, fixed);
+    const rest = [
+      ...shapes.slice(lead.length).map((s) => s.type),
+      ...(slicing.rule === 'closed' ? [] : [item]),
+    ];
+    const of: TypeExpr[] = lead.map((s) => s.type);
+    const last = shapes.at(-1);
+    if (
+      slicing.rule === 'closed' &&
+      last &&
+      lead.length === shapes.length - 1 &&
+      last.slice.max === 1
+    ) {
+      // A closed slicing's one optional last slice keeps its place.
+      of.push({ kind: 'optional', of: last.type });
+    } else if (rest.length > 0) {
+      of.push({
+        kind: 'rest',
+        of: rest.length === 1 ? (rest[0] as TypeExpr) : { kind: 'union', of: rest },
+      });
     }
-    if (slicing.rule !== 'closed') of.push({ kind: 'rest', of: item });
-    return { kind: 'tuple', of };
+    return lead.length === 0
+      ? {
+          kind: 'array',
+          of: rest.length === 1 ? (rest[0] as TypeExpr) : { kind: 'union', of: rest },
+        }
+      : { kind: 'tuple', of };
   }
 
   /** A slice narrows its element; an extension slice takes its extension profile's type. */
@@ -594,6 +620,7 @@ class ProfileTransform {
   private choice(
     baseName: string,
     key: string,
+    path: string,
     e: InternalSchemaElement,
     be: InternalSchemaElement | undefined,
     children: Record<string, InternalSchemaElement>,
@@ -612,7 +639,7 @@ class ProfileTransform {
     }
     for (const code of baseCodes) if (!codes.includes(code)) into.omit.push(prop(code));
     const item = (code: string): TypeExpr => {
-      const narrowed = codes.length === 1 ? this.elementType(e, be, children, key) : undefined;
+      const narrowed = codes.length === 1 ? this.elementType(e, be, children, path) : undefined;
       if (narrowed) return narrowed;
       // A bare Reference would widen the base's targets, so it keeps the base's own type.
       if (code === 'Reference') return { kind: 'index', base: baseName, key: prop(code) };
@@ -632,7 +659,7 @@ class ProfileTransform {
             .map((c) => ({ name: prop(c), optional: true, type: never })),
         ]),
       );
-    } else if (single && this.elementType(e, be, children, key)) {
+    } else if (single && this.elementType(e, be, children, path)) {
       into.omit.push(prop(single));
       into.fields.push({ name: prop(single), optional: true, type: item(single) });
     }
@@ -743,14 +770,15 @@ function requiredRows(t: TypeExpr, decls: Map<string, TypeExpr>, stack: string[]
         rows(item.kind === 'optional' || item.kind === 'rest' ? item.of : item),
       );
       const shared = common(items);
-      const positions = t.of.flatMap((item, i) =>
-        item.kind === 'rest'
-          ? []
-          : prefixed(
-              String(i),
-              (items[i] ?? []).filter((row) => !shared.some((r) => same(r, row))),
-            ),
-      );
+      const positions = t.of.flatMap((item, i) => {
+        if (item.kind === 'rest') return [];
+        const own = prefixed(
+          String(i),
+          (items[i] ?? []).filter((row) => !shared.some((r) => same(r, row))),
+        );
+        // A row below an entry holds only where the entry is, so a required one is a row itself.
+        return item.kind === 'optional' ? own : [[String(i)], ...own];
+      });
       return unique([...shared, ...positions]);
     }
     case 'require':
@@ -909,6 +937,7 @@ export function transform(
     targetType,
     expand: (url) => expandValueSet(url, lookup),
     maxCodes: options.maxCodes ?? MAX_CODES,
+    taken,
     extension: (url) => {
       const bare = url.split('|')[0] as string;
       const known = selected.get(bare) ?? extensions.get(bare)?.typeName;

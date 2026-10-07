@@ -146,7 +146,12 @@ slice accessors and check presence at runtime. Plumb follows them:
   nor `ordered` or `closed`, and never matches an extension slice, so the doc
   comment says that too.
 - **Ordered slicing (`ordered: true`) becomes a tuple,** because there order is
-  part of the FHIR rule, as openapi-typescript does for `prefixItems`.
+  part of the FHIR rule, as openapi-typescript does for `prefixItems`, but
+  only as far as positions are fixed: the leading slices required exactly
+  once, then a rest of the later slices (and any entry, when open at the
+  end). Open slicing lets other entries come first and an optional slice
+  lets the next move up, so neither fixes a place; a tuple there would refuse
+  resources that conform, so their order is the `slice` type gap.
 - **Closed slicing (`rules: closed`) makes the element type a union of the
   slice shapes,** so an entry that matches no slice fails to compile.
 - **Open slicing keeps the plain array, extensions included.** Extension
@@ -319,7 +324,8 @@ expected result comes from a source independent of the generator:
   - *Type gaps* (`typeGap`), where the types cannot say the rule:
     `array-length` (arrays shorter than `min` or longer than `max`),
     `slice` (a required slice missing or repeated, an entry breaking its
-    slice's rules, a required sub-extension missing), `pattern-coding` (a
+    slice's rules, a required sub-extension missing, slices out of order
+    where no position is fixed), `pattern-coding` (a
     `CodeableConcept` missing its pattern's coding), `invariant`,
     `primitive-format` (a string or number breaking its primitive's format),
     `choice-conflict` (two types of an optional choice),

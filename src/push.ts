@@ -10,7 +10,7 @@ import {
   missingFeatures,
   planBots,
 } from './bots.js';
-import { closure } from './checker/input.js';
+import { closure, type Gated } from './checker/input.js';
 import {
   type CheckerInstall,
   type CheckerOptions,
@@ -156,15 +156,16 @@ export async function push(options: PushOptions): Promise<PushResult> {
 
   const filename = checkerFilename(options.checker.code, options.checker.version);
   result.reportPath = options.reportPath;
+  const gated = gatedProfiles(loaded, changes);
   const check = (name: 'gate' | 'recheck') =>
-    checkStored(medplum, loaded, botId, { ...options, filename }).catch((err: unknown) => {
+    checkStored(medplum, gated, botId, { ...options, filename }).catch((err: unknown) => {
       step.fail(name, [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
       return undefined;
     });
 
   result.gate = await check('gate');
   if (!result.gate) return result;
-  const gate = judge(result.gate, loaded.profiles.length);
+  const gate = judge(result.gate, gated.profiles.length);
   step.finish(
     'gate',
     gate.failed ? failingSummary(result.gate) : 'nothing stored would fail',
@@ -188,7 +189,7 @@ export async function push(options: PushOptions): Promise<PushResult> {
 
   result.recheck = await check('recheck');
   if (!result.recheck) return result;
-  const recheck = judge(result.recheck, loaded.profiles.length);
+  const recheck = judge(result.recheck, gated.profiles.length);
   step.finish(
     'recheck',
     recheck.failed ? failingSummary(result.recheck, true) : 'nothing stored fails',
@@ -633,6 +634,25 @@ async function heldCopies(medplum: MedplumClient, planned: Definition[]) {
     held.set(url, visible);
   }
   return { held, server, ours: (d: Definition) => d.meta?.project === project.id };
+}
+
+/**
+ * The selected profiles, and every other resource profile push creates or
+ * updates, such as a parent: strict mode enforces each one a resource is
+ * stamped with, selected or not.
+ */
+function gatedProfiles(loaded: LoadProfilesResult, changes: PlannedDefinition[]): Gated {
+  const selected = new Set(loaded.profiles.map((p) => p.url));
+  const others = changes.flatMap((c) => {
+    const sd = loaded.definitions.get(c.url)?.resource;
+    return !selected.has(c.url) &&
+      sd?.resourceType === 'StructureDefinition' &&
+      sd.kind === 'resource' &&
+      sd.derivation === 'constraint'
+      ? [{ url: c.url, sd }]
+      : [];
+  });
+  return { profiles: [...loaded.profiles, ...others], definitions: loaded.definitions };
 }
 
 /** Updates the one definition the project holds for a URL, or creates it. */
