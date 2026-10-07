@@ -11,7 +11,7 @@ import type {
   ValueSet,
 } from '@medplum/fhirtypes';
 import type { LoadProfilesResult } from './loader.js';
-import { claim, differing, PLUMB_SYSTEM, searchAll, tagOf } from './project.js';
+import { claim, differing, PLUMB_SYSTEM, searchAll, tagOf, withPlumbTag } from './project.js';
 
 /** The reference content `push` converges: design 09. */
 type Content = Questionnaire | CodeSystem | ValueSet | Organization;
@@ -269,22 +269,10 @@ function planOne(
   };
 }
 
-/**
- * The file as written, less its id (an Organization's key, never its server
- * id), with Plumb's tag beside the file's own meta and any tags the server
- * copy carries.
- */
+/** The file as written, less its id (an Organization's key, never its server id), tagged. */
 function withTag(file: ContentFile, current?: Content): Content {
-  const { id: _, meta, ...content } = file.resource;
-  const others = current?.meta?.tag?.filter((t) => t.system !== PLUMB_SYSTEM) ?? [];
-  return {
-    ...content,
-    ...(current ? { id: current.id } : {}),
-    meta: {
-      ...meta,
-      tag: [...others, ...(meta?.tag ?? []), { system: PLUMB_SYSTEM, code: file.key }],
-    },
-  } as Content;
+  const { id: _, ...content } = file.resource;
+  return withPlumbTag(content as Content, file.key, current);
 }
 
 const isRetired = (r: Content) =>

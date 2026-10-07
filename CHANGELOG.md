@@ -10,7 +10,10 @@ test first, against a real Medplum where the server is involved.
   updated (#235). Every read it plans from pages through all results (#243).
   The gate checks every resource profile push loads, a selected profile's
   parents included (#250), survives a `dependsOn` cycle and names restamp
-  migrations (#237).
+  migrations (#237). Updating a policy, client, content resource or
+  Subscription keeps the server copy's `meta` (a hand-set `security` or
+  `account`), and a tag the file and server both carry is listed once
+  (#230).
 - **check** fails when the profiles do not load, so `--update-baseline`
   cannot wipe the baseline (#236).
 - **migrate:** a run's start is the server's time, not the CLI's (#238); a

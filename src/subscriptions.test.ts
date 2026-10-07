@@ -71,4 +71,25 @@ describe('planHeldSubscriptions', () => {
       fields: ['reason', 'channel'],
     });
   });
+
+  test("keeps the server copy's hand-set meta.security on update", () => {
+    const security = [{ system: 'http://example.org/security', code: 'restricted' }];
+    const held: Subscription = {
+      resourceType: 'Subscription',
+      id: 's1',
+      status: 'active',
+      reason: 'new-appointment',
+      criteria: 'Appointment?status=proposed',
+      channel: { type: 'rest-hook', endpoint: 'Bot/b1', payload: 'application/fhir+json' },
+      meta: { security, tag: [{ system: PLUMB_SYSTEM, code: 'new-appointment' }] },
+    };
+    const [change] = planHeldSubscriptions(CONFIG, [held], { 'send-reminder': 'b1' }).changes;
+    expect(change).toMatchObject({
+      kind: '~',
+      fields: ['criteria'],
+      subscription: {
+        meta: { security, tag: [{ system: PLUMB_SYSTEM, code: 'new-appointment' }] },
+      },
+    });
+  });
 });
