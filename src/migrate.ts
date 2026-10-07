@@ -10,7 +10,7 @@ import { type CheckerInput, handler as checker } from './checker/handler.js';
 import { checkerInput } from './checker/input.js';
 import { CHECKER_IDENTIFIER, checkerFilename, findChecker } from './checker/install.js';
 import { importModules, type PlumbConfig } from './config.js';
-import { notCurrent, runPage } from './conformance.js';
+import { notCurrent, QUOTA_TRIES, QUOTA_WAIT_MS, runPage } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
 import { checkMigrations, loadMigrations, type Migration } from './migrations.js';
@@ -567,32 +567,61 @@ async function runPages(
     count: options.pageSize ?? 100,
     ...(forecast ? { forecast } : {}),
   };
-  do {
-    let page: PageResult;
-    try {
-      const cursor = state.cursor ? { cursor: state.cursor } : {};
-      page = await run.page({ ...input, ...cursor });
-    } catch (err) {
-      await savePass(medplum, pass, {
-        ...state,
-        status: 'errored',
-        lastError: normalizeErrorString(err),
-      });
-      throw err;
-    }
+  let limited = 0;
+  for (;;) {
+    const cursor = state.cursor ? { cursor: state.cursor } : {};
+    const page = await pageOf(run, pass, { ...input, ...cursor });
     add(report, page);
     state.counts = { ...report.counts };
-    state.cursor = page.next;
     state.pages++;
+    if (page.limited) {
+      limited = await holdOff(run, pass, limited + 1);
+      continue;
+    }
+    limited = 0;
+    state.cursor = page.next;
     state.lease = (options.now ?? (() => new Date()))().toISOString();
     await savePass(medplum, pass, state);
     await options.onPage?.(migration.id, report.counts);
-    if (state.cursor && options.signal?.aborted) {
+    if (!state.cursor) return true;
+    if (options.signal?.aborted) {
       await savePass(medplum, pass, { ...state, status: 'paused' });
       return false;
     }
-  } while (state.cursor);
-  return true;
+  }
+}
+
+/** One page; a failure leaves the pass errored, to resume from its cursor. */
+async function pageOf(run: Run, pass: Pass, input: object): Promise<PageResult> {
+  try {
+    return await run.page(input);
+  } catch (err) {
+    await savePass(run.medplum, pass, {
+      ...pass.state,
+      status: 'errored',
+      lastError: normalizeErrorString(err),
+    });
+    throw err;
+  }
+}
+
+/**
+ * Over the project's rate limit: saves what the page wrote, with the lease,
+ * and waits for the limit to reset before the same page runs again.
+ */
+async function holdOff(run: Run, pass: Pass, tries: number): Promise<number> {
+  const { medplum, options } = run;
+  pass.state.lease = (options.now ?? (() => new Date()))().toISOString();
+  if (tries >= QUOTA_TRIES) {
+    const lastError = `Still over the project's rate limit after ${QUOTA_TRIES} tries.`;
+    await savePass(medplum, pass, { ...pass.state, status: 'errored', lastError });
+    throw new Error(lastError);
+  }
+  await savePass(medplum, pass, pass.state);
+  await (options.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(
+    QUOTA_WAIT_MS,
+  );
+  return tries;
 }
 
 /** A finished pass is applied, or errored and run again from the start when it left records behind. */
@@ -623,6 +652,8 @@ interface PageResult extends Counts {
     >;
   };
   next?: string;
+  /** Stopped by the project's rate limit: what it wrote is counted, and the page runs again. */
+  limited?: true;
 }
 
 function add(report: MigrationReport, page: PageResult): void {

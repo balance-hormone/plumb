@@ -437,8 +437,8 @@ const READY_WAIT_MS = 2_000;
 const READY_TIMEOUT_MS = 60_000;
 // Over the project's FHIR quota, which Medplum counts per minute.
 const QUOTA = /too many requests|too-many-requests/i;
-const QUOTA_WAIT_MS = 60_000;
-const QUOTA_TRIES = 10;
+export const QUOTA_WAIT_MS = 60_000;
+export const QUOTA_TRIES = 10;
 
 /**
  * One page, as an async job: a page can outlast an HTTP request, not the
