@@ -14,7 +14,7 @@ import { notCurrent, runPage } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
 import { checkMigrations, loadMigrations, type Migration } from './migrations.js';
-import { PLUMB_SYSTEM } from './project.js';
+import { owned, PLUMB_SYSTEM } from './project.js';
 
 type MigrateStepName = string;
 
@@ -284,10 +284,10 @@ export async function migrationStatus(
   if (!connected.ok) return step.fail('connect', [connected.error]);
   step.finish('connect', options.environment.baseUrl);
 
-  const entries = await connected.medplum.searchResources('Basic', {
-    code: `${PLUMB_SYSTEM}|migration`,
-    _count: '1000',
-  });
+  const entries = await connected.medplum.searchResources(
+    'Basic',
+    owned(connected.medplum, { code: `${PLUMB_SYSTEM}|migration`, _count: '1000' }),
+  );
   const held = new Map(entries.map((basic) => [tagOf(basic), stateOf(basic)]));
   const report = (id: string, state: LedgerState | undefined, migration?: Migration) => {
     const status = statusOf(state, migration);
@@ -315,12 +315,19 @@ function statusOf(
   migration: Migration | undefined,
 ): MigrationStatus['status'] {
   if (!state) return 'pending';
-  if (!migration || state.status !== 'applied' || state.hash === hashOf(migration)) {
-    return state.status;
-  }
+  if (!migration || !edited(state, hashOf(migration))) return state.status;
   // A restamp runs again when the routing changes; anything else was edited.
   return migration.repeatable ? 'pending' : 'edited';
 }
+
+/**
+ * Whether the module changed since its pass began, once that pass has
+ * written something: resuming, or skipping it as applied, would leave records
+ * written by two versions of the transform.
+ */
+const edited = (state: LedgerState, hash: string) =>
+  state.hash !== hash &&
+  (state.status === 'applied' || state.status === 'paused' || state.status === 'errored');
 
 function describe(id: string, m: MigrationStatus): string {
   const at = m.commit ? ` at ${m.commit.slice(0, 7)}` : '';
@@ -328,7 +335,7 @@ function describe(id: string, m: MigrationStatus): string {
   const text = {
     pending: 'pending',
     applied: `applied${at}${changed}`,
-    edited: `applied${at}, then its module was edited: --rerun ${id} runs it again`,
+    edited: `ran${at}, then its module was edited: --rerun ${id} runs it again`,
     running: `running${changed}`,
     paused: `paused${changed}: --write resumes it`,
     errored: `errored${m.lastError ? `: ${m.lastError}` : ''}`,
@@ -464,14 +471,14 @@ async function blocker(
   }
   const state = held && stateOf(held);
   if (
-    state?.status === 'applied' &&
-    state.hash !== hash &&
+    state &&
+    edited(state, hash) &&
     !migration.repeatable &&
     !options.rerun?.includes(migration.id)
   ) {
     return {
       code: 'migration-edited',
-      message: `${migration.id} was edited after it was applied; --rerun ${migration.id} runs it again.`,
+      message: `${migration.id} was edited after it ${state.status === 'applied' ? 'was applied' : 'began writing'}; --rerun ${migration.id} runs it again as a fresh pass.`,
     };
   }
   return undefined;
@@ -523,8 +530,24 @@ async function begin(
   const pass: Pass = options.write
     ? await takeLease(run.medplum, migration, held, hash, now, options)
     : { state: { status: 'running', hash, counts: zero(), pages: 0 } };
-  pass.state.start ??= now.toISOString();
+  // The pass reads what the server last updated before it began, so the
+  // cutoff is the server's time, never this machine's: a slow clock would
+  // skip records, a fast one read the pass's own writes again. A write's is
+  // when its ledger entry was saved, before any record is written.
+  pass.state.start ??= pass.basic?.meta?.lastUpdated ?? (await serverTime(run.medplum));
   return pass;
+}
+
+/**
+ * The server's time, from its Date header, rounded up to the next second so
+ * that nothing updated in the current second is left out. For a dry run,
+ * which writes nothing it could read again.
+ */
+async function serverTime(medplum: MedplumClient): Promise<string> {
+  const response = await fetch(new URL('healthcheck', medplum.getBaseUrl()));
+  const date = Date.parse(response.headers.get('date') ?? '');
+  if (Number.isNaN(date)) throw new Error(`${medplum.getBaseUrl()} sent no Date header.`);
+  return new Date(date + 1000).toISOString();
 }
 
 /** Runs the pass's pages, saving the ledger after each; false when stopped by the signal. */
@@ -636,7 +659,10 @@ async function currentMigrator(
   key: string,
 ): Promise<Bot | { code: string; message: string }> {
   const fix = `Run plumb push --env ${options.environment.name}.`;
-  const bot = await medplum.searchOne('Bot', { identifier: `${PLUMB_SYSTEM}|${key}` });
+  const bot = await medplum.searchOne(
+    'Bot',
+    owned(medplum, { identifier: `${PLUMB_SYSTEM}|${key}` }),
+  );
   const file = options.config.bots?.[key]?.file;
   if (!bot || !file) {
     return {
@@ -654,7 +680,10 @@ async function currentMigrator(
 }
 
 const findLedger = (medplum: MedplumClient, id: string) =>
-  medplum.searchOne('Basic', { _tag: `${PLUMB_SYSTEM}|${id}`, code: `${PLUMB_SYSTEM}|migration` });
+  medplum.searchOne(
+    'Basic',
+    owned(medplum, { _tag: `${PLUMB_SYSTEM}|${id}`, code: `${PLUMB_SYSTEM}|migration` }),
+  );
 
 const stateOf = (basic: Basic): LedgerState =>
   JSON.parse(basic.extension?.find((e) => e.url === STATE)?.valueString ?? '{}') as LedgerState;
@@ -676,7 +705,9 @@ async function takeLease(
   ) {
     throw running(migration.id);
   }
-  const resume = previous?.cursor !== undefined && previous.status !== 'applied';
+  // A pass resumes only with the module it began with; otherwise a fresh pass.
+  const resume =
+    previous?.cursor !== undefined && previous.status !== 'applied' && previous.hash === hash;
   const state: LedgerState = {
     status: 'running',
     hash,
@@ -688,7 +719,11 @@ async function takeLease(
   };
   if (!held) {
     const created = await medplum.createResource<Basic>(ledgerResource(migration.id, state), {
-      headers: { 'If-None-Exist': `_tag=${PLUMB_SYSTEM}|${migration.id}` },
+      headers: {
+        'If-None-Exist': Object.entries(owned(medplum, { _tag: `${PLUMB_SYSTEM}|${migration.id}` }))
+          .map(([k, v]) => `${k}=${v}`)
+          .join('&'),
+      },
     });
     // A conditional create that found one returns it: another run made it first.
     if (stateOf(created).lease !== state.lease) throw running(migration.id);
