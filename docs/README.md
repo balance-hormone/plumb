@@ -417,6 +417,7 @@
   operation refused as shadowed (#263). **v0.16 is complete.**
 - **v0.17:** a secret scoped to some environments (#269), and an unset
   variable that leaves a held secret alone (#271). **v0.17 is complete.**
+- **v0.18:** restamp exclusions, `restamp: { exclude }` (#273). **v0.18 is complete.**
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), reference content (built), behaviour (built) and data over time
