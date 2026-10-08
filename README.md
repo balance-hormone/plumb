@@ -692,7 +692,7 @@ plumb migrate --env prod
 ✔ load        1 profiles of Patient   1.9s
 ✔ connect     https://api.medplum.com/   320ms
 ✔ migrations  1 of 1 chosen   40ms
-✔ checker     plumb-checker 0.15.0 installed   60ms
+✔ checker     plumb-checker 0.16.0 installed   60ms
 ✔ migrator    migrator current (migrator-3c07…)   70ms
 ✔ 20261006-patient-birthdate  dry run: 312 read, 312 to change, 0 unchanged   9.8s
     forecast: 312 would pass the selected profiles, 0 would still fail

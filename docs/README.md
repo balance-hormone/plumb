@@ -412,6 +412,9 @@
   doc comments that list the same invariants for every profile (#234), and
   real-server tests for every documented server claim but the quota wait
   (#233). **v0.15 is complete.**
+- **v0.16:** a bot or Subscription scoped to some environments, with a
+  `scope` step on every push (#266), and a linked project's tagged
+  operation refused as shadowed (#263). **v0.16 is complete.**
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), reference content (built), behaviour (built) and data over time

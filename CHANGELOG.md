@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.16.0 (2026-10-07)
+
+The checker's version changes, so the next `push` redeploys it.
 
 - **`environments` on a bot or Subscription** scopes it to some
   environments: `push` leaves it, and the operations a scoped bot
