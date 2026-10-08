@@ -53,6 +53,7 @@ load, by the step that checks them.
 | `unknown-bot` | all | 2 | Name a key of `bots`. |
 | `invalid-operation` | push | 2 | Fix the operation contract the message names. |
 | `invalid-migration` | migrate, migrate new | 2 | Fix the migration module, or `migrations.modules`. |
+| `invalid-restamp-exclude` | all, migrate | 2 | Point `migrations.restamp.exclude` at a module that default-exports a function from a record to a reason or `undefined`. |
 | `invalid-content` | generate, push | 2 | Make the file one Questionnaire, CodeSystem, ValueSet or Organization, with its URL or id. |
 | `duplicate-content` | generate, push | 2 | Keep one file per canonical URL or Organization id. |
 | `unknown-migration` | migrate | 2 | Name a migration id the modules declare. |

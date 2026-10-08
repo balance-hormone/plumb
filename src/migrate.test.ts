@@ -15,7 +15,7 @@ import {
   migrateEnvironment,
   pendingMigrations,
 } from './migrate.js';
-import type { Migration } from './migrations.js';
+import { type Migration, migrationHash, restampHash } from './migrations.js';
 import { PLUMB_SYSTEM } from './project.js';
 
 // The client a run connects with, which a test points at its fake server.
@@ -95,6 +95,58 @@ describe("pendingMigrations, for push's gate", () => {
     expect((await pendingMigrations(applied, config, ['Patient'])).pending).toEqual([
       { id: 'plumb-restamp-Patient', resourceType: 'Patient' },
     ]);
+  });
+
+  test("a restamp with an exclusion is pending again once the exclusion's module is edited", async () => {
+    const out = mkdtempSync(join(tmpdir(), 'plumb-pending-out-'));
+    writeFileSync(
+      join(out, '_restamp.ts'),
+      "export const restamps = [{ id: 'plumb-restamp-Coverage', resourceType: 'Coverage', transform: () => undefined }];",
+    );
+    writeFileSync(join(out, '_routes.ts'), '// the routing');
+    const exclude = join(out, 'never-stamped.ts');
+    writeFileSync(exclude, 'export default () => undefined;');
+    const config = {
+      igs: [],
+      profiles: [],
+      out,
+      migrations: { bot: 'migrator', modules: [], restamp: { exclude } },
+    };
+    // Applied with the hash plumb migrate computes now, then the exclusion is edited.
+    const hash = restampHash('// the routing', migrationHash(exclude, out));
+    const state = { status: 'applied', hash, counts: {}, pages: 1 };
+    const applied = {
+      getProject: () => ({ resourceType: 'Project', id: 'p1' }),
+      searchOne: async () => ({
+        resourceType: 'Basic',
+        extension: [{ url: `${PLUMB_SYSTEM}#migration`, valueString: JSON.stringify(state) }],
+      }),
+    } as unknown as MedplumClient;
+    expect((await pendingMigrations(applied, config, ['Coverage'])).pending).toEqual([]);
+    writeFileSync(
+      exclude,
+      "export default (c: { subscriberId?: string }) => c.subscriberId ? undefined : 'self-pay';",
+    );
+    expect((await pendingMigrations(applied, config, ['Coverage'])).pending).toEqual([
+      { id: 'plumb-restamp-Coverage', resourceType: 'Coverage' },
+    ]);
+  });
+
+  test('an exclusion module that does not default-export a function is refused', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'plumb-pending-out-'));
+    writeFileSync(join(out, '_restamp.ts'), 'export const restamps = [];');
+    writeFileSync(join(out, '_routes.ts'), '');
+    const exclude = join(out, 'never-stamped.ts');
+    writeFileSync(exclude, "export const reason = 'self-pay';");
+    const config = {
+      igs: [],
+      profiles: [],
+      out,
+      migrations: { bot: 'migrator', modules: [], restamp: { exclude } },
+    };
+    expect((await pendingMigrations(empty, config, ['Coverage'])).error).toMatch(
+      /does not default-export a function/,
+    );
   });
 
   test('reports a dependsOn cycle instead of overflowing the stack', async () => {
@@ -354,5 +406,43 @@ describe('migrate --write, against a fake Medplum', () => {
     const result = await run();
     expect(result.errors).toEqual([expect.objectContaining({ code: 'migration-running' })]);
     expect(count('POST Bot/m1/$execute')).toBe(0);
+  });
+
+  test("a restamp's exclusion is asked of the bot, and what it skips is counted by reason", async () => {
+    const out = mkdtempSync(join(tmpdir(), 'plumb-migrate-out-'));
+    writeFileSync(
+      join(out, '_restamp.ts'),
+      "export const restamps = [{ id: 'plumb-restamp-Coverage', resourceType: 'Coverage', transform: () => undefined }];",
+    );
+    writeFileSync(join(out, '_routes.ts'), '// the routing');
+    const exclude = join(out, 'never-stamped.ts');
+    writeFileSync(exclude, "export default () => 'self-pay: no member id';");
+    const inputs: { exclude?: boolean }[] = [];
+    const skipped = { skipped: 2, skips: [{ message: 'self-pay: no member id', count: 2 }] };
+    serve([page({ read: 5, changed: 3, ...skipped })], [], {
+      'POST Bot/m1/$execute': (_, body) => {
+        inputs.push(JSON.parse(body) as { exclude?: boolean });
+        return json({ resourceType: 'OperationOutcome', id: 'accepted', issue: [] }, 202, {
+          'content-location': `${BASE}fhir/R4/job/j1/status`,
+        });
+      },
+    });
+    const config = options.config;
+    const result = await run({
+      config: {
+        ...config,
+        out,
+        migrations: { bot: 'migrator', modules: [], restamp: { exclude } },
+      },
+    });
+    expect(result.errors).toEqual([]);
+    expect(inputs).toEqual([expect.objectContaining({ exclude: true })]);
+    expect(result.migrations['plumb-restamp-Coverage']).toMatchObject({
+      counts: { read: 5, changed: 3, skipped: 2 },
+      skips: [{ message: 'self-pay: no member id', count: 2 }],
+    });
+    const step = result.steps.find((s) => s.name === 'plumb-restamp-Coverage');
+    expect(step?.summary).toBe('5 read, 3 changed, 0 unchanged, 2 skipped');
+    expect(step?.warnings).toEqual(['2 skipped: self-pay: no member id']);
   });
 });

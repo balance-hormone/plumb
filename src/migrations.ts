@@ -11,6 +11,8 @@ export interface Migration {
   resourceType: string;
   search?: Record<string, string>;
   transform: (resource: never) => unknown;
+  /** Why a record is left as it is, counted as skipped; Plumb's restamps take the config's exclusion. */
+  exclude?: (resource: never) => string | undefined;
   dependsOn?: string[];
   description?: string;
   /** The module it came from, for errors, and whose hash the ledger records. */
@@ -49,6 +51,18 @@ export function migrationHash(file: string, out?: string): string {
     sha.update(`${path}\0${text.length}\0${text}`);
   }
   return sha.digest('hex');
+}
+
+/**
+ * The restamps' hash with an exclusion: `_routes.ts`'s text and the exclusion
+ * module's migrationHash, so a change to either makes them pending again.
+ * `generate` writes it into `_restamp.ts` from the routes it prints, and
+ * `plumb migrate` computes it from the file, so both see the same text.
+ */
+export function restampHash(routes: string, exclude: string): string {
+  return createHash('sha256')
+    .update(`${routes.replaceAll('\r\n', '\n')}\0${exclude}`)
+    .digest('hex');
 }
 
 // A relative specifier in an import, an export from, or a dynamic import.

@@ -22,6 +22,7 @@ interface Migration {
   resourceType: string;
   search?: Record<string, string>;
   transform(resource: Patient): Patch | undefined;
+  exclude?(resource: Patient): string | undefined;
 }
 interface PageResult {
   read: number;
@@ -30,6 +31,8 @@ interface PageResult {
   conflict: number;
   failed: number;
   reasons: { message: string; count: number }[];
+  skipped: number;
+  skips: { message: string; count: number }[];
   forecast?: { stamped: number; failing: number; profiles: object };
   written: { id: string; versionId: string }[];
   next?: string;
@@ -84,6 +87,24 @@ test('the module plumb migrate new scaffolds compiles against the generated code
   );
   if (!created.ok) throw new Error(JSON.stringify(created.errors));
   expect(typecheck(files, readFileSync(created.file, 'utf8'))).toEqual([]);
+});
+
+test("the restamp takes an exclusion typed by the record it excludes, and carries the exclusion's hash", () => {
+  const restamped = printFiles([], () => 'harness', undefined, [], [], undefined, [], {
+    path: '../check.js',
+    hash: (routes) => `hash of ${routes.length}`,
+  });
+  const routes = restamped.get('_routes.ts') as string;
+  expect(restamped.get('_restamp.ts')).toContain(`hash: 'hash of ${routes.length}'`);
+  const source = `
+import type { Coverage } from '@medplum/fhirtypes';
+export { handler } from './generated/_migrator.js';
+
+export default function neverStamped(coverage: Coverage): string | undefined {
+  return coverage.subscriberId ? undefined : 'self-pay: no member id';
+}
+`;
+  expect(typecheck(restamped, source)).toEqual([]);
 });
 
 test('a MedplumClient is a MigrationClient, and the bot entry is one line', () => {
@@ -292,6 +313,39 @@ describe('handleMigrations', () => {
     );
     expect(calls.writes).toEqual([]);
     await expect(run([built], medplum, { hash: 'built' })).resolves.toMatchObject({ read: 1 });
+  });
+
+  test('a record the exclusion names is skipped by its reason: not transformed, written or forecast', async () => {
+    const forecast = { checker: CHECKER, profiles: ['http://example.org/p'], definitions: 'gz' };
+    const { medplum, calls } = client([patient('a'), patient('b'), patient('c')]);
+    const transformed: string[] = [];
+    const excluding: Migration = {
+      ...birthdate,
+      exclude: (p) => (p.id === 'a' ? undefined : 'kept as written'),
+      transform: (p) => {
+        transformed.push(p.id as string);
+        return birthdate.transform(p);
+      },
+    };
+    const result = await run([excluding], medplum, { write: true, forecast, exclude: true });
+    expect(result).toMatchObject({
+      read: 3,
+      changed: 1,
+      skipped: 2,
+      skips: [{ message: 'kept as written', count: 2 }],
+      reasons: [],
+    });
+    expect(transformed).toEqual(['a']);
+    expect(calls.writes).toHaveLength(1);
+    expect((calls.bots[0] as { resources: Patient[] }).resources.map((p) => p.id)).toEqual(['a']);
+  });
+
+  test('a page that expects an exclusion is refused by a bot built without one', async () => {
+    const { medplum, calls } = client([patient('a')]);
+    await expect(run([birthdate], medplum, { write: true, exclude: true })).rejects.toThrow(
+      /without its exclusion/,
+    );
+    expect(calls.writes).toEqual([]);
   });
 
   test('a migration the bot does not have is refused', async () => {
