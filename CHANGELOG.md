@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.17.0 (2026-10-07)
+
+The checker's version changes, so the next `push` redeploys it.
 
 - **An unset variable leaves a held secret alone:** `push` and `--check`
   warn that it was not compared rather than blocking, so a run that cannot
