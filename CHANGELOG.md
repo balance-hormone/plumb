@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.18.1 (2026-10-08)
 
 - **The test server no longer throttles a suite:** its FHIR quota is raised
   from Medplum's default of 50,000 points a minute, which a few policy suites
