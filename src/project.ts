@@ -134,6 +134,8 @@ export interface ProjectPlan {
 interface ProjectWrite {
   setting?: ProjectSetting[];
   secret?: { name: string; env: string }[];
+  /** Secrets scoped to other environments, removed with `--prune`. */
+  removeSecret?: string[];
   defaultProfile?: ProjectDefaultProfile[];
   /** Each role's policy, by key. */
   defaultAccessPolicies?: ProjectConfig['defaultAccessPolicies'];
@@ -162,6 +164,8 @@ export interface ProjectOptions {
   prune?: boolean;
   /** Where `{ env }` secrets are read from. */
   env?: Record<string, string | undefined>;
+  /** Declared secrets scoped to other environments, which this one must not hold. */
+  outOfScopeSecrets?: string[];
 }
 
 /**
@@ -186,7 +190,7 @@ export async function planProject(
   const plan = planPolicies(project, held, options);
   const clients = await withMemberships(medplum, apps, Object.keys(project.clients ?? {}));
   const planned = planClients(project, clients, plan.policyIds, options);
-  const fields = planFields(project, current, plan.policyIds, options.env ?? {});
+  const fields = planFields(project, current, plan.policyIds, options);
   // Policies first, which clients and the Project reference; removals last, clients before the policies they use.
   const removal = (c: ProjectChange) => c.kind === '-';
   plan.changes = [
@@ -197,6 +201,7 @@ export async function planProject(
     ...plan.changes.filter(removal),
   ];
   plan.blocked.push(...planned.blocked, ...fields.blocked);
+  plan.warnings.push(...fields.warnings);
   // Only a super admin can change these, so they are reported, never written. A Project read
   // hides strictMode from an admin, and the login's copy leaves out features.
   const strict = medplum.getProject()?.strictMode;
@@ -229,25 +234,53 @@ export function planFields(
   project: ProjectTarget,
   current: ProjectFields,
   policyIds: Record<string, string>,
-  env: Record<string, string | undefined>,
-): Pick<ProjectPlan, 'changes' | 'blocked'> {
+  options: Pick<ProjectOptions, 'env' | 'outOfScopeSecrets' | 'prune'> = {},
+): Pick<ProjectPlan, 'changes' | 'blocked' | 'warnings'> {
   const parts = [
     planSettings(project, current),
-    planSecrets(project, current, env),
+    planSecrets(project, current, options.env ?? {}),
+    planOutOfScope(current, options),
     planDefaults(project, current, policyIds),
   ];
   const write: ProjectWrite = Object.assign({}, ...parts.map((p) => p.write));
   const fields = parts.flatMap((p) => p.fields);
   const blocked = parts.flatMap((p) => p.blocked ?? []);
-  if (fields.length === 0) return { changes: [], blocked };
+  const warnings = parts.flatMap((p) => p.warnings ?? []);
+  if (fields.length === 0) return { changes: [], blocked, warnings };
   const id = current.id as string;
-  return { changes: [{ kind: '~', type: 'Project', key: 'project', id, fields, write }], blocked };
+  return {
+    changes: [{ kind: '~', type: 'Project', key: 'project', id, fields, write }],
+    blocked,
+    warnings,
+  };
 }
 
 interface FieldPlan {
   write: ProjectWrite;
   fields: string[];
   blocked?: Blocked[];
+  warnings?: string[];
+}
+
+/** A secret this environment holds though the config scopes it elsewhere: removed only with `--prune`. */
+function planOutOfScope(
+  current: ProjectFields,
+  { outOfScopeSecrets = [], prune }: Pick<ProjectOptions, 'outOfScopeSecrets' | 'prune'>,
+): FieldPlan {
+  const held = outOfScopeSecrets.filter((name) => current.secret?.some((s) => s.name === name));
+  if (!prune) {
+    return {
+      write: {},
+      fields: [],
+      warnings: held.map(
+        (name) => `secret ${name} is held but scoped to other environments; --prune removes it.`,
+      ),
+    };
+  }
+  return {
+    write: held.length > 0 ? { removeSecret: held } : {},
+    fields: held.map((name) => `secret ${name} (not in this environment)`),
+  };
 }
 
 function planSettings(project: ProjectTarget, current: ProjectFields): FieldPlan {
@@ -674,6 +707,10 @@ async function updateFields(
       return { name, valueString: value };
     });
     project.secret = merge(project.secret, secrets);
+  }
+  if (write.removeSecret) {
+    const removed = new Set(write.removeSecret);
+    project.secret = project.secret?.filter((s) => !removed.has(s.name));
   }
   if (write.defaultProfile) project.defaultProfile = write.defaultProfile;
   if (write.defaultAccessPolicies) {

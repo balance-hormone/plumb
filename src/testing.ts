@@ -83,6 +83,9 @@ export async function createTestProject(
       ...config,
       ...(config.bots ? { bots: testBots(config) } : {}),
       ...(config.subscriptions ? { subscriptions: unscoped(config.subscriptions) } : {}),
+      ...(config.project?.secrets
+        ? { project: { ...config.project, secrets: unscopedSecrets(config.project.secrets) } }
+        : {}),
       environments: { test: { ...ENV_REFS, baseUrl: BASE_URL, settings: config.test?.settings } },
     },
     environment: { name: 'test', ...project },
@@ -165,6 +168,18 @@ function testBots(config: PlumbConfig): PlumbConfig['bots'] {
     Object.entries(unscoped(config.bots ?? {})).map(([key, bot]) => [
       key,
       { ...bot, runtime: 'vmcontext' as const, ...config.test?.bots?.[key] },
+    ]),
+  );
+}
+
+/** A test project has every secret, whichever environments it is scoped to. */
+function unscopedSecrets(
+  secrets: NonNullable<NonNullable<PlumbConfig['project']>['secrets']>,
+): NonNullable<NonNullable<PlumbConfig['project']>['secrets']> {
+  return Object.fromEntries(
+    Object.entries(secrets).map(([name, secret]) => [
+      name,
+      secret === true ? true : { env: secret.env },
     ]),
   );
 }

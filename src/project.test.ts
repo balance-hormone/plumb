@@ -388,7 +388,7 @@ describe('planFields', () => {
     ],
   };
   const fields = (target: ProjectTarget, env: Record<string, string> = {}, ids = {}) =>
-    planFields(target, PROJECT, ids, env);
+    planFields(target, PROJECT, ids, { env });
 
   test('types each setting by its value, and leaves settings it does not name', () => {
     const plan = fields({ settings: { email: 'a@example.org', beta: false, max: 25, ratio: 0.5 } });
@@ -440,7 +440,29 @@ describe('planFields', () => {
           message: 'secret MISSING is not in the project: set it in the console.',
         },
       ],
+      warnings: [],
     });
+  });
+
+  test('a held secret scoped to other environments is reported, and removed only with --prune', () => {
+    const kept = planFields({}, PROJECT, {}, { outOfScopeSecrets: ['API_KEY', 'NOT_HELD'] });
+    expect(kept).toEqual({
+      changes: [],
+      blocked: [],
+      warnings: ['secret API_KEY is held but scoped to other environments; --prune removes it.'],
+    });
+    const pruned = planFields(
+      {},
+      PROJECT,
+      {},
+      { outOfScopeSecrets: ['API_KEY', 'NOT_HELD'], prune: true },
+    );
+    expect(pruned.changes).toMatchObject([
+      {
+        fields: ['secret API_KEY (not in this environment)'],
+        write: { removeSecret: ['API_KEY'] },
+      },
+    ]);
   });
 
   test('writes defaultProfile and defaultAccessPolicies whole, naming what changed', () => {

@@ -200,8 +200,10 @@ export interface ProjectConfig {
   /**
    * `Project.secret` by name: `{ env }` names the variable holding its value,
    * since the config is committed; `true` means it is set by hand and must exist.
+   * `environments` keeps a secret out of every other environment, where one
+   * found is removed with `--prune`.
    */
-  secrets?: Record<string, { env: string } | true>;
+  secrets?: Record<string, { env: string; environments?: string[] } | true>;
   /** AccessPolicies by key; `name` is the key unless given. */
   accessPolicies?: Record<string, AccessPolicyConfig>;
   /** `Project.defaultAccessPolicies`, naming each policy by its key. */
@@ -566,7 +568,7 @@ function check(config: unknown): ConfigError[] {
     ...checkEnvironments(record.environments),
     ...checkRouteRows(record),
     ...checkDefaultProfile(record.defaultProfile),
-    ...checkProject(record.project),
+    ...checkProject(record.project, record),
     ...checkCheck(record.check),
     ...checkTest(record.test),
   );
@@ -842,7 +844,7 @@ function checkSettings(settings: unknown, at: string): ConfigError[] {
     }));
 }
 
-function checkProject(project: unknown): ConfigError[] {
+function checkProject(project: unknown, config: Record<string, unknown>): ConfigError[] {
   if (project === undefined) return [];
   if (!isObject(project)) return [notObject('project')];
   const errors: ConfigError[] = Object.keys(project)
@@ -874,7 +876,7 @@ function checkProject(project: unknown): ConfigError[] {
   return [
     ...errors,
     ...checkSettings(project.settings, 'project.settings'),
-    ...checkSecrets(project.secrets),
+    ...checkSecrets(project.secrets, config),
     ...checkAccessPolicies(project.accessPolicies),
     ...checkDefaultAccessPolicies(project.defaultAccessPolicies, checkPolicyKey),
     ...checkClients(project.clients, checkPolicyKey),
@@ -939,20 +941,36 @@ const notObject = (path: string): ConfigError => ({
 
 type CheckPolicyKey = (key: unknown, path: string) => ConfigError[];
 
-function checkSecrets(secrets: unknown): ConfigError[] {
+function checkSecrets(secrets: unknown, config: Record<string, unknown>): ConfigError[] {
   if (secrets === undefined) return [];
   if (!isObject(secrets)) return [notObject('project.secrets')];
-  return Object.entries(secrets)
-    .filter(
-      ([, secret]) =>
-        secret !== true &&
-        !(isObject(secret) && typeof secret.env === 'string' && secret.env !== ''),
-    )
-    .map(([name]) => ({
-      code: 'invalid-type' as const,
-      path: `project.secrets.${name}`,
-      message: `"project.secrets.${name}" must be { env: 'VAR' }, naming the variable that holds its value, or true for one set by hand: the config is committed, so it never holds the value.`,
-    }));
+  return Object.entries(secrets).flatMap(([name, secret]): ConfigError[] => {
+    const at = `project.secrets.${name}`;
+    if (secret === true) return [];
+    if (!(isObject(secret) && typeof secret.env === 'string' && secret.env !== '')) {
+      return [
+        {
+          code: 'invalid-type',
+          path: at,
+          message: `"${at}" must be { env: 'VAR' }, naming the variable that holds its value, or true for one set by hand: the config is committed, so it never holds the value.`,
+        },
+      ];
+    }
+    const { environments } = secret;
+    if (environments !== undefined && !isListOf(isText)(environments)) {
+      return [
+        {
+          code: 'invalid-type',
+          path: `${at}.environments`,
+          message: `"${at}.environments" must be a list of keys in environments.`,
+        },
+      ];
+    }
+    return [
+      ...unknownKeys(secret, { env: 0, environments: 0 }, at),
+      ...scopeProblems(environments, config).map(toError('invalid-type', at)),
+    ];
+  });
 }
 
 function checkAccessPolicies(accessPolicies: unknown): ConfigError[] {
@@ -1610,14 +1628,14 @@ export interface ConfigWarning {
 
 /** A bot or Subscription a push to one environment leaves out, and where it does go. */
 export interface ScopedOut {
-  kind: 'Bot' | 'Subscription' | 'Operation';
+  kind: 'Bot' | 'Subscription' | 'Operation' | 'Secret';
   key: string;
   environments: string[];
 }
 
 /**
- * The config as one environment sees it: without the bots and Subscriptions
- * scoped to others. A Subscription with no scope of its own takes its bot's.
+ * The config as one environment sees it: without the bots, Subscriptions and
+ * secrets scoped to others. A Subscription with no scope of its own takes its bot's.
  */
 export function scopeConfig(
   config: PlumbConfig,
@@ -1625,7 +1643,7 @@ export function scopeConfig(
 ): { config: PlumbConfig; out: ScopedOut[] } {
   const out: ScopedOut[] = [];
   const keep = <T>(
-    kind: 'Bot' | 'Subscription',
+    kind: 'Bot' | 'Subscription' | 'Secret',
     record: Record<string, T> | undefined,
     scope: (entry: T) => string[] | undefined,
   ) => {
@@ -1645,11 +1663,15 @@ export function scopeConfig(
     config.subscriptions,
     (s) => s.environments ?? (s.bot ? config.bots?.[s.bot]?.environments : undefined),
   );
+  const secrets = keep('Secret', config.project?.secrets, (s) =>
+    s === true ? undefined : s.environments,
+  );
   return {
     config: {
       ...config,
       ...(bots ? { bots } : {}),
       ...(subscriptions ? { subscriptions } : {}),
+      ...(secrets ? { project: { ...config.project, secrets } } : {}),
     },
     out,
   };

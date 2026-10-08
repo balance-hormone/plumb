@@ -1079,6 +1079,44 @@ describe('environment scope', () => {
     );
   });
 
+  test('a secret scope names declared environments', () => {
+    const result = withScope(`
+      project: { secrets: {
+        DEV_ONLY: { env: 'DEV_ONLY', environments: ['dev'] },
+        TYPO: { env: 'TYPO', environments: ['staging'] },
+        NOT_A_LIST: { env: 'X', environments: 'dev' },
+        EXTRA: { env: 'X', colour: 'red' },
+      } },`);
+    expect(paths(result)).toEqual([
+      ['invalid-type', 'project.secrets.TYPO.environments'],
+      ['invalid-type', 'project.secrets.NOT_A_LIST.environments'],
+      ['unknown-key', 'project.secrets.EXTRA.colour'],
+    ]);
+  });
+
+  test('scopeConfig leaves out a secret scoped to another environment', () => {
+    const config: PlumbConfig = {
+      igs: [],
+      profiles: [],
+      out: './out',
+      project: {
+        settings: { a: 'b' },
+        secrets: {
+          SHARED: { env: 'SHARED' },
+          BY_HAND: true,
+          ALLOWLIST: { env: 'ALLOWLIST', environments: ['dev'] },
+        },
+      },
+    };
+    const prod = scopeConfig(config, 'prod');
+    expect(prod.config.project).toEqual({
+      settings: { a: 'b' },
+      secrets: { SHARED: { env: 'SHARED' }, BY_HAND: true },
+    });
+    expect(prod.out).toEqual([{ kind: 'Secret', key: 'ALLOWLIST', environments: ['dev'] }]);
+    expect(scopeConfig(config, 'dev').config).toEqual(config);
+  });
+
   test('migrations run in every environment, so their bot has no scope', () => {
     const result = withScope(`
       bots: { migrator: { file: './migrator.cjs', environments: ['dev'] } },

@@ -295,6 +295,50 @@ describe.skipIf(!server)(
       });
       expect((await stored()).meta?.versionId).toBe(before.meta?.versionId);
     });
+
+    test('a secret scoped to dev is set there, left out of prod, and removed from prod only with --prune', async () => {
+      const config = {
+        ...options.config,
+        project: {
+          secrets: {
+            API_KEY: { env: 'PLUMB_TEST_API_KEY' },
+            ALLOWLIST: { env: 'PLUMB_TEST_ALLOWLIST', environments: ['dev'] },
+          },
+        },
+      };
+      const env = { PLUMB_TEST_API_KEY: SECRET, PLUMB_TEST_ALLOWLIST: 'dev-only-value' };
+      const as = (name: string) => ({
+        ...options,
+        config,
+        env,
+        environment: { ...options.environment, name },
+      });
+      const names = async () => (await stored()).secret?.map((s) => s.name).sort();
+
+      const prod = await push(as('prod'));
+      expect(prod.errors).toEqual([]);
+      expect(prod.steps.find((s) => s.name === 'scope')).toMatchObject({
+        summary: '1 not in prod',
+        warnings: ['Secret  ALLOWLIST  only in dev'],
+      });
+      expect(await names()).toEqual(['API_KEY']);
+
+      expect((await push(as('dev'))).errors).toEqual([]);
+      expect(await names()).toEqual(['ALLOWLIST', 'API_KEY']);
+
+      // The same project read as prod now holds a secret prod must not.
+      const kept = await push({ ...as('prod'), check: true });
+      expect(kept.steps.find((s) => s.name === 'project')?.warnings).toContain(
+        'secret ALLOWLIST is held but scoped to other environments; --prune removes it.',
+      );
+      expect(kept.steps.at(-1)).toMatchObject({ summary: 'no drift' });
+      expect((await push({ ...as('prod'), check: true, prune: true })).steps.at(-1)).toMatchObject({
+        summary: 'drift: 1 project change',
+        failed: true,
+      });
+      expect((await push({ ...as('prod'), prune: true })).errors).toEqual([]);
+      expect(await names()).toEqual(['API_KEY']);
+    });
   },
 );
 

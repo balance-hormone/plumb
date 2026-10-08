@@ -807,6 +807,8 @@ export default defineConfig({
     secrets: {
       LAB_API_KEY: { env: 'LAB_API_KEY' }, // set from CI's environment
       SFTP_KEY: true, // must exist; set by hand in the console
+      // Only in dev: left out of every other push, removed there with --prune.
+      TEST_RECIPIENTS: { env: 'TEST_RECIPIENTS', environments: ['dev'] },
     },
     accessPolicies: {
       clinician: {
@@ -880,7 +882,10 @@ Done in 3.2s
 - **Removal needs `--prune`.** A tagged policy or client whose key left the
   config is listed, and deleted only with `--prune`, a client with its
   membership. Settings and secrets the config does not name are left alone,
-  even with `--prune`: they carry no tag.
+  even with `--prune`: they carry no tag. A secret scoped to other
+  environments is the exception, since the config names it: one an
+  environment holds is reported, and removed with `--prune`, so
+  `push --check --prune` fails while it is there.
 - **A client's secret is never printed or stored.** A created client's id is
   printed; read its secret in the console, and keep it in your secrets store.
 - **Only this project's own resources.** A linked project's policies are never
