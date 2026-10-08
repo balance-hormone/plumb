@@ -23,6 +23,12 @@ export interface MigrationDefinition<T extends ResourceType = ResourceType> {
    * base type, not a profile's.
    */
   transform(resource: Extract<Resource, { resourceType: T }>): JsonPatchOperation[] | undefined;
+  /**
+   * Why a record must be left as it is, or undefined to transform it. A record
+   * left out is counted as skipped, by this reason, so the reason names a kind
+   * of record and never holds anything read from it.
+   */
+  exclude?(resource: Extract<Resource, { resourceType: T }>): string | undefined;
   /** The ids of migrations that must be applied first. */
   dependsOn?: string[];
   description?: string;
@@ -59,6 +65,8 @@ export interface MigrationPage {
   forecast?: { checker: Identifier; profiles: string[]; definitions: string };
   /** The migration's hash as plumb migrate has it, which this build must have too. */
   hash?: string;
+  /** The migration leaves records out, so a build without its exclusion must refuse the page. */
+  exclude?: true;
 }
 
 /** The checker's verdict on a page's changed records. */
@@ -81,6 +89,9 @@ export interface MigrationPageResult {
   conflict: number;
   failed: number;
   reasons: { message: string; count: number }[];
+  /** Left as they are by the migration's exclusion, counted by its reasons. */
+  skipped: number;
+  skips: { message: string; count: number }[];
   forecast?: MigrationForecast;
   /** The id and new version of each record written. */
   written: { id: string; versionId: string }[];
@@ -92,7 +103,7 @@ export interface MigrationPageResult {
 
 type Outcome =
   | { kind: 'unchanged' | 'conflict' }
-  | { kind: 'failed'; reason: string }
+  | { kind: 'failed' | 'skipped'; reason: string }
   | { kind: 'changed'; resource: Resource; versionId?: string };
 
 /**
@@ -114,6 +125,9 @@ export function handleMigrations(migrations: MigrationDefinition[]) {
     if (page.hash && migration.hash && page.hash !== migration.hash) {
       throw new Error('This bot was built from another version of ' + page.id + ': run plumb generate, rebuild it and deploy it.');
     }
+    if (page.exclude && !migration.exclude) {
+      throw new Error('This bot was built from another version of ' + page.id + ', without its exclusion: run plumb generate, rebuild it and deploy it.');
+    }
     const bundle = await medplum.search(migration.resourceType, query(migration, page));
     const records = (bundle.entry ?? []).flatMap((e) => (e.resource ? [e.resource] : []));
     const result: MigrationPageResult = {
@@ -123,6 +137,8 @@ export function handleMigrations(migrations: MigrationDefinition[]) {
       conflict: 0,
       failed: 0,
       reasons: [],
+      skipped: 0,
+      skips: [],
       written: [],
     };
     const changed: Resource[] = [];
@@ -138,10 +154,11 @@ export function handleMigrations(migrations: MigrationDefinition[]) {
         break;
       }
       result[outcome.kind]++;
-      if (outcome.kind === 'failed') {
-        const reason = result.reasons.find((r) => r.message === outcome.reason);
+      if (outcome.kind === 'failed' || outcome.kind === 'skipped') {
+        const reasons = outcome.kind === 'failed' ? result.reasons : result.skips;
+        const reason = reasons.find((r) => r.message === outcome.reason);
         if (reason) reason.count++;
-        else result.reasons.push({ message: outcome.reason, count: 1 });
+        else reasons.push({ message: outcome.reason, count: 1 });
       }
       if (outcome.kind === 'changed') {
         changed.push(outcome.resource);
@@ -170,7 +187,7 @@ export function handleMigrations(migrations: MigrationDefinition[]) {
  * nothing else, which it reads and counts again.
  */
 function limitedPage(result: MigrationPageResult): MigrationPageResult {
-  return { ...result, read: result.changed, unchanged: 0, conflict: 0, failed: 0, reasons: [], limited: true };
+  return { ...result, read: result.changed, unchanged: 0, conflict: 0, failed: 0, reasons: [], skipped: 0, skips: [], limited: true };
 }
 
 /** The migration's search, less what the run has written, in the order Medplum pages by cursor. */
@@ -194,6 +211,8 @@ async function migrateRecord(
 ): Promise<Outcome> {
   let record = stored;
   for (let attempt = 0; ; attempt++) {
+    const reason = migration.exclude?.(record);
+    if (reason !== undefined) return { kind: 'skipped', reason };
     const operations = migration.transform(record);
     if (!operations) return { kind: 'unchanged' };
     let resource: Resource;

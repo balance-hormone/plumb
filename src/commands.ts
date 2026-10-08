@@ -130,6 +130,7 @@ export const exitCodes: Readonly<Record<string, typeof PROBLEMS | typeof USAGE_E
   'unknown-bot': 2,
   'invalid-operation': 2,
   'invalid-migration': 2,
+  'invalid-restamp-exclude': 2,
   'invalid-content': 2,
   'duplicate-content': 2,
   'unknown-migration': 2,

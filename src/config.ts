@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
 import { createHash } from 'node:crypto';
-import { existsSync, globSync, readFileSync } from 'node:fs';
+import { existsSync, globSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -95,8 +95,13 @@ export interface MigrationsConfig {
   bot: string;
   /** Modules, as paths or globs, each default-exporting a `defineMigration`. */
   modules: string[];
-  /** Adds Plumb's restamp migration, for every type with routing rows. */
-  restamp?: boolean;
+  /**
+   * Adds Plumb's restamp migration, for every type with routing rows. With
+   * `exclude`, a module whose default export, `(resource) => string |
+   * undefined`, gives the reason a record must stay as it is stamped: correct
+   * FHIR that a routed profile cannot express. Those are skipped and counted.
+   */
+  restamp?: boolean | { exclude: string };
 }
 
 /** A bot: its built bundle and the Bot's own fields, written as declared. */
@@ -293,7 +298,8 @@ export type ConfigErrorCode =
   | 'invalid-subscription'
   | 'unknown-bot'
   | 'invalid-operation'
-  | 'invalid-migration';
+  | 'invalid-migration'
+  | 'invalid-restamp-exclude';
 
 export interface ConfigError {
   code: ConfigErrorCode;
@@ -353,6 +359,31 @@ const IG = new RegExp(`^(${NAME})@\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$`);
 // The version lives in igs, so a wildcard names the package alone.
 const ALL_PROFILES = new RegExp(`^(${NAME})/\\*$`);
 
+/**
+ * `migrations` with its module patterns and the restamp's exclusion resolved
+ * against the config's folder, or why the exclusion is not a file.
+ */
+function resolveMigrations(
+  base: string,
+  migrations: MigrationsConfig | undefined,
+): { migrations?: MigrationsConfig } | { error: ConfigError } {
+  if (!migrations) return {};
+  const modules = migrations.modules.map((p) => resolve(base, p));
+  const { restamp } = migrations;
+  if (typeof restamp !== 'object') return { migrations: { ...migrations, modules } };
+  const exclude = resolve(base, restamp.exclude);
+  if (existsSync(exclude) && statSync(exclude).isFile()) {
+    return { migrations: { ...migrations, modules, restamp: { exclude } } };
+  }
+  return {
+    error: {
+      code: 'invalid-restamp-exclude',
+      path: 'migrations.restamp.exclude',
+      message: `"migrations.restamp.exclude" names ${exclude}, which is not a file.`,
+    },
+  };
+}
+
 /** A SUSHI project's config file, by name: SUSHI accepts either extension. */
 export function sushiConfig(project: string): string | undefined {
   return ['sushi-config.yaml', 'sushi-config.yml'].find((name) => existsSync(join(project, name)));
@@ -400,6 +431,8 @@ export async function loadConfig(options: {
   const local = fsh
     ? join(fsh, 'fsh-generated', 'resources')
     : config.local && resolve(base, config.local);
+  const migrations = resolveMigrations(base, config.migrations);
+  if ('error' in migrations) return fail(migrations.error);
   return {
     ok: true,
     configPath,
@@ -409,14 +442,7 @@ export async function loadConfig(options: {
       ...(config.check ? { check: resolveCheck(base, config.check) } : {}),
       ...resolveList(base, config, 'content'),
       ...resolveList(base, config, 'operations'),
-      ...(config.migrations
-        ? {
-            migrations: {
-              ...config.migrations,
-              modules: config.migrations.modules.map((p) => resolve(base, p)),
-            },
-          }
-        : {}),
+      ...migrations,
       ...resolveBots(base, config.bots),
       ...(config.test ? { test: resolveTest(base, config.test) } : {}),
       ...(fsh ? { fsh } : {}),
@@ -1228,8 +1254,14 @@ function checkMigrationsConfig(config: Record<string, unknown>): ConfigError[] {
   if (!isListOf(isText)(migrations.modules)) {
     errors.push(invalidType('modules', 'a list of paths or globs'));
   }
-  if (migrations.restamp !== undefined && typeof migrations.restamp !== 'boolean') {
-    errors.push(invalidType('restamp', 'true or false'));
+  const { restamp } = migrations;
+  if (isObject(restamp)) {
+    errors.push(...unknownKeys(restamp, { exclude: 1 }, 'migrations.restamp'));
+    if (!isText(restamp.exclude)) {
+      errors.push(invalidType('restamp.exclude', 'the path of the module that excludes records'));
+    }
+  } else if (restamp !== undefined && typeof restamp !== 'boolean') {
+    errors.push(invalidType('restamp', 'true, false, or { exclude: a module path }'));
   }
   return errors;
 }

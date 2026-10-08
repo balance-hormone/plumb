@@ -416,19 +416,35 @@ export const handler = handleMigrations([${list}]);
 `;
 }
 
+/** The restamp's exclusion: its module's import path from `out`, and the hash of what it runs. */
+export interface RestampExclusion {
+  path: string;
+  /** The restamps' hash, from `_routes.ts` as printed and the exclusion module. */
+  hash: (routes: string) => string;
+}
+
 /**
  * `_restamp.ts`: Plumb's restamp migration for each type with routing rows,
  * which sets the stamps Plumb manages as `stampProfiled` would, keeps any
  * other URL, and leaves a record that routes to no single profile alone.
+ * With an exclusion, each restamp leaves the records it names alone too, and
+ * carries its hash, so the bot refuses a page once the exclusion is edited.
  */
-function printRestamp(types: string[]): string {
+function printRestamp(types: string[], exclude?: { path: string; hash: string }): string {
+  const source = embed(restampSource).replace('TYPES', printValue(types));
   return [
     `${MARKER}. Do not edit.`,
     "import type { Resource, ResourceType } from '@medplum/fhirtypes';",
     "import type { JsonPatchOperation, MigrationDefinition } from './_migrations.js';",
     "import { RoutingError, stampProfiled } from './_routes.js';",
+    ...(exclude ? [`import exclude from ${quote(exclude.path)};`] : []),
     '',
-    embed(restampSource).replace('TYPES', printValue(types)),
+    exclude
+      ? source.replace(
+          '  transform: restamp,\n',
+          `  transform: restamp,\n  exclude,\n  hash: ${quote(exclude.hash)},\n`,
+        )
+      : source,
   ].join('\n');
 }
 
@@ -446,7 +462,7 @@ export function printFiles(
   operations: string[] = [],
   bots?: string,
   migrations?: (string | { path: string; hash: string })[],
-  restamp = false,
+  restamp: boolean | RestampExclusion = false,
 ): Map<string, string> {
   const owners: Owners = new Map(
     models.flatMap((m) => m.decls.map((d): [string, string] => [d.name, m.typeName])),
@@ -475,8 +491,7 @@ export function printFiles(
       "export { defineMigration, handleMigrations, type JsonPatchOperation, type MigrationClient, type MigrationDefinition, type MigrationForecast, type MigrationPage, type MigrationPageResult } from './_migrations.js';",
     );
     files.set('_migrations.ts', MIGRATIONS);
-    files.set('_migrator.ts', printMigrator(migrations, restamp));
-    if (restamp) files.set('_restamp.ts', printRestamp(Object.keys(routing.routes).sort()));
+    files.set('_migrator.ts', printMigrator(migrations, restamp !== false));
   }
   if (bots) {
     index.appendNoWrap(
@@ -494,7 +509,13 @@ export function printFiles(
   }
   files.set('index.ts', index.toString());
   files.set('_plumb.ts', questionnaires.length > 0 ? HELPERS + ANSWERS : HELPERS);
-  files.set('_routes.ts', printRoutes(routing, new Map(models.map((m) => [m.url, m.typeName]))));
+  const routes = printRoutes(routing, new Map(models.map((m) => [m.url, m.typeName])));
+  files.set('_routes.ts', routes);
+  if (migrations && restamp !== false) {
+    const exclude =
+      restamp === true ? undefined : { path: restamp.path, hash: restamp.hash(routes) };
+    files.set('_restamp.ts', printRestamp(Object.keys(routing.routes).sort(), exclude));
+  }
   files.set('_reads.ts', printReads(models, routing));
   return files;
 }

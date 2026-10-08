@@ -10,7 +10,7 @@ import { botFilename } from './bots.js';
 import { type CheckerInput, handler as checker } from './checker/handler.js';
 import { checkerInput } from './checker/input.js';
 import { CHECKER_IDENTIFIER, checkerFilename, findChecker } from './checker/install.js';
-import { importModules, type PlumbConfig } from './config.js';
+import { type ConfigError, importModules, type PlumbConfig } from './config.js';
 import {
   notCurrent,
   QUOTA_RETRY,
@@ -21,7 +21,13 @@ import {
 } from './conformance.js';
 import { connect, type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import type { LoadProfilesResult } from './loader.js';
-import { checkMigrations, loadMigrations, type Migration, migrationHash } from './migrations.js';
+import {
+  checkMigrations,
+  loadMigrations,
+  type Migration,
+  migrationHash,
+  restampHash,
+} from './migrations.js';
 import { owned, PLUMB_SYSTEM, searchAll } from './project.js';
 
 type MigrateStepName = string;
@@ -33,6 +39,8 @@ interface Counts {
   unchanged: number;
   conflict: number;
   failed: number;
+  /** Left as they are by the migration's exclusion. */
+  skipped: number;
 }
 
 type LedgerStatus = 'running' | 'paused' | 'errored' | 'applied';
@@ -72,6 +80,8 @@ interface MigrationReport {
   resumed: boolean;
   counts: Counts;
   reasons: { message: string; count: number }[];
+  /** Why the records skipped were left out, as the exclusion gave each. */
+  skips: { message: string; count: number }[];
   forecast?: ForecastReport;
 }
 
@@ -111,7 +121,14 @@ export interface MigrateEnvOptions extends EnvOptions {
 const LEASE_MS = 30 * 60_000;
 const STATE = `${PLUMB_SYSTEM}#migration`;
 const CODE = { coding: [{ system: PLUMB_SYSTEM, code: 'migration' }] };
-const zero = (): Counts => ({ read: 0, changed: 0, unchanged: 0, conflict: 0, failed: 0 });
+const zero = (): Counts => ({
+  read: 0,
+  changed: 0,
+  unchanged: 0,
+  conflict: 0,
+  failed: 0,
+  skipped: 0,
+});
 
 /**
  * Runs each pending migration through the project's migration bot, a page
@@ -377,11 +394,12 @@ async function declaredMigrations(
   if (!declared.ok) return { errors: declared.errors };
   const invalid = checkMigrations(declared.migrations);
   if (invalid.length > 0) return { errors: invalid };
-  const restamps = config.migrations?.restamp ? await loadRestamps(config.out) : { migrations: [] };
+  const restamp = config.migrations?.restamp;
+  const restamps = restamp ? await loadRestamps(config.out, restamp) : { migrations: [] };
   if ('errors' in restamps) return restamps;
   const migrations = [...declared.migrations, ...restamps.migrations].map((m) => ({
     ...m,
-    hash: migrationHash(m.from, config.out),
+    hash: m.hash ?? migrationHash(m.from, config.out),
   }));
   const unknown = [...(options.ids ?? []), ...(options.rerun ?? [])].filter(
     (id) => !migrations.some((m) => m.id === id),
@@ -395,9 +413,11 @@ async function declaredMigrations(
 
 /**
  * Plumb's restamps, as `generate` wrote them into `_restamp.ts`: hashed by
- * `_routes.ts`, so a change to the routing makes each pending again.
+ * `_routes.ts`, and the exclusion module when there is one, so a change to
+ * either makes each pending again. The exclusion is the config's, imported
+ * here, so a run in this process leaves out what the config says.
  */
-async function loadRestamps(out: string): Promise<Declared> {
+async function loadRestamps(out: string, restamp: true | { exclude: string }): Promise<Declared> {
   const file = join(out, '_restamp.ts');
   const imported = await importModules([file], 'migrations.restamp', 'invalid-migration');
   const restamps = imported.ok
@@ -408,7 +428,34 @@ async function loadRestamps(out: string): Promise<Declared> {
     return { errors: [{ code: 'invalid-migration', message }] };
   }
   const routes = join(out, '_routes.ts');
-  return { migrations: restamps.map((m) => ({ ...m, from: routes, repeatable: true })) };
+  if (restamp === true) {
+    return { migrations: restamps.map((m) => ({ ...m, from: routes, repeatable: true })) };
+  }
+  const exclusion = await loadExclusion(restamp.exclude);
+  if ('errors' in exclusion) return exclusion;
+  const hash = restampHash(readFileSync(routes, 'utf8'), migrationHash(restamp.exclude, out));
+  return {
+    migrations: restamps.map((m) => ({
+      ...m,
+      from: routes,
+      repeatable: true,
+      exclude: exclusion.exclude,
+      hash,
+    })),
+  };
+}
+
+/** The exclusion module's default export: a function from a record to the reason to leave it out. */
+async function loadExclusion(
+  file: string,
+): Promise<{ exclude: Migration['exclude'] } | { errors: ConfigError[] }> {
+  const path = 'migrations.restamp.exclude';
+  const imported = await importModules([file], path, 'invalid-restamp-exclude');
+  if (!imported.ok) return imported;
+  const exclude = imported.modules[0]?.module.default;
+  if (typeof exclude === 'function') return { exclude: exclude as Migration['exclude'] };
+  const message = `${file} does not default-export a function from a record to the reason to leave it unstamped.`;
+  return { errors: [{ code: 'invalid-restamp-exclude', path, message }] };
 }
 
 /** A migration's failure, named: the bot refuses a page for a migration it was not built from. */
@@ -529,6 +576,7 @@ async function migrate(
     resumed: false,
     counts: zero(),
     reasons: [],
+    skips: [],
   };
   const again =
     run.options.rerun?.includes(migration.id) || (migration.repeatable && state?.hash !== hash);
@@ -536,7 +584,8 @@ async function migrate(
   report.ran = true;
   const pass = await begin(run, migration, held, hash);
   report.resumed = pass.state.cursor !== undefined;
-  if (report.resumed) report.counts = { ...pass.state.counts };
+  // A pass a release before skipped existed paused has no count of it.
+  if (report.resumed) report.counts = { ...zero(), ...pass.state.counts };
   const finished = await runPages(run, migration, pass, report).catch(async (err: unknown) => {
     // Ctrl-C during a wait: the page it held off runs again on resume.
     if (!stopped(err, run.options)) throw err;
@@ -590,6 +639,7 @@ async function runPages(
     write: options.write === true,
     count: options.pageSize ?? 100,
     ...(forecast ? { forecast } : {}),
+    ...(migration.exclude ? { exclude: true } : {}),
   };
   let limited = 0;
   for (;;) {
@@ -678,8 +728,10 @@ async function close(
 }
 
 /** What one page of the bot returns, as the generated MigrationPageResult. */
-interface PageResult extends Counts {
+interface PageResult extends Omit<Counts, 'skipped'> {
+  skipped?: number;
   reasons: { message: string; count: number }[];
+  skips?: { message: string; count: number }[];
   forecast?: {
     profiles: Record<
       string,
@@ -692,12 +744,12 @@ interface PageResult extends Counts {
 }
 
 function add(report: MigrationReport, page: PageResult): void {
-  for (const key of Object.keys(report.counts) as (keyof Counts)[]) report.counts[key] += page[key];
-  for (const reason of page.reasons) {
-    const same = report.reasons.find((r) => r.message === reason.message);
-    if (same) same.count += reason.count;
-    else report.reasons.push({ ...reason });
+  // A bot built by a release before skipped existed returns no skips.
+  for (const key of Object.keys(report.counts) as (keyof Counts)[]) {
+    report.counts[key] += page[key] ?? 0;
   }
+  tally(report.reasons, page.reasons);
+  tally(report.skips, page.skips ?? []);
   for (const profile of Object.values(page.forecast?.profiles ?? {})) {
     report.forecast ??= { checked: 0, failing: 0, reasons: [] };
     report.forecast.checked += profile.checked;
@@ -709,6 +761,18 @@ function add(report: MigrationReport, page: PageResult): void {
       if (same) same.count += reason.count;
       else report.forecast.reasons.push({ ...reason });
     }
+  }
+}
+
+/** Adds a page's reasons to the run's, one entry per message. */
+function tally(
+  into: { message: string; count: number }[],
+  from: { message: string; count: number }[],
+): void {
+  for (const reason of from) {
+    const same = into.find((r) => r.message === reason.message);
+    if (same) same.count += reason.count;
+    else into.push({ ...reason });
   }
 }
 
@@ -865,6 +929,7 @@ function summary(report: MigrationReport, write: boolean): string {
   const parts = [`${c.read} read`, `${c.changed} ${verb}`, `${c.unchanged} unchanged`];
   if (c.conflict) parts.push(`${c.conflict} conflicted`);
   if (c.failed) parts.push(`${c.failed} failed`);
+  if (c.skipped) parts.push(`${c.skipped} skipped`);
   return `${write ? '' : 'dry run: '}${parts.join(', ')}${report.resumed ? ' (resumed)' : ''}`;
 }
 
@@ -875,6 +940,7 @@ function warnings(report: MigrationReport, blocked?: string): string[] {
   const lines = [
     ...(blocked ? [blocked] : []),
     ...report.reasons.map((r) => `${r.count} failed: ${r.message}`),
+    ...report.skips.map((r) => `${r.count} skipped: ${r.message}`),
   ];
   const f = report.forecast;
   if (f) {

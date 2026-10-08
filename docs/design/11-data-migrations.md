@@ -41,6 +41,16 @@ As built, these details differ from or add to the text below:
 - **Restamps are one migration per type,** `plumb-restamp-<Type>`, generated
   into `_restamp.ts`, hashed by `_routes.ts`, and marked repeatable: a
   changed hash makes them pending again, never `migration-edited` (#194).
+- **A restamp can leave declared records out:** `restamp: { exclude }` names
+  a module whose default export returns the reason a record stays unstamped,
+  for correct FHIR its routed profile cannot express. The runner asks a
+  migration's `exclude` before its `transform`, and counts what it leaves out
+  as `skipped`, by reason, beside the other counts. The restamps' hash is then
+  `_routes.ts` with the module's hash, written into `_restamp.ts`, so an edit
+  makes them pending and the bot refuses a page until it is rebuilt; a page
+  also says it expects an exclusion, so a bot built without one refuses it
+  (#265). A per-type `search` was the alternative, but it cannot express
+  every case a predicate can.
 
 Builds on [design 02](02-conformance-check.md)'s checker and `validate`, whose
 page loop, cursor and in-project validation it reuses, on

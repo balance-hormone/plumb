@@ -8,13 +8,13 @@ import { checkRoutes, type PlumbConfig } from './config.js';
 import type { EnvStep } from './connect.js';
 import { addContentTerminology, loadContent } from './content.js';
 import { printBots } from './emit/bots.js';
-import { printFiles } from './emit/print.js';
+import { printFiles, type RestampExclusion } from './emit/print.js';
 import { printQuestionnaires } from './emit/questionnaire.js';
 import { routingRows } from './emit/routes.js';
 import { type ProfileModel, transform } from './emit/transform.js';
 import { compareFiles, type Stale, writeFiles } from './emit/write.js';
 import { loadProfiles } from './loader.js';
-import { migrationHash } from './migrations.js';
+import { migrationHash, restampHash } from './migrations.js';
 import { fetchPackages } from './packages.js';
 import { buildFsh, compareBuild, dependencyWarnings } from './sushi.js';
 
@@ -191,7 +191,7 @@ async function run(options: GenerateOptions, scratch: string | undefined): Promi
     config.operations,
     botsFile(config),
     migrationImports(config),
-    config.migrations?.restamp === true,
+    restampOf(config),
   );
 
   if (check) {
@@ -247,17 +247,31 @@ function hashOf(model: ProfileModel): string {
 function migrationImports(config: PlumbConfig): { path: string; hash: string }[] | undefined {
   if (!config.migrations) return undefined;
   const files = new Set(config.migrations.modules.flatMap((pattern) => globSync(pattern)));
-  return [...files].sort().map((file) => {
-    const path = relative(config.out, file)
-      .split(sep)
-      .join('/')
-      .replace(/\.(m|c)?ts$/, '.$1js');
-    // The bot carries each migration's hash, so plumb migrate can tell a stale build.
-    return {
-      path: path.startsWith('.') ? path : `./${path}`,
-      hash: migrationHash(file, config.out),
-    };
-  });
+  // The bot carries each migration's hash, so plumb migrate can tell a stale build.
+  return [...files].sort().map((file) => ({
+    path: importPath(config.out, file),
+    hash: migrationHash(file, config.out),
+  }));
+}
+
+/** The restamp as `_restamp.ts` is printed: off, on, or on with its exclusion's import path and hash. */
+function restampOf(config: PlumbConfig): boolean | RestampExclusion {
+  const restamp = config.migrations?.restamp;
+  if (typeof restamp !== 'object') return restamp === true;
+  const exclude = migrationHash(restamp.exclude, config.out);
+  return {
+    path: importPath(config.out, restamp.exclude),
+    hash: (routes) => restampHash(routes, exclude),
+  };
+}
+
+/** A module's import path from `out`, as NodeNext writes it. */
+function importPath(out: string, file: string): string {
+  const path = relative(out, file)
+    .split(sep)
+    .join('/')
+    .replace(/\.(m|c)?ts$/, '.$1js');
+  return path.startsWith('.') ? path : `./${path}`;
 }
 
 /** `_bots.ts`, when the config declares bots. */

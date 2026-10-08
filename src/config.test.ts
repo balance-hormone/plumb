@@ -1158,12 +1158,13 @@ describe('environment scope', () => {
   });
 });
 
-const withMigrations = (migrations: string, environment = '') =>
+const withMigrations = (migrations: string, environment = '', files: Record<string, string> = {}) =>
   load({
     'plumb.config.ts': `export default { igs: [], profiles: [], out: './out',
       bots: { migrator: { file: './dist/migrator.cjs' } },
       migrations: ${migrations},
       environments: { dev: { baseUrl: 'http://localhost:8103/', clientId: { env: 'ID' }, clientSecret: { env: 'SECRET' }${environment} } } };`,
+    ...files,
   });
 
 describe('migrations', () => {
@@ -1192,11 +1193,37 @@ describe('migrations', () => {
       'invalid-type',
       'migrations.restamp',
     ],
+    [
+      "{ bot: 'migrator', modules: ['./m/*.ts'], restamp: { exclude: 3 } }",
+      'invalid-type',
+      'migrations.restamp.exclude',
+    ],
+    [
+      "{ bot: 'migrator', modules: ['./m/*.ts'], restamp: { exclude: './x.ts', only: ['Coverage'] } }",
+      'unknown-key',
+      'migrations.restamp.only',
+    ],
+    [
+      "{ bot: 'migrator', modules: ['./m/*.ts'], restamp: { exclude: './missing.ts' } }",
+      'invalid-restamp-exclude',
+      'migrations.restamp.exclude',
+    ],
     ["{ bot: 'migrator', modules: ['./m/*.ts'], order: [] }", 'unknown-key', 'migrations.order'],
     ["['./m/*.ts']", 'invalid-type', 'migrations'],
   ])('%s is %s at %s', (migrations, code, path) => {
     const result = withMigrations(migrations);
     expect(!result.ok && result.errors.map((e) => [e.code, e.path])).toEqual([[code, path]]);
+  });
+
+  test("resolves the restamp's exclusion module against the config", () => {
+    const result = withMigrations(
+      "{ bot: 'migrator', modules: ['./m/*.ts'], restamp: { exclude: './m/never-stamped.ts' } }",
+      '',
+      { 'm/never-stamped.ts': 'export default () => undefined;' },
+    );
+    expect(result.ok && result.config.migrations?.restamp).toEqual({
+      exclude: join(dirname(result.configPath), 'm/never-stamped.ts'),
+    });
   });
 
   test('synthetic must be a boolean', () => {

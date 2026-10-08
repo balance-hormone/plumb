@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+The generated migration runner changes, so `generate --check` is stale
+until it is generated and the migrator rebuilt.
+
+- **`restamp: { exclude }`** names a module whose default export gives the
+  reason a record must stay unstamped: correct FHIR that the profile it
+  routes to cannot express. The restamps skip those records and count them by
+  reason in `plumb migrate`'s output and `--json`; the module is part of the
+  restamps' hash, so editing it makes them pending again. A path that is not
+  a file, or a module that does not default-export a function, is
+  `invalid-restamp-exclude`, and a migrator built without the exclusion
+  refuses the page. `restamp: true` is unchanged (#265).
+
 ## 0.17.0 (2026-10-07)
 
 The checker's version changes, so the next `push` redeploys it.

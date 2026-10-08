@@ -746,6 +746,41 @@ record that routes to no single profile alone. They run again whenever
 `_routes.ts` changes, so a new routing row or profile restamps what is
 stored.
 
+Some records are correct FHIR that the profile they route to cannot express,
+such as a Coverage with no member id under `us-core-15`; stamped, their next
+edit is refused. Declare them, and the restamps leave them alone:
+
+```ts
+// in plumb.config.ts
+migrations: {
+  bot: 'migrator',
+  modules: ['./src/migrations/*.ts'],
+  restamp: { exclude: './src/migrations/never-stamped.ts' },
+},
+```
+
+```ts
+// src/migrations/never-stamped.ts
+import type { Resource } from '@medplum/fhirtypes';
+
+/** Why a record must stay unstamped, or undefined to restamp it. */
+export default function neverStamped(resource: Resource): string | undefined {
+  if (resource.resourceType === 'Coverage' && !resource.subscriberId && !resource.identifier) {
+    return 'no member id: us-core-15 cannot express it';
+  }
+  return undefined;
+}
+```
+
+The function is pure, and its reason names a kind of record, never anything
+read from one: each run counts what it skipped by reason, as
+`3 skipped: no member id: us-core-15 cannot express it`, and `--json` holds the
+same counts under `skipped` and `skips`. The module and the files it imports
+are part of the restamps' hash, so editing it makes them pending again and
+`generate --check` stale until it is generated and the bot rebuilt. A path that
+is not a file, or a module whose default export is not a function, is
+`invalid-restamp-exclude`.
+
 **`push` names what is pending.** The two stay separate: `push` never writes
 patient data, and `migrate` never loads a profile. When the gate refuses, it
 lists the pending migrations on each failing type:
