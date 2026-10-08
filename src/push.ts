@@ -17,7 +17,7 @@ import {
   checkerFilename,
   installChecker,
 } from './checker/install.js';
-import { checkBotFiles, environmentSettings } from './config.js';
+import { checkBotFiles, environmentSettings, type ScopedOut, scopeConfig } from './config.js';
 import { type Checked, checkStored, judge, type ValidateEnvOptions } from './conformance.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import {
@@ -63,6 +63,7 @@ type Definition = StructureDefinition | ValueSet | CodeSystem;
 type PushStepName =
   | 'load'
   | 'connect'
+  | 'scope'
   | 'checker'
   | 'plan'
   | 'gate'
@@ -132,10 +133,12 @@ export interface PushOptions extends EnvOptions, ProjectOptions {
  * constraint. Once the gate has passed, the project's own configuration
  * follows: design 06.
  */
-export async function push(options: PushOptions): Promise<PushResult> {
+export async function push(unscoped: PushOptions): Promise<PushResult> {
+  const scope = scopeConfig(unscoped.config, unscoped.environment.name);
+  const options = { ...unscoped, config: scope.config };
   const result: PushResult = { ok: false, steps: [], totalMs: 0, errors: [], plan: [] };
   const step = steps<PushStepName, PushResult>(result, options.onStep);
-  const ready = await prepare(options, result, step);
+  const ready = await prepare(options, scope.out, result, step);
   if (!ready) return result;
   const { loaded, medplum, content, operations } = ready;
   if (options.check) {
@@ -206,6 +209,7 @@ export async function push(options: PushOptions): Promise<PushResult> {
  */
 async function prepare(
   options: PushOptions,
+  out: ScopedOut[],
   result: PushResult,
   step: ReturnType<typeof steps<PushStepName, PushResult>>,
 ) {
@@ -219,9 +223,27 @@ async function prepare(
   }
   const content = loadContent(options.config.content, ready.loaded);
   if (!content.ok) return void step.fail('load', content.errors);
-  const operations = await prepareOperations(options.config, ready.loaded);
+  const operations = await prepareOperations(options.config, ready.loaded, out);
   if ('errors' in operations) return void step.fail('load', operations.errors);
+  scopeStep(options.environment.name, out, step);
   return { ...ready, content, operations };
+}
+
+/**
+ * Names what this environment leaves out, so an entry scoped to others is
+ * seen on every push and every drift check, never forgotten.
+ */
+function scopeStep(
+  environment: string,
+  out: ScopedOut[],
+  step: Pick<ReturnType<typeof steps<PushStepName, PushResult>>, 'finish'>,
+): void {
+  if (out.length === 0) return;
+  step.finish(
+    'scope',
+    `${out.length} not in ${environment}`,
+    out.map((o) => `${o.kind}  ${o.key}  only in ${o.environments.join(', ')}`),
+  );
 }
 
 /** The contracts `operations` lists, and each selected profile's resource type. */
@@ -234,14 +256,22 @@ interface Operations {
 async function prepareOperations(
   config: PushOptions['config'],
   loaded: LoadProfilesResult,
+  out: ScopedOut[],
 ): Promise<Operations | { errors: { code: string; message: string }[] }> {
   const read = await loadOperations(config.operations);
   if (!read.ok) return { errors: read.errors };
+  // An operation goes where its bot does.
+  const scoped = new Map(out.filter((o) => o.kind === 'Bot').map((o) => [o.key, o.environments]));
+  const contracts = read.contracts.filter((contract) => {
+    const environments = scoped.get(contract.bot);
+    if (environments) out.push({ kind: 'Operation', key: `$${contract.code}`, environments });
+    return !environments;
+  });
   const urls = loaded.profiles.map((p) => p.url);
-  const errors = checkOperations(read.contracts, config.bots ?? {}, urls);
+  const errors = checkOperations(contracts, config.bots ?? {}, urls);
   if (errors.length > 0) return { errors };
   const typeOf = (url: string) => loaded.profiles.find((p) => p.url === url)?.sd.type;
-  return { contracts: read.contracts, typeOf };
+  return { contracts, typeOf };
 }
 
 /** Installs or updates the checker; returns its bot's id, or nothing when that failed. */

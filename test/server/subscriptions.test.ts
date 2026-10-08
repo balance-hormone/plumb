@@ -203,3 +203,71 @@ describe.skipIf(!server)('push runs the subscriptions step last', { timeout: 120
     expect(drifted.steps.at(-1)).toMatchObject({ summary: 'drift: 1 subscription', failed: true });
   });
 });
+
+describe.skipIf(!server)(
+  'push leaves out what is scoped to another environment',
+  { timeout: 120_000 },
+  () => {
+    test('a dev-only bot and its Subscription stay out of prod, and every push names them', async () => {
+      const project = await newProject();
+      const dir = mkdtempSync(join(tmpdir(), 'plumb-push-scope-'));
+      const file = join(dir, 'echo.cjs');
+      writeFileSync(file, ECHO);
+      const lockPath = join(dir, 'plumb.lock');
+      await fetchPackages({ igs: [], lockPath });
+      const code = (await build({ ...CHECKER_BUILD, write: false })).outputFiles[0]?.text ?? '';
+      const as = (name: string) => ({
+        config: {
+          igs: [],
+          profiles: [],
+          out: '',
+          bots: {
+            echo: { file, runtime: 'vmcontext' } as BotConfig,
+            draft: { file, runtime: 'vmcontext', environments: ['dev'] } as BotConfig,
+          },
+          subscriptions: { 'to-draft': { criteria: 'Patient', bot: 'draft' } },
+        },
+        environment: { name, ...project },
+        lockPath,
+        checker: { code, version: '0.12.0' },
+        reportPath: join(dir, '.plumb/validate-test.json'),
+      });
+      const scope = {
+        name: 'scope',
+        summary: '2 not in prod',
+        warnings: ['Bot  draft  only in dev', 'Subscription  to-draft  only in dev'],
+      };
+      // A fresh login for each read, so nothing comes from a client's cache.
+      const held = async () => {
+        const fresh = await connect(project);
+        return {
+          draft: await fresh.searchOne('Bot', { identifier: `${PLUMB_SYSTEM}|draft` }),
+          subscription: await fresh.searchOne('Subscription', {
+            _tag: `${PLUMB_SYSTEM}|to-draft`,
+          }),
+        };
+      };
+
+      const prod = await push(as('prod'));
+      expect(prod.errors).toEqual([]);
+      expect(prod.steps.find((s) => s.name === 'scope')).toMatchObject(scope);
+      expect(await held()).toEqual({ draft: undefined, subscription: undefined });
+      const check = await push({ ...as('prod'), check: true });
+      expect(check.steps.find((s) => s.name === 'scope')).toMatchObject(scope);
+      expect(check.steps.at(-1)).toMatchObject({ summary: 'no drift' });
+
+      const dev = await push(as('dev'));
+      expect(dev.errors).toEqual([]);
+      expect(dev.steps.some((s) => s.name === 'scope')).toBe(false);
+      const created = await held();
+      expect(created.draft).toBeDefined();
+      expect(created.subscription).toMatchObject({ status: 'active' });
+
+      // In the same project, prod now finds them and treats them as removed.
+      await push({ ...as('prod'), prune: true });
+      const pruned = await held();
+      expect(pruned.draft?.id).toBe(created.draft?.id);
+      expect(pruned.subscription).toMatchObject({ status: 'off' });
+    });
+  },
+);

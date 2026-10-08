@@ -120,6 +120,11 @@ export interface BotConfig {
   publicWebhook?: boolean;
   rawBody?: boolean;
   audit?: { trigger?: Bot['auditEventTrigger']; destination?: Bot['auditEventDestination'] };
+  /**
+   * The keys in `environments` this bot is deployed to; every environment
+   * unless given. A test project runs every bot.
+   */
+  environments?: string[];
 }
 
 /** A Subscription, delivering to a bot or to an `https` URL. */
@@ -139,6 +144,11 @@ export interface SubscriptionConfig {
   headers?: Record<string, { env: string }>;
   /** Delivery attempts to the URL, at most 18; Medplum's default is 4. */
   maxAttempts?: number;
+  /**
+   * The keys in `environments` this Subscription is written to: by default its
+   * bot's, or every environment for a URL.
+   */
+  environments?: string[];
 }
 
 /**
@@ -1067,6 +1077,7 @@ const BOT_FIELDS: Record<keyof BotConfig, [(value: unknown) => boolean, string]>
     isAudit,
     "{ trigger, destination }, as the Bot's auditEventTrigger and auditEventDestination",
   ],
+  environments: [isListOf(isText), 'a list of keys in environments'],
 };
 
 const unknownKeys = (record: Record<string, unknown>, known: object, at: string): ConfigError[] =>
@@ -1111,7 +1122,9 @@ function checkBots(config: Record<string, unknown>): ConfigError[] {
     }
     const errors = [
       ...unknownKeys(bot, BOT_FIELDS, at),
-      ...checkBot(bot, project).map(toError('invalid-bot', at)),
+      ...[...checkBot(bot, project), ...scopeProblems(bot.environments, config)].map(
+        toError('invalid-bot', at),
+      ),
     ];
     const name = isText(bot.name) ? (bot.name as string) : key;
     const other = names.get(name);
@@ -1158,6 +1171,15 @@ function botReferences(field: string, value: unknown, project: Record<string, un
   return [];
 }
 
+/** Each environment a scope names is one the config declares. */
+function scopeProblems(environments: unknown, config: Record<string, unknown>): Problem[] {
+  if (!isListOf(isText)(environments)) return [];
+  const declared = keysOf(config.environments);
+  return (environments as string[])
+    .filter((name) => !Object.hasOwn(declared, name))
+    .map((name) => ['environments', `names "${name}", which is not a key in environments`]);
+}
+
 const MIGRATIONS_FIELDS = { bot: 1, modules: 1, restamp: 1 };
 
 function checkMigrationsConfig(config: Record<string, unknown>): ConfigError[] {
@@ -1177,6 +1199,12 @@ function checkMigrationsConfig(config: Record<string, unknown>): ConfigError[] {
       code: 'invalid-migration',
       path: 'migrations.bot',
       message: `"migrations.bot" names "${migrations.bot}", which is not a key in bots.`,
+    });
+  } else if (keysOf(keysOf(config.bots)[migrations.bot as string]).environments !== undefined) {
+    errors.push({
+      code: 'invalid-migration',
+      path: 'migrations.bot',
+      message: `"migrations.bot" names "${migrations.bot}", which has environments: migrations run in every environment.`,
     });
   }
   if (!isListOf(isText)(migrations.modules)) {
@@ -1262,6 +1290,7 @@ const SUBSCRIPTION_FIELDS = {
   secret: 0,
   headers: 0,
   maxAttempts: 0,
+  environments: 0,
 } satisfies Record<keyof SubscriptionConfig, 0>;
 
 const VARIABLE =
@@ -1275,7 +1304,11 @@ function checkSubscriptions(config: Record<string, unknown>): ConfigError[] {
   return Object.entries(subscriptions).flatMap(([key, subscription]): ConfigError[] => {
     const at = `subscriptions.${key}`;
     if (!isObject(subscription)) return [notObject(at)];
-    const problems = [...matchProblems(subscription), ...deliveryProblems(subscription, bots)];
+    const problems = [
+      ...matchProblems(subscription),
+      ...deliveryProblems(subscription, bots),
+      ...subscriptionScopeProblems(subscription, config),
+    ];
     return [
       ...unknownKeys(subscription, SUBSCRIPTION_FIELDS, at),
       ...problems.map(toError('invalid-subscription', at)),
@@ -1303,6 +1336,30 @@ function matchProblems({ criteria, interactions, fhirPath }: Record<string, unkn
     if (error !== undefined) problems.push(['fhirPath', `is not FHIRPath ${error}`.trim()]);
   }
   return problems;
+}
+
+/**
+ * A Subscription's environments are declared ones, and only ones its bot is
+ * deployed to: elsewhere it would deliver to no bot.
+ */
+function subscriptionScopeProblems(
+  { environments, bot }: Record<string, unknown>,
+  config: Record<string, unknown>,
+): Problem[] {
+  if (environments === undefined) return [];
+  if (!isListOf(isText)(environments)) {
+    return [['environments', 'must be a list of keys in environments']];
+  }
+  const scope = typeof bot === 'string' ? keysOf(keysOf(config.bots)[bot]).environments : undefined;
+  const outside = isListOf(isText)(scope)
+    ? (environments as string[]).filter((name) => !(scope as string[]).includes(name))
+    : [];
+  return [
+    ...scopeProblems(environments, config),
+    ...outside.map(
+      (name): Problem => ['environments', `includes "${name}", where bot "${bot}" is not deployed`],
+    ),
+  ];
 }
 
 /** Where a Subscription delivers: a declared bot, or an https URL with its own settings. */
@@ -1549,6 +1606,53 @@ export interface ConfigWarning {
   code: 'writable-wildcard' | 'admin-without-policy' | 'writes-structure-definition';
   path: string;
   message: string;
+}
+
+/** A bot or Subscription a push to one environment leaves out, and where it does go. */
+export interface ScopedOut {
+  kind: 'Bot' | 'Subscription' | 'Operation';
+  key: string;
+  environments: string[];
+}
+
+/**
+ * The config as one environment sees it: without the bots and Subscriptions
+ * scoped to others. A Subscription with no scope of its own takes its bot's.
+ */
+export function scopeConfig(
+  config: PlumbConfig,
+  environment: string,
+): { config: PlumbConfig; out: ScopedOut[] } {
+  const out: ScopedOut[] = [];
+  const keep = <T>(
+    kind: 'Bot' | 'Subscription',
+    record: Record<string, T> | undefined,
+    scope: (entry: T) => string[] | undefined,
+  ) => {
+    if (!record) return undefined;
+    return Object.fromEntries(
+      Object.entries(record).filter(([key, entry]) => {
+        const environments = scope(entry);
+        if (!environments || environments.includes(environment)) return true;
+        out.push({ kind, key, environments });
+        return false;
+      }),
+    );
+  };
+  const bots = keep('Bot', config.bots, (bot) => bot.environments);
+  const subscriptions = keep(
+    'Subscription',
+    config.subscriptions,
+    (s) => s.environments ?? (s.bot ? config.bots?.[s.bot]?.environments : undefined),
+  );
+  return {
+    config: {
+      ...config,
+      ...(bots ? { bots } : {}),
+      ...(subscriptions ? { subscriptions } : {}),
+    },
+    out,
+  };
 }
 
 const WRITES = ['create', 'update', 'delete'];
