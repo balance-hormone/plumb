@@ -429,12 +429,20 @@ describe('planFields', () => {
     expect(fields({ secrets: { API_KEY: { env: 'V' } } }, { V: 'old' }).changes).toEqual([]);
   });
 
-  test('blocks on an unset variable or a missing true secret, and never changes a true one', () => {
-    const plan = fields({ secrets: { API_KEY: { env: 'UNSET' }, BY_HAND: true, MISSING: true } });
+  test('an unset variable leaves a held secret alone, and blocks only when it is missing', () => {
+    const plan = fields({ secrets: { API_KEY: { env: 'UNSET' }, NEW: { env: 'UNSET_TOO' } } });
+    expect(plan).toEqual({
+      changes: [],
+      blocked: [{ code: 'unset-variable', message: 'UNSET_TOO is not set: it holds secret NEW.' }],
+      warnings: ['secret API_KEY not compared: UNSET is not set.'],
+    });
+  });
+
+  test('blocks on a missing true secret, and never changes a true one', () => {
+    const plan = fields({ secrets: { BY_HAND: true, MISSING: true } });
     expect(plan).toEqual({
       changes: [],
       blocked: [
-        { code: 'unset-variable', message: 'UNSET is not set: it holds secret API_KEY.' },
         {
           code: 'missing-secret',
           message: 'secret MISSING is not in the project: set it in the console.',

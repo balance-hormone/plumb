@@ -299,7 +299,11 @@ function planSettings(project: ProjectTarget, current: ProjectFields): FieldPlan
   };
 }
 
-/** `true` must exist and is never changed; `{ env }` is set from its variable when it differs. */
+/**
+ * `true` must exist and is never changed; `{ env }` is set from its variable
+ * when it differs. An unset variable leaves a held secret as it is, since this
+ * run cannot see the value, and blocks only when the project lacks the secret.
+ */
 function planSecrets(
   project: ProjectTarget,
   current: ProjectFields,
@@ -307,6 +311,7 @@ function planSecrets(
 ): FieldPlan {
   const secret: NonNullable<ProjectWrite['secret']> = [];
   const blocked: Blocked[] = [];
+  const warnings: string[] = [];
   for (const [name, source] of Object.entries(project.secrets ?? {})) {
     const held = current.secret?.find((s) => s.name === name);
     if (source === true) {
@@ -314,6 +319,8 @@ function planSecrets(
         const message = `secret ${name} is not in the project: set it in the console.`;
         blocked.push({ code: 'missing-secret', message });
       }
+    } else if (!env[source.env] && held) {
+      warnings.push(`secret ${name} not compared: ${source.env} is not set.`);
     } else if (!env[source.env]) {
       const message = `${source.env} is not set: it holds secret ${name}.`;
       blocked.push({ code: 'unset-variable', message });
@@ -325,6 +332,7 @@ function planSecrets(
     write: secret.length > 0 ? { secret } : {},
     fields: secret.map((s) => `secret ${s.name} (value changed)`),
     blocked,
+    warnings,
   };
 }
 
