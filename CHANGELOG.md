@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.18.0 (2026-10-08)
 
-The generated migration runner changes, so `generate --check` is stale
+The checker's version changes, so the next `push` redeploys it. The generated migration runner changes, so `generate --check` is stale
 until it is generated and the migrator rebuilt.
 
 - **`restamp: { exclude }`** names a module whose default export gives the
