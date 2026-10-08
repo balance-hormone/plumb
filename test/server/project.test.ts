@@ -277,11 +277,11 @@ describe.skipIf(!server)(
       expect((await stored()).meta?.versionId).toBe(before.meta?.versionId);
     });
 
-    test('a missing true secret or an unset variable fails the plan and writes nothing', async () => {
+    test('a missing true secret or an unset variable for a missing secret fails the plan and writes nothing', async () => {
       const before = await stored();
       const config = {
         ...options.config,
-        project: { secrets: { API_KEY: { env: 'PLUMB_TEST_UNSET' }, BY_HAND: true as const } },
+        project: { secrets: { NEW_KEY: { env: 'PLUMB_TEST_UNSET' }, BY_HAND: true as const } },
       };
       const result = await push({ ...options, config, env: {} });
       expect(result.ok).toBe(false);
@@ -289,11 +289,27 @@ describe.skipIf(!server)(
         name: 'project',
         failed: true,
         warnings: expect.arrayContaining([
-          'PLUMB_TEST_UNSET is not set: it holds secret API_KEY.',
+          'PLUMB_TEST_UNSET is not set: it holds secret NEW_KEY.',
           'secret BY_HAND is not in the project: set it in the console.',
         ]),
       });
       expect((await stored()).meta?.versionId).toBe(before.meta?.versionId);
+    });
+
+    test('an unset variable leaves a held secret as it is', async () => {
+      const before = await stored();
+      const config = {
+        ...options.config,
+        project: { secrets: { API_KEY: { env: 'PLUMB_TEST_UNSET' } } },
+      };
+      const result = await push({ ...options, config, env: {} });
+      expect(result.ok).toBe(true);
+      expect(result.steps.find((s) => s.name === 'project')?.warnings).toContain(
+        'secret API_KEY not compared: PLUMB_TEST_UNSET is not set.',
+      );
+      const after = await stored();
+      expect(after.meta?.versionId).toBe(before.meta?.versionId);
+      expect(after.secret).toEqual(before.secret);
     });
 
     test('a secret scoped to dev is set there, left out of prod, and removed from prod only with --prune', async () => {

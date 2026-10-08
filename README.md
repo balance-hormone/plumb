@@ -805,7 +805,8 @@ export default defineConfig({
   project: {
     settings: { supportEmail: 'support@example.org', maxUploadMb: 25 },
     secrets: {
-      LAB_API_KEY: { env: 'LAB_API_KEY' }, // set from CI's environment
+      // Set from its variable; with the variable unset, a held value is left as it is.
+      LAB_API_KEY: { env: 'LAB_API_KEY' },
       SFTP_KEY: true, // must exist; set by hand in the console
       // Only in dev: left out of every other push, removed there with --prune.
       TEST_RECIPIENTS: { env: 'TEST_RECIPIENTS', environments: ['dev'] },

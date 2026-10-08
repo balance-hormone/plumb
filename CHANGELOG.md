@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **An unset variable leaves a held secret alone:** `push` and `--check`
+  warn that it was not compared rather than blocking, so a run that cannot
+  read one source (a least-privilege CI drift check, an operator without
+  access to one vendor) still converges the rest. A secret the project lacks
+  still blocks (#270).
 - **`environments` on an `{ env }` secret** keeps it out of every other
   environment's push, and the `scope` step lists it. One an environment
   holds anyway is reported, and removed with `--prune`, so
