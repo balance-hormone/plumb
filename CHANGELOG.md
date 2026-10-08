@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **`environments` on an `{ env }` secret** keeps it out of every other
+  environment's push, and the `scope` step lists it. One an environment
+  holds anyway is reported, and removed with `--prune`, so
+  `push --check --prune` fails while it is there: a value for testing that
+  must never reach production (#268).
+
 ## 0.16.0 (2026-10-07)
 
 The checker's version changes, so the next `push` redeploys it.

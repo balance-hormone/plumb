@@ -135,7 +135,11 @@ export interface PushOptions extends EnvOptions, ProjectOptions {
  */
 export async function push(unscoped: PushOptions): Promise<PushResult> {
   const scope = scopeConfig(unscoped.config, unscoped.environment.name);
-  const options = { ...unscoped, config: scope.config };
+  const options = {
+    ...unscoped,
+    config: scope.config,
+    outOfScopeSecrets: scope.out.filter((o) => o.kind === 'Secret').map((o) => o.key),
+  };
   const result: PushResult = { ok: false, steps: [], totalMs: 0, errors: [], plan: [] };
   const step = steps<PushStepName, PushResult>(result, options.onStep);
   const ready = await prepare(options, scope.out, result, step);
