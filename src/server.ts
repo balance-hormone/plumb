@@ -161,6 +161,9 @@ services:
       MEDPLUM_SUPPORT_EMAIL: support@example.com
       # A test run logs in far more often than people do; Medplum allows 160 token requests a window.
       MEDPLUM_DEFAULT_AUTH_RATE_LIMIT: 100000
+      # One client drives a whole suite: seeding, pushes and every acting
+      # identity's reads count against Medplum's 50,000-point-a-minute FHIR quota.
+      MEDPLUM_DEFAULT_FHIR_QUOTA: 10000000
       # Bots run on vmcontext here; hosted Medplum runs them on Lambda.
       MEDPLUM_VM_CONTEXT_BOTS_ENABLED: 'true'
       # Bots created without a runtime, as push creates the checker, get this one.

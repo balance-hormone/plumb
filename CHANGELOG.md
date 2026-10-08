@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **The test server no longer throttles a suite:** its FHIR quota is raised
+  from Medplum's default of 50,000 points a minute, which a few policy suites
+  sharing one server exhausted as `Too Many Requests`.
+
 ## 0.18.0 (2026-10-08)
 
 The checker's version changes, so the next `push` redeploys it. The generated migration runner changes, so `generate --check` is stale
