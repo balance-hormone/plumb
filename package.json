@@ -1,6 +1,6 @@
 {
   "name": "plumb-fhir",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "description": "Make Medplum's own types profile-aware: generate TypeScript types from FHIR profiles that narrow @medplum/fhirtypes.",
   "keywords": [
     "medplum",

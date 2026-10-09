@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.19.0 (2026-10-09)
+
+The checker's version changes, so the next `push` redeploys it. The generated
+bot types change, so `generate --check` is stale until it is generated.
+
+- **Per-environment bot triggers:** `bots.<key>.environmentOverrides.<env>`
+  sets `cron` (or `null` for none) and `publicWebhook` for one environment,
+  so a bot can be deployed everywhere with its schedule or webhook off in
+  one. Omitted fields inherit the bot's own. Push, `--dry-run` and `--check`
+  compare the same resolved bot; unknown environments or fields, an invalid
+  schedule, and a webhook without a policy are config errors. Generated
+  handler inputs cover every environment's triggers (#279).
+- **A bot's field changes patch only what Plumb manages**, so an update no
+  longer rewrites the deployed executable URL or the webhook's identity.
+
 ## 0.18.1 (2026-10-08)
 
 - **The test server no longer throttles a suite:** its FHIR quota is raised
