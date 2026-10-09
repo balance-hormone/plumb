@@ -82,3 +82,88 @@ export const unknownBot = defineBot('nobody', async () => undefined);
 `;
   expect(typecheck(files, source)).toEqual([]);
 });
+
+test('generated inputs include schedules and raw webhooks enabled by environment overrides', () => {
+  const generated = printFiles(
+    [],
+    () => 'harness',
+    undefined,
+    [],
+    [],
+    printBots(
+      {
+        sync: {
+          file: 'a.cjs',
+          rawBody: true,
+          policy: 'p',
+          environmentOverrides: {
+            dev: { cron: '0 3 * * *' },
+            prod: { publicWebhook: true },
+          },
+        },
+        parsed: {
+          file: 'b.cjs',
+          policy: 'p',
+          environmentOverrides: { prod: { publicWebhook: true } },
+        },
+      },
+      { changed: { criteria: 'Patient', interactions: ['update'], bot: 'sync' } },
+      ['dev', 'prod'],
+    ),
+  );
+  expect(
+    typecheck(
+      generated,
+      `
+import { defineBot } from './generated/index.js';
+defineBot('sync', (_medplum: unknown, event) => {
+  const input: string | { resourceType: 'Bot' | 'Patient' } = event.input;
+  if (typeof input === 'string') return input.length;
+  if (input.resourceType === 'Bot') return input.resourceType;
+  return input.resourceType;
+});
+defineBot('parsed', (_medplum: unknown, event) => {
+  // @ts-expect-error a parsed webhook body is unknown
+  return event.input.resourceType;
+});
+`,
+    ),
+  ).toEqual([]);
+});
+
+test('generated inputs retain base triggers used by test projects', () => {
+  const generated = printFiles(
+    [],
+    () => 'harness',
+    undefined,
+    [],
+    [],
+    printBots(
+      {
+        sync: {
+          file: 'a.cjs',
+          cron: '0 3 * * *',
+          publicWebhook: false,
+          policy: 'p',
+          environments: ['prod'],
+          environmentOverrides: { prod: { cron: null, publicWebhook: false } },
+        },
+      },
+      { changed: { criteria: 'Patient', interactions: ['update'], bot: 'sync' } },
+      ['dev', 'prod'],
+    ),
+  );
+  expect(
+    typecheck(
+      generated,
+      `
+import { defineBot } from './generated/index.js';
+defineBot('sync', (_medplum: unknown, event) => {
+  if (event.input.resourceType === 'Bot') return event.input.resourceType;
+  const resourceType: 'Patient' = event.input.resourceType;
+  return resourceType;
+});
+`,
+    ),
+  ).toEqual([]);
+});

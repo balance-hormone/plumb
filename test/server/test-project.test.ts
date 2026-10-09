@@ -182,7 +182,9 @@ describe.skipIf(!server)('a test project runs the declared bots', { timeout: 120
         igs: [],
         profiles: [],
         out: '',
-        bots: { echo: { file: lambda, cron: '0 3 * * *' } },
+        bots: {
+          echo: { file: lambda, cron: '0 3 * * *', environmentOverrides: { test: { cron: null } } },
+        },
         subscriptions: { 'new-patient': { criteria: 'Patient', bot: 'echo' } },
         test: { bots: { echo: { file: build } } },
       } as PlumbConfig as LoadedConfig,

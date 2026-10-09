@@ -1160,6 +1160,27 @@ subscriptions: {
   narrower one. Each push and `--check` lists what it left out in a `scope`
   step; one an environment already holds is treated as removed. A test
   project runs every bot, and the migrations bot has no scope.
+- **Triggers per environment:** `environmentOverrides` on a bot changes its
+  schedule or public webhook while keeping the bot deployed. Omitted fields
+  inherit the bot's defaults; `cron: null` removes its schedule and
+  `publicWebhook: false` turns its webhook off. For example:
+
+  ```ts
+  sync: {
+    file: './dist/bots/sync.cjs',
+    policy: 'sync',
+    cron: '0 3 * * *',
+    publicWebhook: true,
+    environmentOverrides: { prod: { cron: null, publicWebhook: false } },
+  }
+  ```
+
+  Override keys must name declared environments, and only `cron` and
+  `publicWebhook` may be overridden. Schedules are validated as usual;
+  enabling a webhook still requires the bot's `policy`. Push, dry-run and
+  `--check` use the resolved triggers; `_bots.ts` unions the inputs from
+  every environment where the bot is deployed, plus the base triggers used
+  by test projects. Test projects always use base triggers.
 - **Existing bots and Subscriptions** the project made by hand are adopted
   with `--adopt`: a bot by its name, keeping its id, membership and webhook
   URL; a Subscription by its criteria and endpoint. Until then, `push` names

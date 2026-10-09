@@ -1051,6 +1051,84 @@ const withScope = (fields: string) =>
   });
 
 describe('environment scope', () => {
+  test('loads trigger overrides and resolves only the selected environment without mutating defaults', () => {
+    const result = withScope(`project: { accessPolicies: { sender: {} } }, bots: {
+      sync: { file: './sync.cjs', policy: 'sender', cron: '0 3 * * *', publicWebhook: true,
+        environmentOverrides: { prod: { cron: null, publicWebhook: false }, dev: { cron: '0 4 * * *' } } },
+      draft: { file: './draft.cjs', environments: ['dev'], environmentOverrides: { prod: { cron: '0 5 * * *' } } },
+    }`);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prod = scopeConfig(result.config, 'prod');
+    expect(prod.config.bots?.sync?.cron).toBeUndefined();
+    expect(prod.config.bots?.sync?.publicWebhook).toBe(false);
+    expect(prod.config.bots?.sync).not.toHaveProperty('environmentOverrides');
+    expect(prod.config.bots?.draft).toBeUndefined();
+    const dev = scopeConfig(result.config, 'dev');
+    expect(dev.config.bots?.sync?.cron).toBe('0 4 * * *');
+    expect(dev.config.bots?.sync?.publicWebhook).toBe(true);
+    expect(scopeConfig(result.config, 'other').config.bots?.sync?.cron).toBe('0 3 * * *');
+    expect(result.config.bots?.sync?.cron).toBe('0 3 * * *');
+    expect(result.config.bots?.sync?.publicWebhook).toBe(true);
+  });
+
+  test.each([
+    ['{ qa: {} }', 'invalid-bot', 'environmentOverrides.qa'],
+    ['{ prod: { timeout: 10 } }', 'unknown-key', 'environmentOverrides.prod.timeout'],
+    ["{ prod: { cron: '0 25 * * *' } }", 'invalid-bot', 'environmentOverrides.prod.cron'],
+    ['{ prod: { cron: false } }', 'invalid-bot', 'environmentOverrides.prod.cron'],
+    ['{ prod: { publicWebhook: true } }', 'invalid-bot', 'environmentOverrides.prod.publicWebhook'],
+    [
+      "{ prod: { publicWebhook: 'yes' } }",
+      'invalid-bot',
+      'environmentOverrides.prod.publicWebhook',
+    ],
+    ['{ prod: null }', 'invalid-type', 'environmentOverrides.prod'],
+    ['[]', 'invalid-bot', 'environmentOverrides'],
+  ])('rejects invalid overrides %s at the field', (overrides, code, field) => {
+    expect(
+      paths(
+        withScope(`bots: { sync: { file: './sync.cjs', environmentOverrides: ${overrides} } }`),
+      ),
+    ).toEqual([[code, `bots.sync.${field}`]]);
+  });
+
+  test('undefined trigger overrides inherit the base bot', () => {
+    const config = defineConfig({
+      igs: [],
+      profiles: [],
+      out: '',
+      bots: {
+        sync: {
+          file: './sync.cjs',
+          policy: 'sender',
+          cron: '0 3 * * *',
+          publicWebhook: true,
+          environmentOverrides: { prod: { cron: undefined, publicWebhook: undefined } },
+        },
+      },
+    });
+    expect(scopeConfig(config, 'prod').config.bots?.sync).toMatchObject({
+      cron: '0 3 * * *',
+      publicWebhook: true,
+    });
+  });
+
+  test('an override can add a trigger and empty overrides inherit defaults', () => {
+    const result = withScope(`project: { accessPolicies: { sender: {} } }, bots: {
+      sync: { file: './sync.cjs', policy: 'sender', environmentOverrides: {
+        dev: { cron: '0 3 * * *', publicWebhook: true }, prod: {} } },
+    }`);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(scopeConfig(result.config, 'dev').config.bots?.sync).toMatchObject({
+      cron: '0 3 * * *',
+      publicWebhook: true,
+    });
+    expect(scopeConfig(result.config, 'prod').config.bots?.sync?.cron).toBeUndefined();
+    expect(scopeConfig(result.config, 'prod').config.bots?.sync?.publicWebhook).toBeUndefined();
+  });
+
   test('a scope names declared environments, and a Subscription goes no wider than its bot', () => {
     const result = withScope(`
       bots: {

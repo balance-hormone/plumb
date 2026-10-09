@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Balance Hormone Center and Plumb contributors
 // SPDX-License-Identifier: Apache-2.0
-import type { BotConfig, SubscriptionConfig } from '../config.js';
+import { type BotConfig, type SubscriptionConfig, scopeConfig } from '../config.js';
 import { MARKER, quote } from './print.js';
 
 /**
@@ -26,17 +26,33 @@ function inputsOf(
   // A webhook's body is whatever was posted, which takes in every other input.
   if (bot.publicWebhook && !bot.rawBody) return ['unknown'];
   if (bot.publicWebhook) inputs.push('string');
-  return inputs.length > 0 ? [...new Set(inputs)] : ['unknown'];
+  return inputs;
 }
 
 /** `_bots.ts`: `defineBot`, typing each declared bot's event by its triggers and secrets. */
 export function printBots(
   bots: Record<string, BotConfig>,
   subscriptions: Record<string, SubscriptionConfig> = {},
+  environments: string[] = [],
 ): string {
   const keys = Object.keys(bots).sort();
+  const scoped = environments.map(
+    (environment) =>
+      scopeConfig({ igs: [], profiles: [], out: '', bots, subscriptions }, environment).config,
+  );
   const inputs = new Map(
-    keys.map((key) => [key, inputsOf(key, bots[key] as BotConfig, subscriptions)]),
+    keys.map((key) => {
+      const union = [
+        ...new Set([
+          ...inputsOf(key, bots[key] as BotConfig, subscriptions),
+          ...scoped.flatMap((config) => {
+            const bot = config.bots?.[key];
+            return bot ? inputsOf(key, bot, config.subscriptions ?? {}) : [];
+          }),
+        ]),
+      ];
+      return [key, union.length === 0 || union.includes('unknown') ? ['unknown'] : union];
+    }),
   );
   const resources = new Set(
     [...inputs.values()]
