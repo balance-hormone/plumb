@@ -254,6 +254,14 @@ export default defineConfig({
   with the project's full access, and `push` warns, as design 06 warns for an
   admin client without one. `publicWebhook` without a `policy` is a named
   error: the server would answer every call with a 403.
+- **`environmentOverrides`** changes only `cron` and `publicWebhook` for a
+  declared environment (#279), without changing where the bot is deployed.
+  Omitted fields inherit the base bot; `cron: null` clears the schedule.
+  Unknown environments and fields, invalid schedules and a webhook enabled
+  without a policy are config errors. `scopeConfig` resolves overrides once
+  before the plans, so push, dry-run and drift compare the same bot.
+  Generated input types union triggers across the bot's deployed environments
+  and the base triggers used by test projects, which ignore overrides.
 - **Who may run a bot** is a policy entry, by key:
 
   ```ts

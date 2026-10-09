@@ -276,4 +276,6 @@ function importPath(out: string, file: string): string {
 
 /** `_bots.ts`, when the config declares bots. */
 const botsFile = (config: PlumbConfig) =>
-  config.bots ? printBots(config.bots, config.subscriptions) : undefined;
+  config.bots
+    ? printBots(config.bots, config.subscriptions, Object.keys(config.environments ?? {}))
+    : undefined;

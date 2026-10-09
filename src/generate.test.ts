@@ -175,11 +175,13 @@ describe('generate', () => {
         'canonical: http://example.org/fhir/plumb-test\ndependencies:\n  example.fhir.other: 0.9.0\n',
       );
       const steps: Step[] = [];
-      await generate({
+      const result = await generate({
         ...p,
         config: { ...p.config, igs: ['example.fhir.other@1.0.0'], fsh: fsh.root },
         onStep: (s) => steps.push(s),
+        fetch: async () => new Response('not found', { status: 404 }),
       });
+      expect(codes(result)).toEqual(['registry-error']);
       expect(steps[0]?.warnings).toEqual([
         expect.stringMatching(
           /^sushi-config.yaml depends on example.fhir.other 0.9.0, but igs selects 1.0.0/,

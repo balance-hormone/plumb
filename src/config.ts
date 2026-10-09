@@ -130,6 +130,8 @@ export interface BotConfig {
    * unless given. A test project runs every bot.
    */
   environments?: string[];
+  /** Trigger changes by environment; null disables the inherited schedule. */
+  environmentOverrides?: Record<string, { cron?: string | null; publicWebhook?: boolean }>;
 }
 
 /** A Subscription, delivering to a bot or to an `https` URL. */
@@ -1122,6 +1124,7 @@ const BOT_FIELDS: Record<keyof BotConfig, [(value: unknown) => boolean, string]>
     "{ trigger, destination }, as the Bot's auditEventTrigger and auditEventDestination",
   ],
   environments: [isListOf(isText), 'a list of keys in environments'],
+  environmentOverrides: [isObject, 'an object keyed by environment'],
 };
 
 const unknownKeys = (record: Record<string, unknown>, known: object, at: string): ConfigError[] =>
@@ -1166,6 +1169,7 @@ function checkBots(config: Record<string, unknown>): ConfigError[] {
     }
     const errors = [
       ...unknownKeys(bot, BOT_FIELDS, at),
+      ...checkBotOverrides(bot, config, at),
       ...[...checkBot(bot, project), ...scopeProblems(bot.environments, config)].map(
         toError('invalid-bot', at),
       ),
@@ -1182,6 +1186,44 @@ function checkBots(config: Record<string, unknown>): ConfigError[] {
     names.set(name, key);
     return errors;
   });
+}
+
+function checkBotOverrides(
+  bot: Record<string, unknown>,
+  config: Record<string, unknown>,
+  at: string,
+): ConfigError[] {
+  if (!isObject(bot.environmentOverrides)) return [];
+  return Object.entries(bot.environmentOverrides).flatMap(
+    ([environment, override]): ConfigError[] => {
+      const path = `${at}.environmentOverrides.${environment}`;
+      if (!Object.hasOwn(keysOf(config.environments), environment)) {
+        return [
+          toError(
+            'invalid-bot',
+            path,
+          )(['', `names "${environment}", which is not a key in environments`]),
+        ];
+      }
+      if (!isObject(override)) return [notObject(path)];
+      const problems = (['cron', 'publicWebhook'] as const).flatMap((field): Problem[] => {
+        const value = override[field];
+        if (value === undefined || (field === 'cron' && value === null)) return [];
+        const [valid, expected] = BOT_FIELDS[field];
+        return valid(value) ? botReferences(field, value, {}) : [[field, `must be ${expected}`]];
+      });
+      if (override.publicWebhook === true && bot.policy === undefined) {
+        problems.push([
+          'publicWebhook',
+          'needs a policy: Medplum answers a webhook to a bot without one with a 403',
+        ]);
+      }
+      return [
+        ...unknownKeys(override, { cron: 0, publicWebhook: 0 }, path),
+        ...problems.map(toError('invalid-bot', path)),
+      ];
+    },
+  );
 }
 
 function checkBot(bot: Record<string, unknown>, project: Record<string, unknown>): Problem[] {
@@ -1689,7 +1731,22 @@ export function scopeConfig(
       }),
     );
   };
-  const bots = keep('Bot', config.bots, (bot) => bot.environments);
+  const keptBots = keep('Bot', config.bots, (bot) => bot.environments);
+  const bots =
+    keptBots &&
+    Object.fromEntries(
+      Object.entries(keptBots).map(([key, bot]) => {
+        const { environmentOverrides, ...base } = bot;
+        const override = environmentOverrides?.[environment];
+        const resolved = {
+          ...base,
+          ...override,
+          publicWebhook: override?.publicWebhook ?? base.publicWebhook,
+          cron: override?.cron === null ? undefined : (override?.cron ?? base.cron),
+        };
+        return [key, resolved];
+      }),
+    );
   const subscriptions = keep(
     'Subscription',
     config.subscriptions,

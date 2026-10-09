@@ -165,10 +165,12 @@ const defaultFeatures = (config: PlumbConfig) =>
  */
 function testBots(config: PlumbConfig): PlumbConfig['bots'] {
   return Object.fromEntries(
-    Object.entries(unscoped(config.bots ?? {})).map(([key, bot]) => [
-      key,
-      { ...bot, runtime: 'vmcontext' as const, ...config.test?.bots?.[key] },
-    ]),
+    Object.entries(unscoped(config.bots ?? {})).map(
+      ([key, { environmentOverrides: _, ...bot }]) => [
+        key,
+        { ...bot, runtime: 'vmcontext' as const, ...config.test?.bots?.[key] },
+      ],
+    ),
   );
 }
 

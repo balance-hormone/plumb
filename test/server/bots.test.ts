@@ -134,6 +134,82 @@ describe.skipIf(!server)('the bots step converges bots', { timeout: 120_000 }, (
 });
 
 describe.skipIf(!server)('push runs the bots step after the project', { timeout: 120_000 }, () => {
+  test('environment overrides converge triggers in place and drive dry-run, check and drift', async () => {
+    const project = await newServerProject(true, ['bots', 'cron']);
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-bot-overrides-'));
+    const file = join(dir, 'echo.cjs');
+    writeFileSync(file, ECHO);
+    const lockPath = join(dir, 'plumb.lock');
+    await fetchPackages({ igs: [], lockPath });
+    const code = (await build({ ...CHECKER_BUILD, write: false })).outputFiles[0]?.text ?? '';
+    const options = {
+      config: {
+        igs: [],
+        profiles: [],
+        out: '',
+        project: { accessPolicies: { echo: { resource: [{ resourceType: 'Patient' }] } } },
+        bots: {
+          echo: {
+            file,
+            runtime: 'vmcontext',
+            policy: 'echo',
+            cron: '0 3 * * *',
+            publicWebhook: true,
+            environmentOverrides: { prod: { cron: null, publicWebhook: false } },
+          } as BotConfig,
+        },
+      },
+      environment: { name: 'dev', ...project },
+      lockPath,
+      checker: { code, version: '0.12.0' },
+      reportPath: join(dir, 'validate.json'),
+    };
+    const medplum = await connect(project);
+    expect((await push(options)).ok).toBe(true);
+    const before = (await medplum.searchOne('Bot', { name: 'echo' })) as Bot;
+    expect(before.cronString).toBe('0 3 * * *');
+    expect(before.publicWebhook).toBe(true);
+    const membership = (await medplum.searchOne('ProjectMembership', {
+      profile: `Bot/${before.id}`,
+    })) as ProjectMembership;
+    const prod = { ...options, environment: { ...options.environment, name: 'prod' } };
+    const dry = await push({ ...prod, dryRun: true });
+    expect(dry.bots?.changes).toMatchObject([
+      { kind: '~', fields: ['cronString', 'publicWebhook'] },
+    ]);
+    expect((await medplum.readResource('Bot', before.id as string)).meta?.versionId).toBe(
+      before.meta?.versionId,
+    );
+    expect((await push({ ...prod, check: true })).ok).toBe(false);
+    expect((await push(prod)).ok).toBe(true);
+    const after = await medplum.readResource('Bot', before.id as string);
+    expect(after.cronString).toBeUndefined();
+    expect(after.publicWebhook).toBe(false);
+    const sameMembership = await medplum.searchOne('ProjectMembership', {
+      profile: `Bot/${before.id}`,
+    });
+    expect(sameMembership?.id).toBe(membership.id);
+    expect(
+      (await fetch(`${project.baseUrl}webhook/${membership.id}`, { method: 'POST' })).status,
+    ).toBe(403);
+    expect((await push({ ...prod, check: true })).ok).toBe(true);
+    await medplum.patchResource('Bot', after.id as string, [
+      { op: 'replace', path: '/publicWebhook', value: true },
+    ]);
+    expect((await push({ ...prod, check: true })).bots?.changes).toMatchObject([
+      { fields: ['publicWebhook'] },
+    ]);
+    expect((await push(prod)).ok).toBe(true);
+    expect((await push(options)).ok).toBe(true);
+    expect((await medplum.readResource('Bot', before.id as string)).cronString).toBe('0 3 * * *');
+    const response = await fetch(`${project.baseUrl}webhook/${membership.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(response.status, await response.text()).toBe(200);
+  });
+
   test('--dry-run and --check plan the bots; a push converges them; a hand edit is drift', async () => {
     const project = await newProject();
     const dir = mkdtempSync(join(tmpdir(), 'plumb-push-bots-'));
@@ -247,6 +323,9 @@ describe.skipIf(!server)("--prune clears a removed bot's schedule", { timeout: 1
     const pruned = await held();
     expect(pruned.id).toBe(scheduled.id);
     expect(pruned.cronString).toBeUndefined();
+    expect(
+      await medplum.executeBot(pruned.id as string, { hello: 'retained' }, 'application/json'),
+    ).toEqual({ echoed: { hello: 'retained' } });
     expect((await planBots(await connect(project), {}, { prune: true })).changes).toEqual([]);
   });
 });

@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
-import { deepEquals, type MedplumClient } from '@medplum/core';
+import { deepEquals, type MedplumClient, type PatchOperation } from '@medplum/core';
 import type { AccessPolicy, Bot, Project, ProjectMembership, Reference } from '@medplum/fhirtypes';
 import type { BotConfig } from './config.js';
 import {
@@ -333,8 +333,7 @@ export async function applyBots(plan: BotPlan, medplum: MedplumClient): Promise<
   for (const change of plan.changes) {
     if (change.kind === '-') {
       if (change.kept) continue;
-      const { cronString: _, ...bot } = await medplum.readResource('Bot', change.id);
-      await medplum.updateResource(bot);
+      await medplum.patchResource('Bot', change.id, [{ op: 'remove', path: '/cronString' }]);
     } else if (change.kind === '+') {
       const membership = await createBot(medplum, change, policy(change.policy));
       if (change.bot.publicWebhook) {
@@ -388,9 +387,17 @@ async function updateBot(
   change: Extract<BotChange, { kind: '~' }>,
   accessPolicy: Reference<AccessPolicy> | undefined,
 ): Promise<void> {
-  if (change.adopt || change.fields.some((f) => (MANAGED as readonly string[]).includes(f))) {
-    await medplum.updateResource(change.bot);
-  }
+  // A read rewrites executableCode.url; writing it back would corrupt the deployed executable.
+  const operations: PatchOperation[] = MANAGED.filter(
+    (field) => change.fields.includes(field) || (change.adopt && change.bot[field] !== undefined),
+  ).map((field) =>
+    change.bot[field] === undefined
+      ? { op: 'remove', path: `/${field}` }
+      : { op: 'add', path: `/${field}`, value: change.bot[field] },
+  );
+  if (change.adopt)
+    operations.push({ op: 'add', path: '/identifier', value: change.bot.identifier });
+  if (operations.length > 0) await medplum.patchResource('Bot', change.id, operations);
   if (change.fields.some((f) => f === 'accessPolicy' || f === 'admin')) {
     const { accessPolicy: _, ...membership } = await medplum.readResource(
       'ProjectMembership',
