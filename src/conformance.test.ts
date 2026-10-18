@@ -87,6 +87,27 @@ describe('runPage', () => {
     );
   });
 
+  // Medplum completes the job with Lambda's own error as the bot's return.
+  test.each([
+    ['Sandbox.Timedout', 'RequestId: x Error: Task timed out after 10.00 seconds'],
+    ['Runtime.OutOfMemory', 'RequestId: x Error: Runtime exited with error: signal: killed'],
+  ])('a failed Lambda run throws, naming its error: %s', async (errorType, errorMessage) => {
+    const failed: AsyncJob = {
+      ...done,
+      output: {
+        resourceType: 'Parameters',
+        parameter: [
+          { name: 'responseBody', valueString: JSON.stringify({ errorType, errorMessage }) },
+        ],
+      },
+    };
+    const { medplum, calls } = client([failed]);
+    await expect(runPage(medplum, 'bot', {}, async () => {})).rejects.toThrow(
+      `The checker's run failed: ${errorType}: ${errorMessage}`,
+    );
+    expect(calls()).toBe(1);
+  });
+
   test('any other failure throws at once', async () => {
     const { medplum, calls } = client([notReady('Bot not found')]);
     await expect(runPage(medplum, 'bot', {} as never, async () => {})).rejects.toThrow(
@@ -128,7 +149,7 @@ describe('checkStored', () => {
   const serverAt = (date: string) =>
     vi.stubGlobal('fetch', async () => new Response(null, { headers: { date } }));
 
-  function checker(fail?: number) {
+  function checker(fail?: number, body = result) {
     const inputs: CheckerInput[] = [];
     const medplum = {
       getBaseUrl: () => 'http://example.org/',
@@ -137,7 +158,7 @@ describe('checkStored', () => {
       post: async (_url: string, input: CheckerInput) => {
         inputs.push(input);
         if (inputs.length === fail) throw new Error('interrupted');
-        return job(result(input.cursor ? undefined : '1'));
+        return job(body(input.cursor ? undefined : '1'));
       },
     } as unknown as MedplumClient;
     return { medplum, inputs };
@@ -162,5 +183,20 @@ describe('checkStored', () => {
     expect(resumed.inputs.map((i) => [i.cursor, i.before])).toEqual([
       ['1', '2026-10-06T21:00:01.000Z'],
     ]);
+  });
+
+  test.each([
+    ['without silent', ({ silent, ...page }: ReturnType<typeof result>) => page],
+    ['without counts', ({ read, ...page }: ReturnType<typeof result>) => page],
+  ])('a page %s fails the run, naming the type and page', async (_, without) => {
+    const options = {
+      reportPath: join(mkdtempSync(join(tmpdir(), 'plumb-check-')), 'validate.json'),
+      filename: 'plumb-checker.js',
+    };
+    serverAt('Tue, 06 Oct 2026 21:00:00 GMT');
+    const { medplum } = checker(undefined, (next) => without(result(next)) as never);
+    await expect(checkStored(medplum, gated, 'bot', options)).rejects.toThrow(
+      /^The checker returned a malformed page for Patient \(page 1\): it has core, /,
+    );
   });
 });

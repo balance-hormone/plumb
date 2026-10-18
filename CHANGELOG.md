@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+The checker bot gets a timeout, so the next `push` updates and redeploys it.
+
+- **The checker runs pages for up to 15 minutes**, Lambda's ceiling. It was
+  installed with no `timeout`, so on Medplum's `awslambda` runtime it ran on
+  the default of 10 seconds, which the first page of a type with millions of
+  records, counting them, can outlast.
+- **A failed Lambda run fails the page with Lambda's error.** Medplum
+  completes a job whose Lambda threw, timed out or ran out of memory with
+  Lambda's error as the bot's return, so `validate` read it as a page and
+  crashed with `Cannot read properties of undefined (reading 'versioned')`.
+  Now it stops with `checker-failed` naming the error, and `--resume` picks up
+  at that page. A page missing a count is refused, naming its type and page.
+
 ## 0.19.0 (2026-10-09)
 
 The checker's version changes, so the next `push` redeploys it. The generated

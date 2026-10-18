@@ -241,9 +241,13 @@ the real-server tests the spec deferred:
 ## Open questions
 
 - **Bot runtime:** `awslambda` on hosted Medplum and `vmcontext` on many
-  self-hosted servers have different limits; the page size may need to adapt
-  to the Bot `timeout`. The tests run `vmcontext` only, as Docker cannot run
-  Lambda; `awslambda` is untested until it runs against hosted Medplum.
+  self-hosted servers have different limits. The checker's Bot `timeout` is
+  900 seconds, Lambda's ceiling: without one, Lambda's default of 10 seconds
+  ended a hosted project's first page of a type with millions of records.
+  Medplum completes the job of a Lambda run that failed with Lambda's error
+  (`errorType`, `errorMessage`) as the bot's return, so the CLI reads that as
+  a failure, not a page. The tests run `vmcontext` only, as Docker cannot run
+  Lambda.
 - **Reason grouping:** Medplum's issue messages include array indexes
   (`component[2]`), which must be normalized to group well.
 - **Large projects:** whether to run pages in parallel, and how the server's

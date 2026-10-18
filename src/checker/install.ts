@@ -33,6 +33,13 @@ export function checkerFilename(code: string, version: string): string {
 export const deployedVersion = (bot: Bot) =>
   bot.executableCode?.title?.match(/^plumb-checker-(.+)-[0-9a-f]{16}\.cjs$/)?.[1];
 
+/**
+ * Seconds a page may run, Lambda's ceiling. Without it Medplum deploys the
+ * Lambda with its default of 10, which a large type's first page, counting
+ * every record, outlasts.
+ */
+export const CHECKER_TIMEOUT = 900;
+
 // The checker reads the types it checks, and the base definitions of contained resources.
 const READ: AccessPolicyResource['interaction'] = ['read', 'vread', 'search', 'history'];
 
@@ -74,9 +81,15 @@ export async function installChecker(
   const found = await findChecker(medplum);
   let bot: Bot;
   let changed = false;
+  // $deploy is what applies a Bot's timeout to its Lambda.
+  let timed = false;
   if (found) {
     bot = found;
     changed = await updatePolicy(medplum, bot, policy);
+    if (bot.timeout !== CHECKER_TIMEOUT) {
+      bot = await medplum.updateResource<Bot>({ ...bot, timeout: CHECKER_TIMEOUT });
+      timed = true;
+    }
   } else {
     const created = await medplum.createResource(policy);
     const projectId = medplum.getProject()?.id as string;
@@ -86,12 +99,16 @@ export async function installChecker(
       description: 'Validates stored resources against profiles for plumb validate; reads only.',
       accessPolicy: createReference(created),
     });
-    bot = await medplum.updateResource<Bot>({ ...createdBot, identifier: [CHECKER_IDENTIFIER] });
+    bot = await medplum.updateResource<Bot>({
+      ...createdBot,
+      identifier: [CHECKER_IDENTIFIER],
+      timeout: CHECKER_TIMEOUT,
+    });
   }
   const botId = bot.id as string;
 
   const deployed = bot.executableCode?.title;
-  if (deployed !== filename) {
+  if (deployed !== filename || timed) {
     await medplum.post(medplum.fhirUrl('Bot', botId, '$deploy'), {
       code: options.code,
       filename,

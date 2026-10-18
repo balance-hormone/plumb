@@ -11,7 +11,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
 import type { PageResult } from '../../src/checker/handler.js';
 import { checkerInput } from '../../src/checker/input.js';
-import { CHECKER_IDENTIFIER } from '../../src/checker/install.js';
+import { CHECKER_IDENTIFIER, CHECKER_TIMEOUT } from '../../src/checker/install.js';
 import { loadProfiles } from '../../src/loader.js';
 import { fetchPackages, lockedPackages } from '../../src/packages.js';
 import { type PushOptions, push } from '../../src/push.js';
@@ -68,6 +68,7 @@ describe.skipIf(!server)('push installs the checker bot', { timeout: 60_000 }, (
     const { bot, policy } = await installed();
     expect(bot.id).toBe(result.checker?.botId);
     expect(bot.executableCode?.title).toMatch(/^plumb-checker-0\.2\.0-[0-9a-f]{16}\.cjs$/);
+    expect(bot.timeout).toBe(CHECKER_TIMEOUT);
     expect(policy.resource).toEqual([
       { resourceType: 'Patient', interaction: READ },
       { resourceType: 'StructureDefinition', interaction: READ },
@@ -85,6 +86,18 @@ describe.skipIf(!server)('push installs the checker bot', { timeout: 60_000 }, (
     const after = await installed();
     expect(after.bot.meta?.versionId).toBe(before.bot.meta?.versionId);
     expect(after.policy.meta?.versionId).toBe(before.policy.meta?.versionId);
+  });
+
+  // A checker installed before it had a timeout ran on the Lambda's default of 10 seconds.
+  test('a push gives a checker without a timeout one, and redeploys it to apply it', async () => {
+    const { medplum, bot } = await installed();
+    const { timeout: _, ...untimed } = bot;
+    await medplum.updateResource(untimed);
+    const result = await push(options);
+    expect(result.checker?.status).toBe('updated');
+    const after = await installed();
+    expect(after.bot.timeout).toBe(CHECKER_TIMEOUT);
+    expect((await push(options)).checker?.status).toBe('unchanged');
   });
 
   test("the bot's membership can read the checked types but write nothing", async () => {

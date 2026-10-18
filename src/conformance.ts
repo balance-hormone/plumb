@@ -307,7 +307,11 @@ async function forecastType(
   );
   const forecast = { routes, stamps };
   do {
-    const page = await runPage(medplum, botId, { ...input, forecast, cursor: type.cursor });
+    const page = wellFormed(
+      await runPage(medplum, botId, { ...input, forecast, cursor: type.cursor }),
+      resourceType,
+      saved.pages + 1,
+    );
     type.read += page.read;
     type.routed += page.stamped;
     type.failing += page.failing;
@@ -441,7 +445,11 @@ async function checkType(
     saved.profiles[url] ??= { resourceType, checked: 0, failing: [], reasons: [] };
   }
   do {
-    const page = await runPage(medplum, botId, { ...input, cursor: type.cursor });
+    const page = wellFormed(
+      await runPage(medplum, botId, { ...input, cursor: type.cursor }),
+      resourceType,
+      saved.pages + 1,
+    );
     onCore(page.core);
     merge(saved, type, page, resourceType);
     type.cursor = page.next;
@@ -495,7 +503,12 @@ export async function runPage<Result = PageResult>(
     );
     const output = job.output?.parameter ?? [];
     const body = output.find((p) => p.name === 'responseBody')?.valueString;
-    if (job.status === 'completed' && body !== undefined) return JSON.parse(body) as Result;
+    if (job.status === 'completed' && body !== undefined) {
+      const result = JSON.parse(body) as Result | LambdaError;
+      if (!isLambdaError(result)) return result;
+      const error = [result.errorType, result.errorMessage].filter(Boolean).join(': ');
+      throw new Error(`The ${bot}'s run failed: ${error}`);
+    }
     const reason = normalizeErrorString(output.find((p) => p.resource)?.resource);
     if (QUOTA.test(reason) && ++limited < QUOTA_TRIES) {
       await wait(QUOTA_WAIT_MS);
@@ -511,6 +524,31 @@ export async function runPage<Result = PageResult>(
     }
     await wait(READY_WAIT_MS);
   }
+}
+
+/**
+ * What AWS Lambda returns for a run that threw, timed out or ran out of
+ * memory: Medplum's awslambda runtime completes the job with it as the bot's
+ * return, so it arrives where a page would.
+ */
+interface LambdaError {
+  errorType?: string;
+  errorMessage: string;
+}
+
+const isLambdaError = (value: unknown): value is LambdaError =>
+  typeof (value as LambdaError | null)?.errorMessage === 'string';
+
+/** A page missing a count the run adds up is refused before it is added. */
+function wellFormed(page: PageResult, resourceType: string, n: number): PageResult {
+  const p: Partial<PageResult> = page ?? {};
+  const counts = [p.read, p.stamped, p.failing, p.unstamped, p.silent?.versioned, p.silent?.empty];
+  if (counts.every((c) => typeof c === 'number') && p.otherStamps && p.profiles) return page;
+  // Keys only: a page's values name records.
+  const keys = Object.keys(p).join(', ') || 'nothing';
+  throw new Error(
+    `The checker returned a malformed page for ${resourceType} (page ${n}): it has ${keys}.`,
+  );
 }
 
 function merge(
