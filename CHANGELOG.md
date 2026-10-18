@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.19.1 (2026-10-18)
 
 The checker bot gets a timeout, so the next `push` updates and redeploys it.
 
