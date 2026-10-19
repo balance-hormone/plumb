@@ -15,8 +15,16 @@ import type {
 import { build } from 'esbuild';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
+import type { CheckerInput } from '../../src/checker/handler.js';
+import { checkerInput } from '../../src/checker/input.js';
 import { findChecker } from '../../src/checker/install.js';
-import { type ValidateEnvOptions, validateEnvironment } from '../../src/conformance.js';
+import {
+  runPage,
+  serverTime,
+  type ValidateEnvOptions,
+  validateEnvironment,
+} from '../../src/conformance.js';
+import { loadProfiles } from '../../src/loader.js';
 import { fetchPackages } from '../../src/packages.js';
 import { push } from '../../src/push.js';
 import { server } from './medplum.js';
@@ -239,6 +247,32 @@ describe.skipIf(!server)('plumb validate', { timeout: 60_000 }, () => {
     expect(pages).toEqual(['Patient']);
     expect(resumed.types).toEqual(report.types);
     expect(resumed.profiles).toEqual(report.profiles);
+  });
+
+  test('a slice by _lastUpdated pages on a cursor of its own', async () => {
+    const bot = await findChecker(medplum);
+    const loaded = loadProfiles({ packages: [], igs: [], local: SYNTHETIC, profiles: [PATIENT] });
+    const input = { ...checkerInput(loaded, 'Patient'), before: await serverTime(medplum) };
+    const read = async (slice: CheckerInput['slice']) => {
+      const seen = { pages: 0, read: 0, failing: [] as string[] };
+      let cursor: string | undefined;
+      do {
+        const page = await runPage(medplum, bot?.id as string, { ...input, slice, cursor });
+        seen.pages++;
+        seen.read += page.read;
+        seen.failing.push(...(page.profiles[PATIENT]?.failing ?? []));
+        cursor = page.next;
+      } while (cursor);
+      return seen;
+    };
+    // The failing Patient was written before the seed, so a slice from just after it holds the seed.
+    const failing = await medplum.readResource('Patient', failingId);
+    const after = new Date(Date.parse(failing.meta?.lastUpdated ?? '') + 1).toISOString();
+    expect(await read({ to: after })).toEqual({ pages: 1, read: 1, failing: [failingId] });
+    expect(await read({ from: after })).toEqual({ pages: 2, read: CONFORMING, failing: [] });
+    const concurrent = await validateEnvironment({ ...options, concurrency: 4 });
+    expect(concurrent.types).toEqual(report.types);
+    expect(concurrent.profiles).toEqual(report.profiles);
   });
 
   test('nothing readable is told apart from nothing stored', async () => {

@@ -542,6 +542,18 @@ Failed in 40.8s
   the file saves each page; `--resume` continues an interrupted run from its
   last page. A type of more than one page prints its progress
   (`Observation: 4,300 of 45,213 read`).
+- **`--concurrency <n>`** runs up to n pages at once, 1 (the default) to 16.
+  A page is mostly round trip, the job and its polling, so n pages at once
+  read up to n times as fast. Each type is first split by `_lastUpdated`
+  into slices of about equal counts, about four per page in flight, and each
+  slice pages on its own cursor; the file saves each slice's cursor, so
+  `--resume` reads no page twice and skips none, with any n. A failed page
+  stops the run once the pages in flight are saved; `--resume` runs it again.
+  Each page in flight holds one bot Lambda and polls its job once a second:
+  keep n within the AWS account's unreserved Lambda concurrency, where a
+  throttled page fails the run, and within the project's FHIR quota, which
+  the CLI's polls and the bot's searches both count against. 8 is a safe
+  start on a production Medplum.
 - **Exit codes:** 0 when nothing fails; 1 when something would fail, a type
   could not be read, or a profile is shadowed; 2 for usage, config and
   connection errors, and when the checker is missing or from another Plumb

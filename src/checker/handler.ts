@@ -39,6 +39,12 @@ export interface CheckerInput {
    */
   before?: string;
   /**
+   * Read only what was last updated in `[from, to)`, `to` in place of
+   * `before`: a run split into slices pages each on its own cursor, so
+   * several pages can run at once.
+   */
+  slice?: { from?: string; to?: string };
+  /**
    * Read every resource of the type, to break down the stamps that name no
    * selected profile. Otherwise only resources with a selected stamp are
    * read, and the rest are counted by query.
@@ -117,6 +123,7 @@ export async function handler(
     before,
     full,
     forecast,
+    slice,
     resources: given,
   } = event.input;
   const selected = load(definitions, profiles);
@@ -124,16 +131,12 @@ export async function handler(
     await loadNestedTypes(medplum, given);
     return checkPage(given, selected);
   }
-  // Medplum matches each stamp exactly, so this finds no url|version stamp.
-  const bounded: Record<string, string> = before ? { _lastUpdated: `lt${before}` } : {};
-  const stamped: Record<string, string> = full ? {} : { _profile: profiles.join(',') };
-  const bundle = await medplum.search(resourceType, {
-    ...bounded,
-    ...(forecast ? { '_profile:missing': 'true' } : stamped),
-    _count: PAGE_SIZE,
-    _sort: '_lastUpdated',
-    ...(cursor ? { _cursor: cursor } : {}),
-  });
+  const bundle = await medplum.search(resourceType, [
+    ...readQuery(event.input),
+    ['_count', PAGE_SIZE],
+    ['_sort', '_lastUpdated'],
+    ...(cursor ? [['_cursor', cursor]] : []),
+  ]);
   const next = bundle.link?.find((l) => l.relation === 'next')?.url;
   const resources = (bundle.entry ?? []).flatMap((e) => (e.resource ? [e.resource] : []));
   await loadNestedTypes(medplum, resources);
@@ -141,8 +144,31 @@ export async function handler(
   const after = nextCursor ? { next: nextCursor } : {};
   if (forecast) return { ...forecastPage(resources, selected, forecast), ...after };
   const page = checkPage(resources, selected);
-  const totals = full || cursor ? undefined : await count(medplum, resourceType, bounded, stamped);
+  // Once a run, on the first page of its first slice, which alone has no `from`.
+  const first = !full && !cursor && !slice?.from;
+  const bounded: Record<string, string> = before ? { _lastUpdated: `lt${before}` } : {};
+  const totals = first ? await count(medplum, resourceType, bounded, stamped(profiles)) : undefined;
   return { ...page, ...(totals ? { totals } : {}), ...after };
+}
+
+const stamped = (profiles: string[]) => ({ _profile: profiles.join(',') });
+
+/**
+ * The search a page reads: the run's resources of the type, last updated in
+ * its slice. Medplum matches each stamp exactly, so `_profile` finds no
+ * `url|version` stamp.
+ */
+export function readQuery(
+  input: Pick<CheckerInput, 'profiles' | 'before' | 'full' | 'forecast' | 'slice'>,
+): string[][] {
+  const { from, to = input.before } = input.slice ?? {};
+  let which: Record<string, string> = input.full ? {} : stamped(input.profiles);
+  if (input.forecast) which = { '_profile:missing': 'true' };
+  return [
+    ...Object.entries(which),
+    ...(from ? [['_lastUpdated', `ge${from}`]] : []),
+    ...(to ? [['_lastUpdated', `lt${to}`]] : []),
+  ];
 }
 
 /**

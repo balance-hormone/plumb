@@ -34,7 +34,7 @@ export interface CliIo {
 }
 
 const USAGE = `Usage: plumb generate [--check] [--config <path>]
-       plumb validate --env <name> [--env-file <path>] [--full] [--unstamped] [--resume] [--config <path>]
+       plumb validate --env <name> [--env-file <path>] [--full] [--unstamped] [--resume] [--concurrency <n>] [--config <path>]
        plumb push --env <name> [--env-file <path>] [--dry-run | --check] [--prune] [--adopt] [--config <path>]
        plumb check [--update-baseline [--allow-growth]] [--config <path>]
        plumb migrate --env <name> [<id>…] [--write] [--rerun <id>] [--local] [--page-size <n>] [--env-file <path>] [--config <path>]
@@ -67,6 +67,8 @@ Options:
                    stamp, to break down silent stamps and other profiles' stamps
   --unstamped      validate: also forecast what would fail if unstamped resources were
                    stamped as createProfiled would; reported, never failing the run
+  --concurrency <n>  validate: checker pages to run at once, 1 to 16 (default: 1); each type
+                   is split by _lastUpdated so its slices page in parallel
   --dry-run        push: stop after the gate and the project plan, writing nothing
   --prune          push: delete what Plumb manages that the config no longer has
   --adopt          push: tag and converge an untagged resource with a key's name
@@ -346,6 +348,16 @@ function parsePageSize(value: string | undefined): number | undefined {
   return Number.isInteger(n) && n >= 20 && n <= 1000 ? n : Number.NaN;
 }
 
+/**
+ * Each page in flight holds a bot Lambda and polls its job once a second, so
+ * 16 is ~16 concurrent Lambdas and ~20 requests a second on the quota.
+ */
+function parseConcurrency(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= 16 ? n : Number.NaN;
+}
+
 /** `migrate new <name>`, `migrate status`, or `migrate [<id>…]`. */
 function migrateCommands(args: string[], values: Values, io: CliIo): Promise<number> {
   if (args[0] === 'new') return migrateNewCommand(args[1] as string, values, io);
@@ -408,6 +420,11 @@ async function checkCommand(values: Values, io: CliIo): Promise<number> {
 async function envCommand(command: 'push' | 'validate', values: Values, io: CliIo) {
   const quiet = values.quiet ?? false;
   const { bad, say, problem } = printer(io, quiet);
+  const concurrency = parseConcurrency(values.concurrency);
+  if (Number.isNaN(concurrency)) {
+    io.stderr(`plumb: --concurrency must be a whole number from 1 to 16\n\n${USAGE}`);
+    return USAGE_ERROR;
+  }
   const options = await envOptions(command, values, io);
   if (typeof options === 'number') return options;
   say(
@@ -432,6 +449,7 @@ async function envCommand(command: 'push' | 'validate', values: Values, io: CliI
           resume: values.resume,
           full: values.full,
           unstamped: values.unstamped,
+          ...(concurrency ? { concurrency } : {}),
         });
   printValidation(result, relative(io.cwd, result.reportPath ?? ''), say, problem);
   for (const e of result.errors) problem(`${bad} ${e.step.padEnd(8)}  ${e.message}`);
@@ -624,6 +642,7 @@ function parse(argv: string[]) {
       rerun: { type: 'string', multiple: true },
       local: { type: 'boolean' },
       'page-size': { type: 'string' },
+      concurrency: { type: 'string' },
       json: { type: 'boolean' },
       quiet: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },

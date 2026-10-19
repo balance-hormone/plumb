@@ -41,12 +41,20 @@ beforeAll(async () => {
  */
 async function run(input: CheckerInput, pages: Resource[][]) {
   const searches: Record<string, string>[] = [];
+  // Every parameter as sent, for the ones a search repeats.
+  const sent: string[][][] = [];
   const medplum = {
     // The server's base R4, which the bot reads for nested resource types.
     searchOne: async (_type: string, { url }: { url: string }) => BASE.find((sd) => sd.url === url),
     // Filters on _profile as Medplum does: exact stamps, any of a list.
-    search: async (resourceType: string, params: Record<string, string>): Promise<Bundle> => {
+    search: async (
+      resourceType: string,
+      query: string[][] | Record<string, string>,
+    ): Promise<Bundle> => {
+      const pairs = Array.isArray(query) ? query : Object.entries(query);
+      const params: Record<string, string> = Object.fromEntries(pairs);
       searches.push(params);
+      sent.push(pairs);
       const any = params._profile?.split(',');
       const matches = (r: Resource) =>
         (!any || (r.meta?.profile ?? []).some((url) => any.includes(url))) &&
@@ -83,7 +91,7 @@ async function run(input: CheckerInput, pages: Resource[][]) {
   };
   const wrapped = `const exports = {}; const module = { exports };\n${code}\nexports.handler(medplum, event);`;
   const result = (await vm.runInNewContext(wrapped, sandbox)) as PageResult;
-  return { result, searches };
+  return { result, searches, sent };
 }
 
 const inputs = new Map<ResourceType, CheckerInput>();
@@ -263,6 +271,25 @@ describe('a page', () => {
       expect(searches.length).toBeGreaterThan(0);
       for (const params of searches) expect(params._lastUpdated).toBe(`lt${before}`);
     }
+  });
+
+  test('a slice reads only its range, and only the first slice counts the run', async () => {
+    const before = '2026-10-06T21:00:01.000Z';
+    const slice = { from: '2026-05-01T00:00:00.000Z', to: '2026-06-01T00:00:00.000Z' };
+    const pages = [[stamped(valid as Resource, 'a', [PATIENT])]];
+    const later = await run({ ...input('Patient'), before, slice }, pages);
+    expect(later.sent).toHaveLength(1);
+    expect(later.sent[0]?.filter(([k]) => k === '_lastUpdated')).toEqual([
+      ['_lastUpdated', `ge${slice.from}`],
+      ['_lastUpdated', `lt${slice.to}`],
+    ]);
+    expect(later.result.totals).toBeUndefined();
+
+    const first = await run({ ...input('Patient'), before, slice: { to: slice.to } }, pages);
+    expect(first.searches[0]?._lastUpdated).toBe(`lt${slice.to}`);
+    // The run's totals are bounded by the run, not the slice.
+    expect(first.searches.slice(1).every((p) => p._lastUpdated === `lt${before}`)).toBe(true);
+    expect(first.result.totals).toBeDefined();
   });
 });
 

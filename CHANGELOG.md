@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+The checker's input changes, so the next `push` redeploys it.
+
+- **`plumb validate --concurrency <n>`** runs up to n checker pages at once,
+  1 (the default) to 16. Each type is split by `_lastUpdated` into slices of
+  about equal counts, each paged on its own cursor, and the report file saves
+  each slice's cursor, so `--resume` continues an interrupted or failed
+  concurrent run without reading a page twice or skipping one. A page is
+  mostly round trip, so a large project validates up to n times faster.
+
 ## 0.19.1 (2026-10-18)
 
 The checker bot gets a timeout, so the next `push` updates and redeploys it.
