@@ -74,6 +74,13 @@ AsyncJob → plumb polls, then starts the next page until the cursor ends
   Lambda's ceiling is 15 minutes), so each run checks one page and returns a
   cursor. The CLI drives the pages and can resume from the last cursor after an
   interruption.
+- **Sliced to run at once.** A cursor names only the next page, so one cursor
+  is one page at a time. With `--concurrency <n>`, the CLI counts each type
+  by `_lastUpdated` range and splits it into slices of about equal counts,
+  each paged on its own cursor, n pages in flight. The counts only balance
+  the work: the slices meet end to end and cover everything updated before
+  the run, whatever they count. Each slice's cursor is saved with its page,
+  so a resume reruns only the pages that had not returned.
 - **One path for every environment.** Prisma and Drizzle behave the same in
   development and production; so does Plumb. There is no local mode that pulls
   resources onto the machine running the command.

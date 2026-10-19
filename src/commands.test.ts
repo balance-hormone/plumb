@@ -262,6 +262,12 @@ describe('plumb', () => {
     expect(stderr).toMatch(/plumb: no env file at .*\.env\.missing/);
   });
 
+  test.each(['0', '17', '2.5', 'many'])('--concurrency %s exits 2', async (n) => {
+    const { code, stderr } = await cli(['validate', '--env', 'prod', '--concurrency', n]);
+    expect(code).toBe(2);
+    expect(stderr).toContain('--concurrency must be a whole number from 1 to 16');
+  });
+
   // CI builds before it tests; locally this runs once dist/ exists. Two
   // processes each load the profiles, which can pass 5s alongside other suites.
   test.skipIf(!existsSync(BUILT) && !process.env.CI)(

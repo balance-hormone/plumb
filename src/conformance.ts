@@ -10,7 +10,7 @@ import {
   normalizeErrorString,
 } from '@medplum/core';
 import type { AsyncJob, Bot, ResourceType } from '@medplum/fhirtypes';
-import type { PageResult, Reason } from './checker/handler.js';
+import { type CheckerInput, type PageResult, type Reason, readQuery } from './checker/handler.js';
 import { checkerInput, type Gated } from './checker/input.js';
 import { checkerFilename, deployedVersion, findChecker } from './checker/install.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
@@ -95,6 +95,11 @@ export interface ValidateEnvOptions extends EnvOptions {
   /** Also forecast what would fail if each type's unstamped resources were stamped. */
   unstamped?: boolean;
   /**
+   * Pages to run at once, each type split by `_lastUpdated` into slices
+   * paged side by side: 1, the default, reads each type in one pass.
+   */
+  concurrency?: number;
+  /**
    * Called after each page is saved, with the resource type, the pages done
    * so far, and how many of the type's resources to read have been.
    */
@@ -113,12 +118,29 @@ interface Saved {
   before: string;
   pages: number;
   /** `of`: how many resources the run will read, for progress. */
-  types: Record<string, TypeReport & { cursor?: string; done: boolean; of?: number }>;
+  types: Record<string, TypeReport & Sliced & { of?: number }>;
   profiles: SavedProfiles;
   forecast?: {
-    types: Record<string, ForecastType & { cursor?: string; done: boolean }>;
+    types: Record<string, ForecastType & Sliced>;
     profiles: SavedProfiles;
   };
+}
+
+/** A type's reads, as slices that together cover everything updated before the run. */
+interface Sliced {
+  slices: Slice[];
+  done: boolean;
+}
+
+/**
+ * Resources last updated in `[from, to)`, read on a cursor of their own: the
+ * first slice has no `from`, and one slice alone has neither.
+ */
+interface Slice {
+  from?: string;
+  to?: string;
+  cursor?: string;
+  done: boolean;
 }
 
 /**
@@ -209,7 +231,7 @@ export async function checkStored(
   medplum: MedplumClient,
   loaded: Gated,
   botId: string,
-  options: Pick<ValidateEnvOptions, 'reportPath' | 'resume' | 'full' | 'onPage'> & {
+  options: Pick<ValidateEnvOptions, 'reportPath' | 'resume' | 'full' | 'onPage' | 'concurrency'> & {
     filename: string;
     /** The routing `forecast` checks unstamped resources with. */
     forecast?: Pick<Routing, 'routes' | 'stamps'>;
@@ -254,13 +276,13 @@ export async function checkStored(
     warnings,
     ...(core ? { core } : {}),
   };
-  for (const [type, { cursor: _c, done: _d, of: _o, ...report }] of Object.entries(saved.types)) {
+  for (const [type, { slices: _s, done: _d, of: _o, ...report }] of Object.entries(saved.types)) {
     checked.types[type] = report;
   }
   checked.profiles = counted(saved.profiles);
   if (saved.forecast) {
     const types = Object.entries(saved.forecast.types).map(
-      ([type, { cursor: _c, done: _d, ...report }]) => [type, report],
+      ([type, { slices: _s, done: _d, ...report }]) => [type, report],
     );
     checked.forecast = {
       types: Object.fromEntries(types),
@@ -284,47 +306,41 @@ function counted(profiles: SavedProfiles): Record<string, ProfileReport> {
 async function forecastType(
   medplum: MedplumClient,
   saved: Saved,
-  options: Pick<ValidateEnvOptions, 'reportPath' | 'onPage'>,
+  options: Pick<ValidateEnvOptions, 'reportPath' | 'onPage' | 'concurrency'>,
   botId: string,
-  input: ReturnType<typeof checkerInput>,
+  base: CheckerInput,
   routing: Pick<Routing, 'routes' | 'stamps'>,
 ): Promise<void> {
-  const { resourceType } = input;
+  const { resourceType } = base;
   saved.forecast ??= { types: {}, profiles: {} };
   const { types, profiles } = saved.forecast;
+  const routes = routing.routes[resourceType] ?? [];
+  const stamps = Object.fromEntries(
+    routes.map((r) => [r.profile, routing.stamps[r.profile] ?? []]),
+  );
+  const input = { ...base, forecast: { routes, stamps } };
   types[resourceType] ??= {
     read: 0,
     routed: 0,
     failing: 0,
     unrouted: { none: 0, ambiguous: 0 },
+    slices: await split(medplum, input, options.concurrency),
     done: false,
   };
   const type = types[resourceType];
-  if (type.done) return;
-  const routes = routing.routes[resourceType] ?? [];
-  const stamps = Object.fromEntries(
-    routes.map((r) => [r.profile, routing.stamps[r.profile] ?? []]),
-  );
-  const forecast = { routes, stamps };
-  do {
-    const page = wellFormed(
-      await runPage(medplum, botId, { ...input, forecast, cursor: type.cursor }),
-      resourceType,
-      saved.pages + 1,
-    );
+  const run = { medplum, botId, saved, concurrency: options.concurrency };
+  await drive(run, input, type, (page) => {
     type.read += page.read;
     type.routed += page.stamped;
     type.failing += page.failing;
     type.unrouted.none += page.unrouted?.none ?? 0;
     type.unrouted.ambiguous += page.unrouted?.ambiguous ?? 0;
     addProfiles(profiles, page, resourceType);
-    type.cursor = page.next;
-    type.done = !page.next;
     saved.pages++;
     write(options.reportPath, saved);
     const of = saved.types[resourceType]?.unstamped ?? 0;
-    await options.onPage?.(resourceType, saved.pages, { read: type.read, of });
-  } while (!type.done);
+    return options.onPage?.(resourceType, saved.pages, { read: type.read, of });
+  });
 }
 
 /** A fresh run, or with `resume` the interrupted one for the same checker and profiles. */
@@ -414,9 +430,9 @@ async function findShadowed(medplum: MedplumClient, urls: string[]) {
 async function checkType(
   medplum: MedplumClient,
   saved: Saved,
-  options: Pick<ValidateEnvOptions, 'reportPath' | 'onPage'>,
+  options: Pick<ValidateEnvOptions, 'reportPath' | 'onPage' | 'concurrency'>,
   botId: string,
-  input: ReturnType<typeof checkerInput>,
+  input: CheckerInput,
   onCore: (core: string) => void,
 ): Promise<void> {
   const { resourceType } = input;
@@ -437,6 +453,7 @@ async function checkType(
       silent: { unknown: 0, versioned: 0, empty: 0 },
       otherProfiles: {},
       stampedOther: 0,
+      slices: await split(medplum, input, options.concurrency),
       done: false,
     };
     saved.types[resourceType] = type;
@@ -444,25 +461,112 @@ async function checkType(
   for (const url of input.profiles) {
     saved.profiles[url] ??= { resourceType, checked: 0, failing: [], reasons: [] };
   }
-  do {
-    const page = wellFormed(
-      await runPage(medplum, botId, { ...input, cursor: type.cursor }),
-      resourceType,
-      saved.pages + 1,
-    );
+  const run = { medplum, botId, saved, concurrency: options.concurrency };
+  const current = type;
+  await drive(run, input, current, (page) => {
     onCore(page.core);
-    merge(saved, type, page, resourceType);
-    type.cursor = page.next;
-    type.done = !page.next;
+    merge(saved, current, page, resourceType);
     saved.pages++;
     write(options.reportPath, saved);
     // Without full, every resource read carries a selected stamp.
     const progress = input.full
-      ? { read: type.read, of: type.exists }
-      : { read: type.stamped, of: type.of ?? 0 };
-    await options.onPage?.(resourceType, saved.pages, progress);
-  } while (!type.done);
+      ? { read: current.read, of: current.exists }
+      : { read: current.stamped, of: current.of ?? 0 };
+    return options.onPage?.(resourceType, saved.pages, progress);
+  });
 }
+
+/**
+ * Runs `concurrency` pages at a time, each worker taking a slice and paging
+ * it to its end in cursor order, then the next. Each page is saved as it
+ * returns, its slice's cursor with it, so a page in flight when the run stops
+ * is read again on resume, and none twice. A failed page starts no more:
+ * the pages in flight are saved, then the first failure is thrown.
+ */
+async function drive(
+  run: { medplum: MedplumClient; botId: string; saved: Saved; concurrency?: number },
+  input: CheckerInput,
+  type: Sliced,
+  save: (page: PageResult) => void | Promise<void>,
+): Promise<void> {
+  const queue = type.slices.filter((s) => !s.done);
+  let failure: { err: unknown } | undefined;
+  const worker = async () => {
+    for (let slice = queue.shift(); slice && !failure; slice = queue.shift()) {
+      while (!slice.done && !failure) {
+        const { from, to, cursor } = slice;
+        try {
+          const page = wellFormed(
+            await runPage(run.medplum, run.botId, { ...input, slice: { from, to }, cursor }),
+            input.resourceType,
+            run.saved.pages + 1,
+          );
+          slice.cursor = page.next;
+          slice.done = !page.next;
+          type.done = type.slices.every((s) => s.done);
+          await save(page);
+        } catch (err) {
+          failure ??= { err };
+        }
+      }
+    }
+  };
+  const workers = Math.min(run.concurrency ?? 1, queue.length);
+  await Promise.all(Array.from({ length: workers }, worker));
+  if (failure) throw failure.err;
+}
+
+// More slices than workers, so one slow slice does not hold up the rest.
+const SLICES_PER_WORKER = 4;
+// Resources: a smaller slice is not worth the count it takes to split it.
+const MIN_SLICE = 1_000;
+// A slice narrower than this, in milliseconds, is not split further.
+const MIN_SPAN_MS = 1_000;
+
+/**
+ * Splits what a type's run reads into slices by `_lastUpdated`, counting with
+ * the CLI's client: splits the largest at its midpoint, from the epoch, until
+ * each holds about a `SLICES_PER_WORKER`th of a worker's share, then merges
+ * empty slices into a neighbour. The counts only balance the work; the
+ * slices cover `before` and all earlier whatever they find.
+ */
+async function split(
+  medplum: MedplumClient,
+  input: CheckerInput,
+  concurrency = 1,
+): Promise<Slice[]> {
+  if (concurrency <= 1 || !input.before) return [{ done: false }];
+  const count = async (from: number | undefined, to: number) => {
+    const slice = { ...(from === undefined ? {} : { from: iso(from) }), to: iso(to) };
+    const query = [...readQuery({ ...input, slice }), ['_summary', 'count']];
+    return (await medplum.search(input.resourceType, query)).total ?? 0;
+  };
+  const end = Date.parse(input.before);
+  const ranges: { from?: number; to: number; n: number }[] = [
+    { to: end, n: await count(undefined, end) },
+  ];
+  const target = Math.max(
+    MIN_SLICE,
+    Math.ceil((ranges[0]?.n ?? 0) / (concurrency * SLICES_PER_WORKER)),
+  );
+  for (;;) {
+    const largest = ranges.reduce((a, b) => (b.n > a.n ? b : a));
+    const start = largest.from ?? 0;
+    if (largest.n <= target || largest.to - start < MIN_SPAN_MS) break;
+    const mid = Math.floor((start + largest.to) / 2);
+    const left = await count(largest.from, mid);
+    const right = { from: mid, to: largest.to, n: Math.max(0, largest.n - left) };
+    ranges.splice(ranges.indexOf(largest), 1, { ...largest, to: mid, n: left }, right);
+  }
+  const kept = ranges.filter((r, i) => r.n > 0 || i === ranges.length - 1);
+  return kept.map((r, i) => ({
+    ...(i === 0 ? {} : { from: iso(kept[i - 1]?.to ?? 0) }),
+    to: iso(r.to),
+    done: false,
+  }));
+}
+
+const iso = (ms: number) => new Date(ms).toISOString();
 
 // On Medplum's awslambda runtime, AWS holds a function just deployed or
 // redeployed in a state that refuses invocations for a few seconds.
@@ -568,7 +672,7 @@ function merge(
   type.stamped += page.stamped;
   type.failing += page.failing;
   // The query counts; the pages read may see a write made in between.
-  if (type.of !== undefined && !page.next) {
+  if (type.of !== undefined && type.done) {
     type.stampedOther = Math.max(0, type.read - type.unstamped - type.stamped);
   }
   type.silent.versioned += page.silent.versioned;
