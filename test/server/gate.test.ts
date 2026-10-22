@@ -165,7 +165,13 @@ describe.skipIf(!server)('push loads profiles through the gate', { timeout: 60_0
       },
     });
     expect(result.ok).toBe(false);
+    // The patient profile is loaded and unchanged, so its records are not read.
+    expect(result.steps.find((s) => s.name === 'gate')).toMatchObject({
+      summary:
+        '0 Encounter stamped fixed-pattern-encounter checked, nothing would fail; 1 unchanged profile skipped',
+    });
     expect(result.steps.find((s) => s.name === 'gate')?.failed).toBeUndefined();
+    expect(Object.keys(result.gate?.types ?? {})).toEqual(['Encounter']);
     expect(result.steps.at(-1)).toMatchObject({
       name: 'recheck',
       failed: true,

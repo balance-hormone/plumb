@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **`push` gates only the changed profiles.** The gate and the re-check read
+  what is stamped with a profile this push creates or updates, or whose
+  parent or extension it does, not every selected profile's records, and
+  say what they read: `489 Patient stamped my-patient checked, nothing would
+  fail; 53 unchanged profiles skipped`. With strict mode on, the server
+  refused any write failing an already-loaded profile, so its records need
+  no second read. With strict mode off, or unknown, every profile is still
+  checked. A push changing only terminology runs no check, as the checker
+  validates no binding. `plumb validate` remains a full pass.
+
 ## 0.20.0 (2026-10-18)
 
 The checker's input changes, so the next `push` redeploys it.

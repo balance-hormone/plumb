@@ -163,28 +163,13 @@ export async function push(unscoped: PushOptions): Promise<PushResult> {
   if (changes.length === 0) return finish(true);
 
   const filename = checkerFilename(options.checker.code, options.checker.version);
-  result.reportPath = options.reportPath;
-  const gated = gatedProfiles(loaded, changes);
+  const gated = gatedProfiles(loaded, changes, result.strictMode === true);
   const check = (name: 'gate' | 'recheck') =>
     checkStored(medplum, gated, botId, { ...options, filename }).catch((err: unknown) => {
       step.fail(name, [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
       return undefined;
     });
-
-  result.gate = await check('gate');
-  if (!result.gate) return result;
-  const gate = judge(result.gate, gated.profiles.length);
-  step.finish(
-    'gate',
-    gate.failed ? failingSummary(result.gate) : 'nothing stored would fail',
-    gate.failed
-      ? await refusal(medplum, result.gate, options)
-      : options.dryRun
-        ? ['Dry run: nothing loaded.']
-        : [],
-    gate.failed,
-  );
-  if (gate.failed) return step.done();
+  if (!(await gateStep(medplum, gated, check, options, result, step))) return step.done();
   if (options.dryRun) return finish(true);
 
   try {
@@ -194,17 +179,53 @@ export async function push(unscoped: PushOptions): Promise<PushResult> {
   }
   const created = changes.filter((p) => p.action === 'create').length;
   step.finish('apply', `${created} created, ${changes.length - created} updated`);
+  if (gated.profiles.length === 0) return finish(true);
 
   result.recheck = await check('recheck');
   if (!result.recheck) return result;
   const recheck = judge(result.recheck, gated.profiles.length);
   step.finish(
     'recheck',
-    recheck.failed ? failingSummary(result.recheck, true) : 'nothing stored fails',
+    recheck.failed
+      ? failingSummary(result.recheck, true)
+      : scopedSummary(gated, 'nothing fails', result.recheck),
     recheckNotes(recheck.failed, result.strictMode === true),
     recheck.failed,
   );
   return finish(!recheck.failed);
+}
+
+/**
+ * Checks what is stamped with the changed profiles, unless none changed.
+ * Returns whether push may go on to load them.
+ */
+async function gateStep(
+  medplum: MedplumClient,
+  gated: ReturnType<typeof gatedProfiles>,
+  check: (name: 'gate') => Promise<Checked | undefined>,
+  options: PushOptions,
+  result: PushResult,
+  step: ReturnType<typeof steps<PushStepName, PushResult>>,
+): Promise<boolean> {
+  const dryRun = options.dryRun ? ['Dry run: nothing loaded.'] : [];
+  if (gated.profiles.length === 0) {
+    step.finish('gate', scopedSummary(gated, 'no profile changed, nothing to check'), dryRun);
+    return true;
+  }
+  result.reportPath = options.reportPath;
+  result.gate = await check('gate');
+  if (!result.gate) return false;
+  const gate = judge(result.gate, gated.profiles.length);
+  const full = result.strictMode ? [] : ['Strict mode is off, so every profile is checked.'];
+  step.finish(
+    'gate',
+    gate.failed
+      ? failingSummary(result.gate)
+      : scopedSummary(gated, 'nothing would fail', result.gate),
+    gate.failed ? await refusal(medplum, result.gate, options) : [...full, ...dryRun],
+    gate.failed,
+  );
+  return !gate.failed;
 }
 
 /**
@@ -682,11 +703,21 @@ async function heldCopies(medplum: MedplumClient, planned: Definition[]) {
 }
 
 /**
- * The selected profiles, and every other resource profile push creates or
- * updates, such as a parent: strict mode enforces each one a resource is
- * stamped with, selected or not.
+ * The profiles the gate and the re-check read: of the selected ones, and of
+ * every other resource profile push creates or updates (such as a parent,
+ * which strict mode enforces on what is stamped with it), those whose content
+ * changes in this push, themselves or through a parent or extension they
+ * name. With strict mode on, the server refused any write failing a profile
+ * already loaded, so an unchanged profile's stamped records are not read
+ * again. With it off, the server stored them anyway, so every profile is
+ * checked, and the re-check can say the project is ready for strict mode.
+ * Terminology alone changes nothing the checker validates.
  */
-function gatedProfiles(loaded: LoadProfilesResult, changes: PlannedDefinition[]): Gated {
+export function gatedProfiles(
+  loaded: LoadProfilesResult,
+  changes: PlannedDefinition[],
+  strictMode: boolean,
+): Gated & { skipped: number } {
   const selected = new Set(loaded.profiles.map((p) => p.url));
   const others = changes.flatMap((c) => {
     const sd = loaded.definitions.get(c.url)?.resource;
@@ -697,7 +728,38 @@ function gatedProfiles(loaded: LoadProfilesResult, changes: PlannedDefinition[])
       ? [{ url: c.url, sd }]
       : [];
   });
-  return { profiles: [...loaded.profiles, ...others], definitions: loaded.definitions };
+  const all = [...loaded.profiles, ...others];
+  const changed = new Set(changes.map((c) => c.url));
+  const profiles = strictMode
+    ? all.filter((p) => closure([p.url], loaded).some((sd) => changed.has(sd.url)))
+    : all;
+  return { profiles, definitions: loaded.definitions, skipped: all.length - profiles.length };
+}
+
+/**
+ * The verdict, after what the check read when it ran: per type, the
+ * resources stamped with the profiles it checked. Then the profiles skipped.
+ */
+function scopedSummary(
+  gated: ReturnType<typeof gatedProfiles>,
+  verdict: string,
+  checked?: Checked,
+): string {
+  const types = [...new Set(gated.profiles.map((p) => p.sd.type))].sort();
+  const read = types.map((type) => {
+    const names = gated.profiles
+      .filter((p) => p.sd.type === type)
+      .map((p) => p.url.slice(p.url.lastIndexOf('/') + 1));
+    const which = names.length > 3 ? `${names.length} profiles` : names.join(', ');
+    return `${checked?.types[type]?.stamped ?? 0} ${type} stamped ${which}`;
+  });
+  return [
+    checked ? `${read.join(', ')} checked, ${verdict}` : verdict,
+    gated.skipped > 0 &&
+      `${gated.skipped} unchanged profile${gated.skipped === 1 ? '' : 's'} skipped`,
+  ]
+    .filter(Boolean)
+    .join('; ');
 }
 
 /** Updates the one definition the project holds for a URL, or creates it. */

@@ -3,9 +3,9 @@
 
 import { join } from 'node:path';
 import type { StructureDefinition } from '@medplum/fhirtypes';
-import { expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { loadProfiles } from './loader.js';
-import { boundTerminology, planLoad } from './push.js';
+import { boundTerminology, gatedProfiles, type PlannedDefinition, planLoad } from './push.js';
 
 const sd = (url: string, version: string, extra: Partial<StructureDefinition> = {}) =>
   ({
@@ -112,4 +112,72 @@ test('plans the ValueSets and CodeSystems the selected profiles bind, CodeSystem
     'ValueSet plumb-test-gender-subset',
   ]);
   expect(codeless).toEqual([]);
+});
+
+describe('the gate reads only what is stamped with a changed profile', () => {
+  const PLUMB = 'http://example.org/fhir/plumb-test/StructureDefinition';
+  const loaded = loadProfiles({
+    packages: [],
+    igs: [],
+    local: join(import.meta.dirname, '../test/fixtures/profiles/fsh-generated/resources'),
+    profiles: [
+      `${PLUMB}/cardinality-patient`,
+      `${PLUMB}/extensions-patient`,
+      `${PLUMB}/fixed-pattern-encounter`,
+      `${PLUMB}/child-observation`,
+    ],
+  });
+  const updated = (...names: string[]): PlannedDefinition[] =>
+    names.map((name) => ({
+      resourceType: 'StructureDefinition',
+      url: `${PLUMB}/${name}`,
+      version: '0.2.0',
+      held: '0.1.0',
+      action: 'update',
+    }));
+  const gated = (changes: PlannedDefinition[], strictMode = true) => {
+    const { profiles, skipped } = gatedProfiles(loaded, changes, strictMode);
+    return { profiles: profiles.map((p) => p.url.slice(PLUMB.length + 1)).sort(), skipped };
+  };
+
+  test('a changed profile gates its own records, and no other profile', () => {
+    expect(gated(updated('fixed-pattern-encounter'))).toEqual({
+      profiles: ['fixed-pattern-encounter'],
+      skipped: 3,
+    });
+  });
+
+  test('a changed extension or parent gates the profiles that depend on it', () => {
+    expect(gated(updated('favorite-color'))).toEqual({
+      profiles: ['extensions-patient'],
+      skipped: 3,
+    });
+    // A parent push loads is checked too: strict mode enforces it on what it stamps.
+    expect(gated(updated('parent-observation'))).toEqual({
+      profiles: ['child-observation', 'parent-observation'],
+      skipped: 3,
+    });
+  });
+
+  test('no changed profile gates nothing, and terminology alone changes none', () => {
+    expect(gated([])).toEqual({ profiles: [], skipped: 4 });
+    const terminology: PlannedDefinition = {
+      resourceType: 'ValueSet',
+      url: 'http://example.org/fhir/plumb-test/ValueSet/plumb-test-colors-vs',
+      action: 'update',
+    };
+    expect(gated([terminology])).toEqual({ profiles: [], skipped: 4 });
+  });
+
+  test('with strict mode off, every profile is gated', () => {
+    expect(gated(updated('fixed-pattern-encounter'), false)).toEqual({
+      profiles: [
+        'cardinality-patient',
+        'child-observation',
+        'extensions-patient',
+        'fixed-pattern-encounter',
+      ],
+      skipped: 0,
+    });
+  });
 });

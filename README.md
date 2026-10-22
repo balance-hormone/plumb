@@ -575,9 +575,10 @@ plumb push --env prod
 ✔ connect   https://api.medplum.com/ (strict mode off)   320ms
 ✔ checker   plumb-checker 0.6.0 unchanged   90ms
 ✔ plan      load us-core-patient 9.0.0 (+7 dependencies)   210ms
-✔ gate      nothing stored would fail   36.1s
+✔ gate      312 Patient stamped us-core-patient checked, nothing would fail   36.1s
+    Strict mode is off, so every profile is checked.
 ✔ apply     8 created, 0 updated   1.4s
-✔ recheck   nothing stored fails   35.7s
+✔ recheck   312 Patient stamped us-core-patient checked, nothing fails   35.7s
     Strict mode is off, and only a super admin can turn it on; every stamped resource checked passes its profiles.
 Done in 76.4s
 ```
@@ -598,10 +599,17 @@ Done in 76.4s
   written.
 - **gate** runs the checker against the planned versions. If any stored
   resource would fail, `push` refuses and loads nothing. `--dry-run` stops
-  here, so it is a safe way to install the checker and preview a push.
+  here, so it is a safe way to install the checker and preview a push. It
+  reads only what is stamped with a profile this push changes: one created
+  or updated, or whose parent or extension is. With strict mode on, the
+  server already refused any write failing a loaded profile, so an unchanged
+  profile's records are skipped, and the step says how many profiles were.
+  With strict mode off it checks every selected profile, as `validate` does.
+  A push that changes only terminology has nothing for the checker to read,
+  since it validates no binding.
 - **apply** creates or updates the definitions, terminology first.
-- **recheck** checks again at once, to catch a failing write made between the
-  gate and loading. A failure there fails the push (exit 1), and the profiles
+- **recheck** checks the same profiles again at once, to catch a failing
+  write made between the gate and loading. A failure there fails the push (exit 1), and the profiles
   stay loaded, as Postgres keeps a `NOT VALID` constraint.
 
 Exit codes are `validate`'s: a write that fails, or a plan blocked by an
