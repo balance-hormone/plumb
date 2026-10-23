@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.21.0 (2026-10-23)
 
 - **`push` gates only the changed profiles.** The gate and the re-check read
   what is stamped with a profile this push creates or updates, or whose
