@@ -9,12 +9,13 @@ import {
   type MedplumClient,
   normalizeErrorString,
 } from '@medplum/core';
-import type { AsyncJob, Bot, ResourceType } from '@medplum/fhirtypes';
+import type { AsyncJob, Basic, Bot, ResourceType } from '@medplum/fhirtypes';
 import { type CheckerInput, type PageResult, type Reason, readQuery } from './checker/handler.js';
-import { checkerInput, type Gated } from './checker/input.js';
+import { checkerInput, closure, type Gated } from './checker/input.js';
 import { checkerFilename, deployedVersion, findChecker } from './checker/install.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import { type Routing, routingRows } from './emit/routes.js';
+import { owned, PLUMB_SYSTEM } from './project.js';
 
 type ValidateStepName = 'load' | 'connect' | 'checker' | 'profiles' | 'validate';
 
@@ -78,6 +79,8 @@ export interface ValidateEnvResult extends EnvResult<ValidateStepName> {
   resumed: number;
   /** With `unstamped`. */
   forecast?: Forecast;
+  /** The receipt a passing run records, which lets `push` gate only what changes after. */
+  receipt?: { id: string; began: string };
 }
 
 export interface ValidateEnvOptions extends EnvOptions {
@@ -134,7 +137,8 @@ interface Sliced {
 
 /**
  * Resources last updated in `[from, to)`, read on a cursor of their own: the
- * first slice has no `from`, and one slice alone has neither.
+ * first slice has no `from` unless the run reads from `since`, and one slice
+ * alone has no `to`.
  */
 interface Slice {
   from?: string;
@@ -206,13 +210,99 @@ export async function validateEnvironment(options: ValidateEnvOptions): Promise<
     checker: { version: options.checker.version, ...(checked.core ? { core: checked.core } : {}) },
   });
   const verdict = judge(checked, urls.length);
-  step.finish('validate', verdict.summary, checked.warnings, verdict.failed);
   result.ok = !verdict.failed && result.shadowed.length === 0;
+  const notes = [...checked.warnings];
+  if (result.ok) {
+    try {
+      const receipt = { began: checked.began, checker: filename, profiles: covered(loaded) };
+      result.receipt = { id: await recordReceipt(medplum, receipt), began: checked.began };
+      notes.push(
+        `Receipt Basic/${result.receipt.id}: push checks only what is updated from ${checked.began}.`,
+      );
+    } catch (err) {
+      notes.push(`No receipt recorded, so push checks everything: ${normalizeErrorString(err)}`);
+    }
+  }
+  step.finish('validate', verdict.summary, notes, verdict.failed);
   return step.done();
+}
+
+/**
+ * What a passing `validate` found: every stored resource stamped with these
+ * profiles, as hashed, and last updated before `began`, passed them under
+ * this checker. One per project, the last pass's; its history keeps the rest.
+ */
+interface Receipt {
+  /** The second the run began, by the server's clock. */
+  began: string;
+  /** The checker's filename, which names its build. */
+  checker: string;
+  profiles: { url: string; version?: string; hash: string }[];
+}
+
+const RECEIPT = `${PLUMB_SYSTEM}#validation`;
+const RECEIPT_CODE = { coding: [{ system: PLUMB_SYSTEM, code: 'validation' }] };
+
+/** Each profile with a SHA-256 of what the checker validates it with: it, its parents, its extensions. */
+function covered(gated: Gated): Receipt['profiles'] {
+  return gated.profiles.map((p) => ({
+    url: p.url,
+    ...(p.sd.version ? { version: p.sd.version } : {}),
+    hash: createHash('sha256')
+      .update(JSON.stringify(closure([p.url], gated)))
+      .digest('hex'),
+  }));
+}
+
+const findReceipt = (medplum: MedplumClient) =>
+  medplum.searchOne('Basic', owned(medplum, { code: `${PLUMB_SYSTEM}|validation` }));
+
+/** Writes the receipt over the project's last one, as the migration ledger keeps its state. */
+async function recordReceipt(medplum: MedplumClient, receipt: Receipt): Promise<string> {
+  const held = await findReceipt(medplum);
+  const basic: Basic = {
+    resourceType: 'Basic',
+    code: RECEIPT_CODE,
+    extension: [{ url: RECEIPT, valueString: JSON.stringify(receipt) }],
+  };
+  const written = held
+    ? await medplum.updateResource({ ...basic, id: held.id as string })
+    : await medplum.createResource(basic);
+  return written.id as string;
+}
+
+/**
+ * The time from which the gate must read, when the project's receipt covers
+ * every profile it checks at the same version and content, under this
+ * checker; otherwise why it must read everything.
+ */
+export async function receiptFor(
+  medplum: MedplumClient,
+  gated: Gated,
+  checker: string,
+): Promise<{ id: string; since: string } | { reason: string }> {
+  const held = await findReceipt(medplum);
+  const value = held?.extension?.find((e) => e.url === RECEIPT)?.valueString;
+  if (!held || !value) return { reason: 'no receipt from plumb validate' };
+  const receipt = JSON.parse(value) as Receipt;
+  const id = `receipt Basic/${held.id}`;
+  if (receipt.checker !== checker) return { reason: `${id} is from another checker build` };
+  for (const p of covered(gated)) {
+    const name = p.url.slice(p.url.lastIndexOf('/') + 1);
+    const found = receipt.profiles.find((r) => r.url === p.url);
+    if (!found) return { reason: `${id} does not cover ${name}` };
+    if (found.version !== p.version) {
+      return { reason: `${id} covers ${name} ${found.version}, not ${p.version}` };
+    }
+    if (found.hash !== p.hash) return { reason: `${id} covers other content of ${name}` };
+  }
+  return { id: held.id as string, since: receipt.began };
 }
 
 /** What the checker found across every page: no ids or cursors, which stay in the local file. */
 export interface Checked {
+  /** The second the run began, by the server's clock: it read what was updated before. */
+  began: string;
   types: Record<string, TypeReport>;
   profiles: Record<string, ProfileReport>;
   /** The `@medplum/core` version the bot validated with. */
@@ -235,10 +325,12 @@ export async function checkStored(
     filename: string;
     /** The routing `forecast` checks unstamped resources with. */
     forecast?: Pick<Routing, 'routes' | 'stamps'>;
+    /** Read only what was last updated from this time: what a receipt does not cover. */
+    since?: string;
   },
 ): Promise<Checked> {
   const profiles = loaded.profiles.map((p) => [p.url, p.sd.version]).sort();
-  const modes = [options.full ?? false, options.forecast !== undefined];
+  const modes = [options.full ?? false, options.forecast !== undefined, options.since ?? null];
   const key = createHash('sha256')
     .update(JSON.stringify([options.filename, profiles, ...modes]))
     .digest('hex');
@@ -270,6 +362,7 @@ export async function checkStored(
     );
   }
   const checked: Checked = {
+    began: new Date(Date.parse(saved.before) - 1000).toISOString(),
     types: {},
     profiles: {},
     resumed,
@@ -430,7 +523,7 @@ async function findShadowed(medplum: MedplumClient, urls: string[]) {
 async function checkType(
   medplum: MedplumClient,
   saved: Saved,
-  options: Pick<ValidateEnvOptions, 'reportPath' | 'onPage' | 'concurrency'>,
+  options: Pick<ValidateEnvOptions, 'reportPath' | 'onPage' | 'concurrency'> & { since?: string },
   botId: string,
   input: CheckerInput,
   onCore: (core: string) => void,
@@ -440,10 +533,13 @@ async function checkType(
   if (type?.done) return;
   if (!type) {
     // Counted by the CLI's own client, which may read what the checker's policy cannot.
-    const count = await medplum.search(resourceType as ResourceType, {
-      _summary: 'count',
-      _total: 'accurate',
-    });
+    // From `since`, only what the run will read, so a window with nothing stamped is not unreadable.
+    const since = options.since ? { slice: { from: options.since } } : undefined;
+    const count = await medplum.search(resourceType as ResourceType, [
+      ...(since ? readQuery({ ...input, ...since }) : []),
+      ['_summary', 'count'],
+      ['_total', 'accurate'],
+    ]);
     type = {
       exists: count.total ?? 0,
       read: 0,
@@ -453,7 +549,7 @@ async function checkType(
       silent: { unknown: 0, versioned: 0, empty: 0 },
       otherProfiles: {},
       stampedOther: 0,
-      slices: await split(medplum, input, options.concurrency),
+      slices: await split(medplum, input, options.concurrency, options.since),
       done: false,
     };
     saved.types[resourceType] = type;
@@ -471,7 +567,7 @@ async function checkType(
     // Without full, every resource read carries a selected stamp.
     const progress = input.full
       ? { read: current.read, of: current.exists }
-      : { read: current.stamped, of: current.of ?? 0 };
+      : { read: current.stamped, of: current.of ?? (options.since ? current.exists : 0) };
     return options.onPage?.(resourceType, saved.pages, progress);
   });
 }
@@ -534,16 +630,19 @@ async function split(
   medplum: MedplumClient,
   input: CheckerInput,
   concurrency = 1,
+  since?: string,
 ): Promise<Slice[]> {
-  if (concurrency <= 1 || !input.before) return [{ done: false }];
+  if (concurrency <= 1 || !input.before)
+    return [{ ...(since ? { from: since } : {}), done: false }];
   const count = async (from: number | undefined, to: number) => {
     const slice = { ...(from === undefined ? {} : { from: iso(from) }), to: iso(to) };
     const query = [...readQuery({ ...input, slice }), ['_summary', 'count']];
     return (await medplum.search(input.resourceType, query)).total ?? 0;
   };
   const end = Date.parse(input.before);
+  const first = since ? Date.parse(since) : undefined;
   const ranges: { from?: number; to: number; n: number }[] = [
-    { to: end, n: await count(undefined, end) },
+    { ...(first === undefined ? {} : { from: first }), to: end, n: await count(first, end) },
   ];
   const target = Math.max(
     MIN_SLICE,
@@ -559,8 +658,9 @@ async function split(
     ranges.splice(ranges.indexOf(largest), 1, { ...largest, to: mid, n: left }, right);
   }
   const kept = ranges.filter((r, i) => r.n > 0 || i === ranges.length - 1);
+  const lower = (i: number) => (i === 0 ? first : kept[i - 1]?.to);
   return kept.map((r, i) => ({
-    ...(i === 0 ? {} : { from: iso(kept[i - 1]?.to ?? 0) }),
+    ...(lower(i) === undefined ? {} : { from: iso(lower(i) as number) }),
     to: iso(r.to),
     done: false,
   }));

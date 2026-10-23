@@ -14,6 +14,7 @@ import type {
 import { build } from 'esbuild';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { CHECKER_BUILD } from '../../src/checker/bundle.js';
+import { serverTime, validateEnvironment } from '../../src/conformance.js';
 import { fetchPackages } from '../../src/packages.js';
 import { type PushOptions, push } from '../../src/push.js';
 import { connect, server } from './medplum.js';
@@ -87,7 +88,10 @@ describe.skipIf(!server)('push loads profiles through the gate', { timeout: 60_0
       name: 'gate',
       failed: true,
       summary: '1 stored resource would fail cardinality-patient',
-      warnings: [expect.stringMatching(/^Refusing to load/)],
+      warnings: [
+        'Full scan: no receipt from plumb validate.',
+        expect.stringMatching(/^Refusing to load/),
+      ],
     });
     expect(result.gate?.profiles[PATIENT]).toMatchObject({ checked: 1, failing: 1 });
     expect(await held(PATIENT)).toEqual([]);
@@ -99,7 +103,7 @@ describe.skipIf(!server)('push loads profiles through the gate', { timeout: 60_0
     expect(result.ok).toBe(true);
     expect(result.steps.at(-1)).toMatchObject({
       name: 'gate',
-      warnings: ['Dry run: nothing loaded.'],
+      warnings: ['Full scan: no receipt from plumb validate.', 'Dry run: nothing loaded.'],
     });
     expect(await held(PATIENT)).toEqual([]);
   });
@@ -273,5 +277,156 @@ describe.skipIf(!server)('push refuses a shadowed profile', { timeout: 60_000 },
       url: PATIENT,
     });
     expect(held.map((d) => d.version).sort()).toEqual(['1.10.0', '1.9.0']);
+  });
+});
+
+// A passing validate records a receipt, so the deploy after it reads only
+// what was updated since, as Postgres validates a NOT VALID constraint apart
+// from the ALTER that adds it.
+describe.skipIf(!server)('push gates from a validate receipt', { timeout: 120_000 }, () => {
+  let project: TestProject;
+  let medplum: MedplumClient;
+  let local: string;
+  let options: PushOptions;
+  const conforming = (): Patient => ({
+    resourceType: 'Patient',
+    meta: { profile: [PATIENT] },
+    name: [{ family: 'Synthetic' }],
+    birthDate: '1970-01-01',
+  });
+  const receipts = async () => [
+    ...(await medplum.searchResources('Basic', {
+      code: 'https://www.npmjs.com/package/plumb-fhir|validation',
+    })),
+  ];
+  const gate = (result: Awaited<ReturnType<typeof push>>) =>
+    result.steps.find((s) => s.name === 'gate');
+
+  beforeAll(async () => {
+    project = await newProject();
+    medplum = await connect(project);
+    await medplum.createResource(conforming());
+    await medplum.createResource(conforming());
+    const dir = mkdtempSync(join(tmpdir(), 'plumb-receipt-'));
+    local = join(dir, 'profiles');
+    mkdirSync(local);
+    copyFileSync(
+      join(SYNTHETIC, file('cardinality-patient')),
+      join(local, file('cardinality-patient')),
+    );
+    const lockPath = join(dir, 'plumb.lock');
+    await fetchPackages({ igs: [], lockPath });
+    const code = (await build({ ...CHECKER_BUILD, write: false })).outputFiles[0]?.text ?? '';
+    options = {
+      config: { igs: [], profiles: [PATIENT], local, out: '' },
+      environment: { name: 'test', ...project },
+      lockPath,
+      checker: { code, version: '0.2.0' },
+      reportPath: join(dir, '.plumb', 'validate-test.json'),
+    };
+  }, 60_000);
+
+  test('without a receipt the gate reads everything, and says so', async () => {
+    // Installs the checker, which validate needs.
+    const result = await push({ ...options, dryRun: true });
+    expect(result.ok).toBe(true);
+    expect(result.receipt).toBeUndefined();
+    expect(gate(result)).toMatchObject({
+      summary: '2 Patient stamped cardinality-patient checked, nothing would fail',
+      warnings: ['Full scan: no receipt from plumb validate.', 'Dry run: nothing loaded.'],
+    });
+  });
+
+  test('a failing validate records no receipt', async () => {
+    const failing = await medplum.createResource<Patient>({
+      ...conforming(),
+      birthDate: undefined,
+    });
+    const result = await validateEnvironment(options);
+    expect(result.ok).toBe(false);
+    expect(result.receipt).toBeUndefined();
+    expect(await receipts()).toEqual([]);
+    await medplum.updateResource({ ...failing, birthDate: '1970-01-01' });
+  });
+
+  test('a passing validate records each profile, its version and hash, and when it began', async () => {
+    // Past the second of the last write, so the receipt's window starts after it.
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    const before = await serverTime(medplum);
+    const result = await validateEnvironment(options);
+    expect(result.ok).toBe(true);
+    const [held] = await receipts();
+    expect(result.receipt).toEqual({ id: held?.id, began: expect.any(String) });
+    // The second the run began: not before the second this test asked the time.
+    expect(Date.parse(result.receipt?.began ?? '')).toBeGreaterThanOrEqual(
+      Date.parse(before) - 1000,
+    );
+    expect(JSON.parse(held?.extension?.[0]?.valueString ?? '{}')).toEqual({
+      began: result.receipt?.began,
+      checker: expect.stringMatching(/^plumb-checker/),
+      profiles: [{ url: PATIENT, version: '0.1.0', hash: expect.stringMatching(/^[0-9a-f]{64}$/) }],
+    });
+    expect(result.steps.at(-1)?.warnings).toContain(
+      `Receipt Basic/${held?.id}: push checks only what is updated from ${result.receipt?.began}.`,
+    );
+    // Validated again, it replaces the receipt rather than adding one.
+    await validateEnvironment(options);
+    expect((await receipts()).map((r) => r.id)).toEqual([held?.id]);
+  });
+
+  test('a receipt for another version of the profile means a full scan', async () => {
+    const path = join(local, file('cardinality-patient'));
+    const original = readFileSync(path, 'utf8');
+    const sd = JSON.parse(original) as StructureDefinition;
+    writeFileSync(path, JSON.stringify({ ...sd, version: '0.2.0' }));
+    try {
+      const result = await push({ ...options, dryRun: true });
+      expect(result.ok).toBe(true);
+      expect(result.receipt).toBeUndefined();
+      const [held] = await receipts();
+      expect(gate(result)).toMatchObject({
+        summary: '3 Patient stamped cardinality-patient checked, nothing would fail',
+        warnings: [
+          `Full scan: receipt Basic/${held?.id} covers cardinality-patient 0.1.0, not 0.2.0.`,
+          'Dry run: nothing loaded.',
+        ],
+      });
+    } finally {
+      writeFileSync(path, original);
+    }
+  });
+
+  test('with a receipt the gate reads only what was updated since, and still refuses', async () => {
+    const [held] = await receipts();
+    const { began } = JSON.parse(held?.extension?.[0]?.valueString ?? '{}') as { began: string };
+    const failing = await medplum.createResource<Patient>({
+      ...conforming(),
+      birthDate: undefined,
+    });
+    const refused = await push({ ...options, dryRun: true });
+    expect(refused.ok).toBe(false);
+    expect(refused.receipt).toEqual({ id: held?.id, since: began });
+    expect(gate(refused)).toMatchObject({
+      failed: true,
+      summary: `incremental since ${began} (receipt Basic/${held?.id}): 1 stored resource would fail cardinality-patient`,
+    });
+    expect(refused.gate?.types.Patient).toMatchObject({ stamped: 1, failing: 1 });
+    await medplum.updateResource({ ...failing, birthDate: '1970-01-01' });
+    // Past the second of that write, which a run starting in it reads again.
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    const result = await push(options);
+    expect(result.ok).toBe(true);
+    expect(gate(result)).toMatchObject({
+      summary: `incremental since ${began} (receipt Basic/${held?.id}): 1 Patient stamped cardinality-patient checked, nothing would fail`,
+      warnings: [],
+    });
+    // The re-check reads from the gate's start: nothing was written since.
+    expect(result.steps.at(-1)).toMatchObject({
+      name: 'recheck',
+      summary: `incremental since ${result.gate?.began}: 0 Patient stamped cardinality-patient checked, nothing fails`,
+    });
+    const loaded = await medplum.searchResources('StructureDefinition', { url: PATIENT });
+    expect(loaded.map((sd) => sd.version)).toEqual(['0.1.0']);
   });
 });

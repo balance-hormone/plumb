@@ -85,7 +85,7 @@ describe('checkOperations', () => {
 describe('planHeldOperations', () => {
   const typeOf = (url: string) => (url === PATIENT ? 'Patient' : undefined);
 
-  test('names a bot this push creates by key; a profile output is its type, with the profile', () => {
+  test('names a bot this push creates by key; a profile output is its type, naming the profile', () => {
     const profiled = contract({
       level: 'type',
       resource: 'Patient',
@@ -96,8 +96,14 @@ describe('planHeldOperations', () => {
     expect(change).toMatchObject({
       kind: '+',
       bot: 'messenger',
-      definition: { parameter: [{ name: 'return', type: 'Patient', targetProfile: [PATIENT] }] },
+      definition: {
+        parameter: [{ name: 'return', type: 'Patient', documentation: `Conforms to ${PATIENT}` }],
+      },
     });
+    // FHIR's opd-3: targetProfile is for Reference and canonical parameters only.
+    expect(change && 'definition' in change && change.definition.parameter?.[0]).not.toHaveProperty(
+      'targetProfile',
+    );
     expect(describeOperation(change as OperationChange)).toBe(
       '+ OperationDefinition  $send-message → Bot messenger',
     );

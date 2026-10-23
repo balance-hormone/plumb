@@ -18,7 +18,13 @@ import {
   installChecker,
 } from './checker/install.js';
 import { checkBotFiles, environmentSettings, type ScopedOut, scopeConfig } from './config.js';
-import { type Checked, checkStored, judge, type ValidateEnvOptions } from './conformance.js';
+import {
+  type Checked,
+  checkStored,
+  judge,
+  receiptFor,
+  type ValidateEnvOptions,
+} from './conformance.js';
 import { type EnvOptions, type EnvResult, loadAndConnect, steps } from './connect.js';
 import {
   applyContent,
@@ -98,6 +104,8 @@ export interface PushResult extends EnvResult<PushStepName> {
   gate?: Checked;
   /** What fails the loaded profiles, straight after loading. */
   recheck?: Checked;
+  /** The `validate` receipt the gate read from, when one covered what it checks. */
+  receipt?: { id: string; since: string };
   reportPath?: string;
   /** The project's planned changes, when the config declares a project. */
   project?: ProjectPlan;
@@ -164,12 +172,15 @@ export async function push(unscoped: PushOptions): Promise<PushResult> {
 
   const filename = checkerFilename(options.checker.code, options.checker.version);
   const gated = gatedProfiles(loaded, changes, result.strictMode === true);
-  const check = (name: 'gate' | 'recheck') =>
-    checkStored(medplum, gated, botId, { ...options, filename }).catch((err: unknown) => {
-      step.fail(name, [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
-      return undefined;
-    });
-  if (!(await gateStep(medplum, gated, check, options, result, step))) return step.done();
+  const check = (name: 'gate' | 'recheck', since?: string) =>
+    checkStored(medplum, gated, botId, { ...options, filename, ...(since ? { since } : {}) }).catch(
+      (err: unknown) => {
+        step.fail(name, [{ code: 'checker-failed', message: normalizeErrorString(err) }]);
+        return undefined;
+      },
+    );
+  const gate = { gated, filename, check };
+  if (!(await gateStep(medplum, gate, options, result, step))) return step.done();
   if (options.dryRun) return finish(true);
 
   try {
@@ -181,14 +192,18 @@ export async function push(unscoped: PushOptions): Promise<PushResult> {
   step.finish('apply', `${created} created, ${changes.length - created} updated`);
   if (gated.profiles.length === 0) return finish(true);
 
-  result.recheck = await check('recheck');
+  // With a receipt, the gate read everything up to its start, so the re-check reads from there.
+  const since = result.receipt && result.gate?.began;
+  result.recheck = await check('recheck', since);
   if (!result.recheck) return result;
   const recheck = judge(result.recheck, gated.profiles.length);
   step.finish(
     'recheck',
-    recheck.failed
-      ? failingSummary(result.recheck, true)
-      : scopedSummary(gated, 'nothing fails', result.recheck),
+    `${since ? `incremental since ${since}: ` : ''}${
+      recheck.failed
+        ? failingSummary(result.recheck, true)
+        : scopedSummary(gated, 'nothing fails', result.recheck)
+    }`,
     recheckNotes(recheck.failed, result.strictMode === true),
     recheck.failed,
   );
@@ -196,13 +211,21 @@ export async function push(unscoped: PushOptions): Promise<PushResult> {
 }
 
 /**
- * Checks what is stamped with the changed profiles, unless none changed.
- * Returns whether push may go on to load them.
+ * Checks what is stamped with the changed profiles, unless none changed:
+ * with a `validate` receipt covering them, only what was updated since it
+ * began; otherwise everything. Returns whether push may go on to load them.
  */
 async function gateStep(
   medplum: MedplumClient,
-  gated: ReturnType<typeof gatedProfiles>,
-  check: (name: 'gate') => Promise<Checked | undefined>,
+  {
+    gated,
+    filename,
+    check,
+  }: {
+    gated: ReturnType<typeof gatedProfiles>;
+    filename: string;
+    check: (name: 'gate', since?: string) => Promise<Checked | undefined>;
+  },
   options: PushOptions,
   result: PushResult,
   step: ReturnType<typeof steps<PushStepName, PushResult>>,
@@ -212,17 +235,29 @@ async function gateStep(
     step.finish('gate', scopedSummary(gated, 'no profile changed, nothing to check'), dryRun);
     return true;
   }
+  const found = await receiptFor(medplum, gated, filename).catch((err: unknown) => ({
+    reason: `the receipt was not readable: ${normalizeErrorString(err)}`,
+  }));
+  if ('since' in found) result.receipt = found;
   result.reportPath = options.reportPath;
-  result.gate = await check('gate');
+  result.gate = await check('gate', result.receipt?.since);
   if (!result.gate) return false;
   const gate = judge(result.gate, gated.profiles.length);
+  const mode =
+    'since' in found ? `incremental since ${found.since} (receipt Basic/${found.id}): ` : '';
+  const scan = 'reason' in found ? [`Full scan: ${found.reason}.`] : [];
   const full = result.strictMode ? [] : ['Strict mode is off, so every profile is checked.'];
   step.finish(
     'gate',
-    gate.failed
-      ? failingSummary(result.gate)
-      : scopedSummary(gated, 'nothing would fail', result.gate),
-    gate.failed ? await refusal(medplum, result.gate, options) : [...full, ...dryRun],
+    `${mode}${
+      gate.failed
+        ? failingSummary(result.gate)
+        : scopedSummary(gated, 'nothing would fail', result.gate)
+    }`,
+    [
+      ...scan,
+      ...(gate.failed ? await refusal(medplum, result.gate, options) : [...full, ...dryRun]),
+    ],
     gate.failed,
   );
   return !gate.failed;

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+A profile output's OperationDefinition changes, so the next `push` updates it.
+
+- **A passing `plumb validate` records a receipt:** one `Basic` in the
+  project, coded `validation` as the migration ledger is coded `migration`,
+  naming each profile's URL, version and a SHA-256 of its closure, the
+  checker's build, and the second the run began by the server's clock. Each
+  pass replaces the last. A failing or shadowed run records none.
+- **`push`'s gate and re-check read from the receipt.** When it covers every
+  profile the gate checks, at the same version, content and checker, the
+  gate reads only what was updated from the second validate began
+  (`_lastUpdated=ge…`), and the re-check only what was updated from the
+  gate's start: `gate  incremental since 2026-10-23T09:00:00.000Z (receipt
+  Basic/…): 4 Patient stamped my-patient checked, nothing would fail`. With
+  no matching receipt the gate reads everything as before, and names why:
+  `Full scan: no receipt from plumb validate.` So a large project validates
+  in a step of its own, with a long time limit, and deploys fast (#291).
+- **A profile output's parameter names its profile in `documentation`**
+  (`Conforms to <url>`) instead of `targetProfile`, which FHIR's `opd-3`
+  allows only on a Reference or canonical parameter (#291).
+
 ## 0.21.0 (2026-10-23)
 
 - **`push` gates only the changed profiles.** The gate and the re-check read
