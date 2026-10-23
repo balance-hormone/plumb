@@ -204,7 +204,8 @@ export function operationDefinition(
         min: 1,
         max: '1',
         type: type as OperationDefinitionParameter['type'],
-        ...(!json && output.includes(':') ? { targetProfile: [output] } : {}),
+        // FHIR's opd-3 allows targetProfile on Reference and canonical parameters only.
+        ...(!json && output.includes(':') ? { documentation: `Conforms to ${output}` } : {}),
       },
     ],
     ...(botId

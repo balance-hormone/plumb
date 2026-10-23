@@ -155,6 +155,7 @@ describe.skipIf(!server)('plumb migrate', { timeout: 120_000 }, () => {
     const refused = await pushed();
     expect(refused.ok).toBe(false);
     expect(gateNotes(refused)).toEqual([
+      'Full scan: no receipt from plumb validate.',
       `pending: ${BIRTHDATE} (Patient)`,
       `pending: ${GENDER} (Patient)`,
       'Refusing to load: run plumb migrate --env test --write, or see plumb validate --env test.',

@@ -299,6 +299,33 @@ describe('checkStored with concurrency', () => {
     return { result, path };
   }
 
+  test('from `since`, every slice reads only what was updated since, one pass or many', async () => {
+    serverAt('Tue, 06 Oct 2026 21:00:00 GMT');
+    const since = '2026-08-10T00:00:00.000Z';
+    const after = records.filter((r) => r.at >= Date.parse(since));
+    expect(after.length).toBeGreaterThan(2_000);
+    expect(after.length).toBeLessThan(records.length);
+    for (const concurrency of [1, 4]) {
+      const run = fake();
+      const result = await checkStored(run.medplum, gated, 'bot', {
+        ...options,
+        reportPath: reportPath(),
+        concurrency,
+        since,
+      });
+      expect(run.inputs.every((i) => (i.slice?.from ?? '') >= since)).toBe(true);
+      if (concurrency > 1)
+        expect(new Set(run.inputs.map((i) => i.slice?.from)).size).toBeGreaterThan(1);
+      // Counted from `since`, so a window with nothing stamped is not unreadable.
+      expect(result.types.Patient).toMatchObject({
+        exists: after.length,
+        read: after.length,
+        stamped: after.length,
+        failing: after.filter((r) => r.failing).length,
+      });
+    }
+  });
+
   test('pages slices at once, to the same totals as one pass', async () => {
     serverAt('Tue, 06 Oct 2026 21:00:00 GMT');
     const one = await sequential();

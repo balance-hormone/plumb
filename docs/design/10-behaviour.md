@@ -44,8 +44,9 @@ As built in v0.13:
 - **An instance operation's input is its resource type, or a profile:**
   Medplum drops the body and hands the bot the stored resource, on 5.1.0 and
   5.1.42, so a JSON or other-type input is `invalid-operation` (#217).
-- **A profile output's parameter is the profile's type,** with the profile as
-  its `targetProfile` (#175).
+- **A profile output's parameter is the profile's type,** naming the profile
+  in its `documentation` (#175): FHIR's `opd-3` allows `targetProfile` only on
+  a Reference or canonical parameter.
 - **`defineBot` does not type an operation's input:** `generate` does not load
   contract modules, so `handleOperation` types it (#176). Its event,
   `PlumbBotEvent`, is `@medplum/core`'s `BotEvent` less `responseStream`,

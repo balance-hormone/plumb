@@ -557,8 +557,15 @@ Failed in 40.8s
 - **Exit codes:** 0 when nothing fails; 1 when something would fail, a type
   could not be read, or a profile is shadowed; 2 for usage, config and
   connection errors, and when the checker is missing or from another Plumb
-  release (run `plumb push` to install it). `validate` never installs or
-  changes anything.
+  release (run `plumb push` to install it). `validate` installs and changes
+  nothing; a passing run records only its receipt, below.
+- **A passing run records a receipt:** one `Basic` in the project, coded
+  `validation` in Plumb's system, as the [migration ledger](#migrate-stored-data)
+  is, holding each profile's URL, version and a SHA-256 of what it was
+  checked with (it, its parents, its extensions), the checker's build, and
+  the second the run began by the server's clock. Each pass replaces the
+  last; the `Basic`'s history keeps them. A failing or shadowed run records
+  none.
 
 **4. Fix or [migrate](#migrate-stored-data)** the failing records, and
 validate again until nothing fails.
@@ -607,10 +614,21 @@ Done in 76.4s
   With strict mode off it checks every selected profile, as `validate` does.
   A push that changes only terminology has nothing for the checker to read,
   since it validates no binding.
+- **A receipt makes the gate incremental.** When the project's `validate`
+  receipt covers every profile the gate checks, at the same version and
+  content and under the same checker, the gate reads only what was updated
+  from the second that run began (`_lastUpdated=ge…`, by the server's
+  clock): everything older passed those very profiles. It says so:
+  `gate  incremental since 2026-10-23T09:00:00.000Z (receipt Basic/…): 4
+  Patient stamped …`. Otherwise it reads everything and names why, such as
+  `Full scan: no receipt from plumb validate.` or `Full scan: receipt
+  Basic/… covers my-patient 2.1.0, not 2.2.0.`, so no receipt is never less
+  safe than none existing.
 - **apply** creates or updates the definitions, terminology first.
 - **recheck** checks the same profiles again at once, to catch a failing
   write made between the gate and loading. A failure there fails the push (exit 1), and the profiles
-  stay loaded, as Postgres keeps a `NOT VALID` constraint.
+  stay loaded, as Postgres keeps a `NOT VALID` constraint. After an
+  incremental gate it reads only what was updated from the gate's start.
 
 Exit codes are `validate`'s: a write that fails, or a plan blocked by an
 untagged or shadowed resource, exits 1. `--json` and `--quiet` work as for
@@ -623,14 +641,28 @@ resource that fails a profile it names; a clean `push` re-check says the
 stored data is ready.
 
 In CI, run `push` where the deploy runs, with the secrets as environment
-variables:
+variables. On a large project, validate first, in a step of its own with a
+long time limit, then push: the slow full read is the validate, and the
+deploy's gate reads only what changed since it began, as Postgres adds a
+constraint `NOT VALID` and runs `VALIDATE CONSTRAINT` apart:
 
 ```yaml
-- run: npx plumb push --env prod
+- run: npx plumb validate --env prod --concurrency 8
+  timeout-minutes: 240
+  env:
+    MEDPLUM_PROD_CLIENT_ID: ${{ secrets.MEDPLUM_PROD_CLIENT_ID }}
+    MEDPLUM_PROD_CLIENT_SECRET: ${{ secrets.MEDPLUM_PROD_CLIENT_SECRET }}
+- run: npx plumb push --env prod   # gate and recheck read only what changed since
   env:
     MEDPLUM_PROD_CLIENT_ID: ${{ secrets.MEDPLUM_PROD_CLIENT_ID }}
     MEDPLUM_PROD_CLIENT_SECRET: ${{ secrets.MEDPLUM_PROD_CLIENT_SECRET }}
 ```
+
+Validate with the same `plumb-fhir` and `plumb.config.ts` as the push, or
+the receipt does not match and the gate reads everything. `validate` needs
+the checker this `plumb-fhir` installs, and exits 2 (`checker-outdated`)
+until a push has installed it: land a `plumb-fhir` upgrade in a deploy of its
+own, before the profile change.
 
 ## Migrate stored data
 
@@ -642,8 +674,14 @@ database's **check, backfill, then tighten**:
 npx plumb validate --env prod          # 312 Patients fail us-core-patient: birthDate missing
 npx plumb migrate --env prod           # dry run: 312 to change, and a forecast
 npx plumb migrate --env prod --write   # the backfill, resumable
-npx plumb push --env prod              # the gate passes; the stricter profile loads
+npx plumb validate --env prod          # nothing fails: the receipt is recorded
+npx plumb push --env prod              # the gate reads only what changed since; the stricter profile loads
 ```
+
+The validate is the slow step: it reads every stamped record. Run it apart,
+with a long time limit, and the push that follows stays fast, as the gate and
+re-check read only what was updated after the validate began. Without a
+receipt for the same profile versions, `push` reads everything, as before.
 
 **Declare a migration** in a module the config lists. `plumb migrate new
 patient-birthdate` scaffolds `<date>-patient-birthdate.ts` in the first

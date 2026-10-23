@@ -89,7 +89,13 @@ AsyncJob → plumb polls, then starts the next page until the cursor ends
   writes nothing.
 - **`validate` never installs the bot.** If the checker is missing or older
   than the CLI, `validate` stops with exit 2 and says to run `plumb push`, so
-  `validate` stays read-only.
+  `validate` changes nothing the project runs on.
+- **A passing `validate` leaves a receipt** (v0.22): a `Basic` coded
+  `validation`, kept as the migration ledger is, naming each profile's URL,
+  version and the SHA-256 of its closure, the checker's build, and the second
+  the run began by the server's clock. It is what `VALIDATE CONSTRAINT`
+  leaves behind: proof that everything older passed, so the deploy after it
+  need not read it again.
 
 ## What `validate` checks
 
@@ -189,12 +195,17 @@ Refusing to load: fix or migrate them first, or see `plumb validate --env prod`.
    a profile already loaded, so an unchanged profile's records cannot have
    started failing and are not read again; with it off they can, so every
    profile is checked, and the re-check still says whether the project is
-   ready for strict mode. A full pass on demand is `validate`.
+   ready for strict mode. A full pass on demand is `validate`. When the
+   project's receipt covers every profile the gate checks, at the same
+   version, content and checker, the gate reads only what was updated from
+   the second that `validate` began, and says so; with no matching receipt
+   it reads everything, as before.
 4. **Apply:** create or update the StructureDefinitions.
 5. **Re-check at once,** against the now-loaded versions, to catch writes
    between steps 3 and 4 (the `VALIDATE CONSTRAINT` step). A failure here is
    reported as the push's result; the profiles stay loaded, as Postgres keeps a
-   `NOT VALID` constraint.
+   `NOT VALID` constraint. After an incremental gate it reads from the gate's
+   start.
 
 `--dry-run` stops after step 3.
 

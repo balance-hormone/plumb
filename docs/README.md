@@ -418,6 +418,11 @@
 - **v0.17:** a secret scoped to some environments (#269), and an unset
   variable that leaves a held secret alone (#271). **v0.17 is complete.**
 - **v0.18:** restamp exclusions, `restamp: { exclude }` (#273). **v0.18 is complete.**
+- **v0.22:** a passing `validate` records a receipt, a `Basic` per project,
+  and `push`'s gate and re-check read only what was updated since a receipt
+  covering the same profile versions and checker; a profile output's
+  OperationDefinition parameter names its profile in `documentation`, as
+  FHIR's `opd-3` allows `targetProfile` only on a Reference.
 - **Direction:** the repository is the source of truth for everything in a
   Medplum project except patient data, in five layers: schema and config
   (built), reference content (built), behaviour (built) and data over time
