@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.22.0 (2026-10-23)
 
 A profile output's OperationDefinition changes, so the next `push` updates it.
 
