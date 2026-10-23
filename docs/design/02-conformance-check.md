@@ -182,8 +182,14 @@ Refusing to load: fix or migrate them first, or see `plumb validate --env prod`.
    project holds, which push never writes to. A copy in neither project is
    the server's own (Medplum's base project holds common terminology), and
    is not loaded over.
-3. **The gate:** run `validate` against the planned versions. Any failure
-   refuses the push, and nothing is written.
+3. **The gate:** run `validate` against the planned versions, reading only
+   what is stamped with a profile whose content changes, itself or through a
+   parent or extension it names. Any failure refuses the push, and nothing
+   is written. With strict mode on, the server refused every write failing
+   a profile already loaded, so an unchanged profile's records cannot have
+   started failing and are not read again; with it off they can, so every
+   profile is checked, and the re-check still says whether the project is
+   ready for strict mode. A full pass on demand is `validate`.
 4. **Apply:** create or update the StructureDefinitions.
 5. **Re-check at once,** against the now-loaded versions, to catch writes
    between steps 3 and 4 (the `VALIDATE CONSTRAINT` step). A failure here is

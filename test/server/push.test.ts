@@ -61,9 +61,9 @@ describe.skipIf(!server)('push installs the checker bot', { timeout: 60_000 }, (
       expect.stringMatching(/\(strict mode on\)$/),
       'plumb-checker 0.2.0 installed',
       'load cardinality-patient 0.1.0',
-      'nothing stored would fail',
+      '0 Patient stamped cardinality-patient checked, nothing would fail',
       '1 created, 0 updated',
-      'nothing stored fails',
+      '0 Patient stamped cardinality-patient checked, nothing fails',
     ]);
     const { bot, policy } = await installed();
     expect(bot.id).toBe(result.checker?.botId);
